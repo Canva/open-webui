@@ -14,7 +14,7 @@ remove:
 
 start:
 	$(DOCKER_COMPOSE) start
-startAndBuild: 
+startAndBuild:
 	$(DOCKER_COMPOSE) up -d --build
 
 stop:
@@ -30,4 +30,36 @@ update:
 	@docker stop open-webui || true
 	$(DOCKER_COMPOSE) up --build -d
 	$(DOCKER_COMPOSE) start
+
+###############################################################################
+# Canva targets
+###############################################################################
+.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend
+
+IMAGE_NAME ?= open-webui
+IMAGE_TAG  ?= latest
+
+setup:
+	uv sync --all-groups
+	npm ci
+
+build:
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+
+lint: format lint-frontend lint-backend
+
+format: format-frontend format-backend
+
+fix: format-backend format-frontend lint-backend lint-frontend
+format-frontend:
+	npx prettier --plugin-search-dir --write "**/*.{js,ts,svelte,css,md,html,json}"
+
+format-backend:
+	ruff format . --exclude .venv --exclude venv
+
+lint-frontend:
+	npx eslint . --fix
+
+lint-backend:
+	ruff check --fix .
 
