@@ -58,7 +58,7 @@ format: format-frontend format-backend
 
 fix: format-backend format-frontend lint-backend lint-frontend
 format-frontend:
-	$(NPX) prettier --plugin-search-dir --write "**/*.{js,ts,svelte,css,md,html,json}"
+	$(NPX) prettier --write "**/*.{js,ts,svelte,css,md,html,json}"
 
 format-backend:
 	uv run ruff format . --exclude .venv --exclude venv

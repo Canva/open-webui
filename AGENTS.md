@@ -15,10 +15,10 @@ Never push to or create PRs against `open-webui/open-webui` (the upstream open-s
 After making changes, run the format and lint step to ensure nothing is broken:
 
 ```bash
-make fix
+make format
 ```
 
-This formats (Prettier for frontend, Ruff for backend) and lints (ESLint for frontend, Ruff for backend) in one pass. Fix any errors before committing.
+This formats (Prettier for frontend, Ruff for backend) in one pass. Fix any errors before committing.
 
 ## Keep the .github directory
 
