@@ -34,10 +34,10 @@ update:
 ###############################################################################
 # Canva targets
 ###############################################################################
-.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend
+.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend setup
 
 NVM_DIR    ?= $(HOME)/.nvm
-NVM_NODE   := $(wildcard $(NVM_DIR)/versions/node/v22.*/bin)
+NVM_NODE   := $(firstword $(wildcard $(NVM_DIR)/versions/node/v22.*/bin))
 NODE_PATH  := $(if $(NVM_NODE),$(NVM_NODE),)
 NPM        := $(if $(NODE_PATH),PATH="$(NODE_PATH):$$PATH" npm,npm)
 NPX        := $(if $(NODE_PATH),PATH="$(NODE_PATH):$$PATH" npx,npx)
@@ -56,7 +56,6 @@ lint: format lint-frontend lint-backend
 
 format: format-frontend format-backend
 
-fix: format-backend format-frontend lint-backend lint-frontend
 format-frontend:
 	$(NPX) prettier --write "**/*.{js,ts,svelte,css,md,html,json}"
 

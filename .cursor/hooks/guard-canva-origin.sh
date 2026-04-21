@@ -12,11 +12,20 @@ is_canva_url() {
 # Check git push: resolve the remote URL being pushed to
 if echo "$command" | grep -qE 'git[[:space:]]+push'; then
   # Extract the first non-flag argument after "git push" as the remote name
-  remote=$(echo "$command" | sed -E 's/.*git[[:space:]]+push[[:space:]]+(-[^ ]+[[:space:]]+)*//' | awk '{print $1}')
+  remote=$(echo "$command" | sed -E 's/.*git[[:space:]]+push[[:space:]]+(-[^ ]+[[:space:]]*)*//' | awk '{print $1}')
   remote="${remote:-origin}"
   url=$(git remote get-url "$remote" 2>/dev/null || echo "")
 
-  if [ -n "$url" ] && ! is_canva_url "$url"; then
+  if [ -z "$url" ]; then
+    echo "{
+      \"permission\": \"deny\",
+      \"user_message\": \"Blocked: could not resolve remote URL for '$remote'. Verify the remote exists and points to a Canva repo.\",
+      \"agent_message\": \"The pre-push guard blocked this command because it could not resolve the URL for remote '$remote'.\"
+    }"
+    exit 0
+  fi
+
+  if ! is_canva_url "$url"; then
     echo "{
       \"permission\": \"deny\",
       \"user_message\": \"Blocked: git push targets non-Canva remote '$remote' ($url). Only pushes to github.com/Canva/* are allowed.\",
