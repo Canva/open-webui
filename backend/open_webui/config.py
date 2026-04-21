@@ -1531,13 +1531,13 @@ FOLDER_MAX_FILE_COUNT = PersistentConfig(
 ENABLE_CHANNELS = PersistentConfig(
     'ENABLE_CHANNELS',
     'channels.enable',
-    os.environ.get('ENABLE_CHANNELS', 'False').lower() == 'true',
+    os.environ.get('ENABLE_CHANNELS', 'True').lower() == 'true',
 )
 
 ENABLE_NOTES = PersistentConfig(
     'ENABLE_NOTES',
     'notes.enable',
-    os.environ.get('ENABLE_NOTES', 'True').lower() == 'true',
+    os.environ.get('ENABLE_NOTES', 'False').lower() == 'true',
 )
 
 ENABLE_USER_STATUS = PersistentConfig(
@@ -1855,7 +1855,7 @@ Analyze the chat history to determine the necessity of generating search queries
 - Always prioritize providing actionable and broad queries that maximize informational coverage.
 
 ### Output:
-Strictly return in JSON format: 
+Strictly return in JSON format:
 {
   "queries": ["query1", "query2"]
 }
@@ -1886,44 +1886,44 @@ AUTOCOMPLETE_GENERATION_PROMPT_TEMPLATE = PersistentConfig(
 
 
 DEFAULT_AUTOCOMPLETE_GENERATION_PROMPT_TEMPLATE = """### Task:
-You are an autocompletion system. Continue the text in `<text>` based on the **completion type** in `<type>` and the given language.  
+You are an autocompletion system. Continue the text in `<text>` based on the **completion type** in `<type>` and the given language.
 
 ### **Instructions**:
-1. Analyze `<text>` for context and meaning.  
-2. Use `<type>` to guide your output:  
-   - **General**: Provide a natural, concise continuation.  
-   - **Search Query**: Complete as if generating a realistic search query.  
-3. Start as if you are directly continuing `<text>`. Do **not** repeat, paraphrase, or respond as a model. Simply complete the text.  
+1. Analyze `<text>` for context and meaning.
+2. Use `<type>` to guide your output:
+   - **General**: Provide a natural, concise continuation.
+   - **Search Query**: Complete as if generating a realistic search query.
+3. Start as if you are directly continuing `<text>`. Do **not** repeat, paraphrase, or respond as a model. Simply complete the text.
 4. Ensure the continuation:
-   - Flows naturally from `<text>`.  
-   - Avoids repetition, overexplaining, or unrelated ideas.  
-5. If unsure, return: `{ "text": "" }`.  
+   - Flows naturally from `<text>`.
+   - Avoids repetition, overexplaining, or unrelated ideas.
+5. If unsure, return: `{ "text": "" }`.
 
 ### **Output Rules**:
 - Respond only in JSON format: `{ "text": "<your_completion>" }`.
 
 ### **Examples**:
-#### Example 1:  
-Input:  
-<type>General</type>  
-<text>The sun was setting over the horizon, painting the sky</text>  
-Output:  
+#### Example 1:
+Input:
+<type>General</type>
+<text>The sun was setting over the horizon, painting the sky</text>
+Output:
 { "text": "with vibrant shades of orange and pink." }
 
-#### Example 2:  
-Input:  
-<type>Search Query</type>  
-<text>Top-rated restaurants in</text>  
-Output:  
-{ "text": "New York City for Italian cuisine." }  
+#### Example 2:
+Input:
+<type>Search Query</type>
+<text>Top-rated restaurants in</text>
+Output:
+{ "text": "New York City for Italian cuisine." }
 
 ---
 ### Context:
 <chat_history>
 {{MESSAGES:END:6}}
 </chat_history>
-<type>{{TYPE}}</type>  
-<text>{{PROMPT}}</text>  
+<type>{{TYPE}}</type>
+<text>{{PROMPT}}</text>
 #### Output:
 """
 
@@ -1972,7 +1972,7 @@ Your task is to choose and return the correct tool(s) from the list of available
 
 - Return only the JSON object, without any additional text or explanation.
 
-- If no tools match the query, return an empty array: 
+- If no tools match the query, return an empty array:
    {
      "tool_calls": []
    }
