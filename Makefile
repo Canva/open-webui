@@ -36,12 +36,18 @@ update:
 ###############################################################################
 .PHONY: build lint lint-frontend lint-backend format format-frontend format-backend
 
+NVM_DIR    ?= $(HOME)/.nvm
+NVM_NODE   := $(wildcard $(NVM_DIR)/versions/node/v22.*/bin)
+NODE_PATH  := $(if $(NVM_NODE),$(NVM_NODE),)
+NPM        := $(if $(NODE_PATH),PATH="$(NODE_PATH):$$PATH" npm,npm)
+NPX        := $(if $(NODE_PATH),PATH="$(NODE_PATH):$$PATH" npx,npx)
+
 IMAGE_NAME ?= open-webui
 IMAGE_TAG  ?= latest
 
 setup:
 	uv sync --all-groups
-	npm ci
+	$(NPM) ci
 
 build:
 	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
@@ -52,14 +58,14 @@ format: format-frontend format-backend
 
 fix: format-backend format-frontend lint-backend lint-frontend
 format-frontend:
-	npx prettier --plugin-search-dir --write "**/*.{js,ts,svelte,css,md,html,json}"
+	$(NPX) prettier --plugin-search-dir --write "**/*.{js,ts,svelte,css,md,html,json}"
 
 format-backend:
-	ruff format . --exclude .venv --exclude venv
+	uv run ruff format . --exclude .venv --exclude venv
 
 lint-frontend:
-	npx eslint . --fix
+	$(NPX) eslint . --fix
 
 lint-backend:
-	ruff check --fix .
+	uv run ruff check --fix .
 
