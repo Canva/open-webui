@@ -14,7 +14,7 @@ remove:
 
 start:
 	$(DOCKER_COMPOSE) start
-startAndBuild: 
+startAndBuild:
 	$(DOCKER_COMPOSE) up -d --build
 
 stop:
@@ -30,4 +30,41 @@ update:
 	@docker stop open-webui || true
 	$(DOCKER_COMPOSE) up --build -d
 	$(DOCKER_COMPOSE) start
+
+###############################################################################
+# Canva targets
+###############################################################################
+.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend setup
+
+NVM_DIR    ?= $(HOME)/.nvm
+NVM_NODE   := $(firstword $(wildcard $(NVM_DIR)/versions/node/v22.*/bin))
+NODE_PATH  := $(if $(NVM_NODE),$(NVM_NODE),)
+NPM        := $(if $(NODE_PATH),PATH="$(NODE_PATH):$$PATH" npm,npm)
+NPX        := $(if $(NODE_PATH),PATH="$(NODE_PATH):$$PATH" npx,npx)
+
+IMAGE_NAME ?= open-webui
+IMAGE_TAG  ?= latest
+
+setup:
+	uv sync --all-groups
+	$(NPM) ci
+
+build:
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+
+lint: format lint-frontend lint-backend
+
+format: format-frontend format-backend
+
+format-frontend:
+	$(NPX) prettier --write "**/*.{js,ts,svelte,css,md,html,json}"
+
+format-backend:
+	uv run ruff format . --exclude .venv --exclude venv
+
+lint-frontend:
+	$(NPX) eslint . --fix
+
+lint-backend:
+	uv run ruff check --fix .
 

@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"hooks": {
+		"beforeShellExecution": [
+			{
+				"command": ".cursor/hooks/guard-canva-origin.sh",
+				"matcher": "git\\s+push|gh\\s+pr\\s+create",
+				"failClosed": true
+			}
+		]
+	}
+}
