@@ -34,7 +34,7 @@ update:
 ###############################################################################
 # Canva targets
 ###############################################################################
-.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend setup
+.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend setup test-mysql
 
 NVM_DIR    ?= $(HOME)/.nvm
 NVM_NODE   := $(firstword $(wildcard $(NVM_DIR)/versions/node/v22.*/bin))
@@ -67,4 +67,7 @@ lint-frontend:
 
 lint-backend:
 	uv run ruff check --fix .
+
+test-mysql:
+	cd backend && PYTHONPATH=. uv run pytest open_webui/test/test_mysql_migrations.py open_webui/test/test_mysql_queries.py -v
 

@@ -335,6 +335,10 @@ elif DATABASE_TYPE == 'sqlite+sqlcipher' and not os.environ.get('DATABASE_URL'):
 if 'postgres://' in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://')
 
+# Bare mysql:// defaults to mysql-connector-python; normalise to pymysql.
+if DATABASE_URL.startswith('mysql://'):
+    DATABASE_URL = DATABASE_URL.replace('mysql://', 'mysql+pymysql://', 1)
+
 DATABASE_SCHEMA = os.environ.get('DATABASE_SCHEMA', None)
 
 DATABASE_POOL_SIZE = os.environ.get('DATABASE_POOL_SIZE', None)

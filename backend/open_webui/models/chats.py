@@ -1177,6 +1177,35 @@ class ChatTable:
                             ]
                         )
                     )
+            elif dialect_name == 'mysql':
+                stmt = stmt.filter(text("CAST(Chat.chat AS CHAR) NOT LIKE '%\\\\u0000%'"))
+                stmt = stmt.filter(text("Chat.title NOT LIKE '%\\x00%'"))
+
+                mysql_content_clause = text(
+                    "JSON_SEARCH(LOWER(Chat.chat), 'one', :content_key, NULL, '$.messages[*].content') IS NOT NULL"
+                )
+                stmt = stmt.filter(or_(Chat.title.ilike(bindparam('title_key')), mysql_content_clause)).params(
+                    title_key=f'%{search_text}%', content_key=f'%{search_text.lower()}%'
+                )
+
+                if 'none' in tag_ids:
+                    stmt = stmt.filter(
+                        text(
+                            'JSON_LENGTH(JSON_EXTRACT(Chat.meta, :tags_path)) = 0'
+                            ' OR JSON_EXTRACT(Chat.meta, :tags_path) IS NULL'
+                        ).params(tags_path='$.tags')
+                    )
+                elif tag_ids:
+                    stmt = stmt.filter(
+                        and_(
+                            *[
+                                text(
+                                    f'JSON_CONTAINS(JSON_EXTRACT(Chat.meta, :tags_path), JSON_QUOTE(:tag_id_{tag_idx}))'
+                                ).params(tags_path='$.tags', **{f'tag_id_{tag_idx}': tag_id})
+                                for tag_idx, tag_id in enumerate(tag_ids)
+                            ]
+                        )
+                    )
             else:
                 raise NotImplementedError(f'Unsupported dialect: {dialect_name}')
 
@@ -1293,6 +1322,10 @@ class ChatTable:
                 stmt = stmt.filter(
                     text("EXISTS (SELECT 1 FROM json_array_elements_text(Chat.meta->'tags') elem WHERE elem = :tag_id)")
                 ).params(tag_id=tag_id)
+            elif dialect_name == 'mysql':
+                stmt = stmt.filter(
+                    text("JSON_CONTAINS(JSON_EXTRACT(Chat.meta, '$.tags'), JSON_QUOTE(:tag_id))")
+                ).params(tag_id=tag_id)
             else:
                 raise NotImplementedError(f'Unsupported dialect: {dialect_name}')
 
@@ -1353,6 +1386,10 @@ class ChatTable:
             elif dialect_name == 'postgresql':
                 stmt = stmt.filter(
                     text("EXISTS (SELECT 1 FROM json_array_elements_text(Chat.meta->'tags') elem WHERE elem = :tag_id)")
+                ).params(tag_id=tag_id)
+            elif dialect_name == 'mysql':
+                stmt = stmt.filter(
+                    text("JSON_CONTAINS(JSON_EXTRACT(Chat.meta, '$.tags'), JSON_QUOTE(:tag_id))")
                 ).params(tag_id=tag_id)
             else:
                 raise NotImplementedError(f'Unsupported dialect: {dialect_name}')

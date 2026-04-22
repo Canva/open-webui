@@ -73,6 +73,8 @@ def _convert_column_to_json(table: str, column: str):
         # 4. Rename new JSON column → original name
         op.alter_column(table, f'{column}_json', new_column_name=column)
 
+    elif dialect == 'mysql':
+        op.alter_column(table, column, type_=sa.JSON())
     else:
         # PostgreSQL supports direct CAST
         op.alter_column(
@@ -101,6 +103,8 @@ def _convert_column_to_text(table: str, column: str):
         op.drop_column(table, column)
         op.alter_column(table, f'{column}_text', new_column_name=column)
 
+    elif dialect == 'mysql':
+        op.alter_column(table, column, type_=sa.Text())
     else:
         op.alter_column(
             table,

@@ -305,6 +305,8 @@ class PromptsTable:
                         tag_clause = text(
                             'EXISTS (SELECT 1 FROM json_array_elements_text(prompt.tags) t WHERE LOWER(t) = :tag_val)'
                         )
+                    elif dialect_name == 'mysql':
+                        tag_clause = text("JSON_SEARCH(LOWER(prompt.tags), 'one', :tag_val) IS NOT NULL")
                     else:
                         # Fallback: LIKE on serialised JSON text (ASCII-safe only)
                         tag_clause = func.lower(cast(Prompt.tags, String)).like(

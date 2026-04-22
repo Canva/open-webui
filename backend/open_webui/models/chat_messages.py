@@ -343,7 +343,7 @@ class ChatMessageTable:
             bind = await db.connection()
             dialect = bind.dialect.name
 
-            if dialect == 'sqlite':
+            if dialect in ('sqlite', 'mysql'):
                 input_tokens = cast(func.json_extract(ChatMessage.usage, '$.input_tokens'), Integer)
                 output_tokens = cast(func.json_extract(ChatMessage.usage, '$.output_tokens'), Integer)
             elif dialect == 'postgresql':
@@ -404,7 +404,7 @@ class ChatMessageTable:
             bind = await db.connection()
             dialect = bind.dialect.name
 
-            if dialect == 'sqlite':
+            if dialect in ('sqlite', 'mysql'):
                 input_tokens = cast(func.json_extract(ChatMessage.usage, '$.input_tokens'), Integer)
                 output_tokens = cast(func.json_extract(ChatMessage.usage, '$.output_tokens'), Integer)
             elif dialect == 'postgresql':
