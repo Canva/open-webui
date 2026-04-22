@@ -3,7 +3,7 @@
 # use build args in the docker build command with --build-arg="BUILDARG=true"
 ARG USE_CUDA=false
 ARG USE_OLLAMA=false
-ARG USE_SLIM=false
+ARG USE_SLIM=true
 ARG USE_PERMISSION_HARDENING=false
 # Tested with cu117 for CUDA 11 and cu121 for CUDA 12 (default)
 ARG USE_CUDA_VER=cu128
@@ -36,7 +36,7 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 COPY package.json package-lock.json ./
-RUN npm ci --force
+RUN CYPRESS_INSTALL_BINARY=0 npm ci --force
 
 COPY . .
 ENV APP_BUILD_HASH=${BUILD_HASH}
@@ -137,7 +137,15 @@ COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
 
 RUN set -e; \
     pip3 install --no-cache-dir uv; \
-    if [ "$USE_CUDA" = "true" ]; then \
+    if [ "$USE_SLIM" = "true" ]; then \
+    # Slim build: skip torch and heavy ML dependencies entirely.
+    # Removes ~2GB+ of torch/torchvision/torchaudio, sentence-transformers,
+    # transformers, faster-whisper, etc. Local embedding, reranking, TTS, and
+    # STT features will be unavailable — use API-based alternatives instead
+    # (RAG_EMBEDDING_ENGINE=openai/ollama, external reranker, OpenAI TTS/STT).
+    grep -vE '^(transformers|sentence-transformers|accelerate|einops|colbert-ai|faster-whisper|sentencepiece|soundfile|onnxruntime|rapidocr-onnxruntime)==' requirements.txt > /tmp/requirements-slim.txt; \
+    uv pip install --system -r /tmp/requirements-slim.txt --no-cache-dir; \
+    elif [ "$USE_CUDA" = "true" ]; then \
     # If you use CUDA the whisper and embedding model will be downloaded on first use
     # fix: pin torch<=2.9.1 - torch 2.10.0 aarch64 wheels cause SIGILL on ARM devices (RPi 4 Cortex-A72) #21349
     pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir; \
@@ -150,13 +158,11 @@ RUN set -e; \
     else \
     pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir; \
     uv pip install --system -r requirements.txt --no-cache-dir; \
-    if [ "$USE_SLIM" != "true" ]; then \
     python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')"; \
     python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ.get('AUXILIARY_EMBEDDING_MODEL', 'TaylorAI/bge-micro-v2'), device='cpu')"; \
     python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
     python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
     python -c "import nltk; nltk.download('punkt_tab')"; \
-    fi; \
     fi; \
     mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/; \
     rm -rf /var/lib/apt/lists/*;

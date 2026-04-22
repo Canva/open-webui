@@ -1265,7 +1265,11 @@ class RerankCompressor(BaseDocumentCompressor):
         if reranking:
             scores = await asyncio.to_thread(self.reranking_function, query, documents)
         else:
-            from sentence_transformers import util
+            try:
+                from sentence_transformers import util
+            except ImportError:
+                log.warning('sentence-transformers not installed; falling back to no reranking scores')
+                return documents
 
             query_embedding = await self.embedding_function(query, RAG_EMBEDDING_QUERY_PREFIX)
             document_embedding = await self.embedding_function(
