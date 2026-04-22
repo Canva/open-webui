@@ -41,7 +41,6 @@ steps:
         -t ${IMAGE_REPO}:${BUILDKITE_COMMIT}
         .
       - docker push ${IMAGE_REPO}:${BUILDKITE_COMMIT}
-      - docker push ${IMAGE_REPO}:latest
       - |
         buildkite-agent annotate --style success \
           ":docker: Image pushed: \`${IMAGE_REPO}:${BUILDKITE_COMMIT}\`"
