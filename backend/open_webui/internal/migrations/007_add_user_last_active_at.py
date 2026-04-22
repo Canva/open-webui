@@ -57,7 +57,8 @@ def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
 
     # Populate the new fields from an existing 'timestamp' field
     migrator.sql(
-        f'UPDATE {user_tbl} SET created_at = timestamp, updated_at = timestamp, last_active_at = timestamp WHERE timestamp IS NOT NULL'
+        f'UPDATE {user_tbl} SET created_at = timestamp, updated_at = timestamp,'
+        ' last_active_at = timestamp WHERE timestamp IS NOT NULL'
     )
 
     # Now that the data has been copied, remove the original 'timestamp' field
