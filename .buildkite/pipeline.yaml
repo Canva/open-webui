@@ -1,5 +1,5 @@
 env:
-  IMAGE_REPO: "699983977898.dkr.ecr.us-east-1.amazonaws.com/container-build/canva/open-webui"
+  IMAGE_REPO: "699983977898.dkr.ecr.us-east-1.amazonaws.com/container-build/data-platform/open-webui"
   IMAGE_SYNC_AWS_ROLE: container.build.image.sync
 
 # List syntax (- key=value) is valid Buildkite and the dominant pattern for
