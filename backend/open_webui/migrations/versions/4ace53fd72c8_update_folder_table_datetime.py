@@ -22,7 +22,9 @@ def _convert_datetime_to_epoch_mysql(conn, table_name: str, column: str):
     conn.execute(sa.text(f'UPDATE `{table_name}` SET `{tmp}` = UNIX_TIMESTAMP(`{column}`)'))
     op.drop_column(table_name, column)
     with op.batch_alter_table(table_name) as batch_op:
-        batch_op.alter_column(tmp, new_column_name=column)
+        # MySQL CHANGE COLUMN requires the existing_type even when only
+        # renaming, otherwise alembic raises CommandError.
+        batch_op.alter_column(tmp, new_column_name=column, existing_type=sa.BigInteger())
 
 
 def upgrade():

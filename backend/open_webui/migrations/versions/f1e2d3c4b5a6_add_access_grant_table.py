@@ -35,16 +35,23 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     existing_tables = set(get_existing_tables())
 
-    # Create access_grant table
+    # Create access_grant table.
+    #
+    # The 5-column unique index spans every non-id column. On MySQL with
+    # ``utf8mb4`` (4 bytes/char) the InnoDB key length cap is 3072 bytes, so
+    # we cannot use VARCHAR(255) for every column (5 * 255 * 4 = 5100 bytes).
+    # The longest plausible value in any of these columns is a UUID (36
+    # chars) or a small enum literal, so VARCHAR(64) is more than enough and
+    # keeps the composite index well under the limit (5 * 64 * 4 = 1280 B).
     if 'access_grant' not in existing_tables:
         op.create_table(
             'access_grant',
-            sa.Column('id', sa.Text(), nullable=False, primary_key=True),
-            sa.Column('resource_type', sa.Text(), nullable=False),
-            sa.Column('resource_id', sa.Text(), nullable=False),
-            sa.Column('principal_type', sa.Text(), nullable=False),
-            sa.Column('principal_id', sa.Text(), nullable=False),
-            sa.Column('permission', sa.Text(), nullable=False),
+            sa.Column('id', sa.String(length=255), nullable=False, primary_key=True),
+            sa.Column('resource_type', sa.String(length=64), nullable=False),
+            sa.Column('resource_id', sa.String(length=255), nullable=False),
+            sa.Column('principal_type', sa.String(length=64), nullable=False),
+            sa.Column('principal_id', sa.String(length=255), nullable=False),
+            sa.Column('permission', sa.String(length=64), nullable=False),
             sa.Column('created_at', sa.BigInteger(), nullable=False),
             sa.UniqueConstraint(
                 'resource_type',

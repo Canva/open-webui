@@ -49,7 +49,10 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_index('ix_automation_run_automation_id')
+    # MySQL's ``DROP INDEX`` requires the table name; Alembic falls back to a
+    # bogus placeholder (``no_table``) when ``table_name`` is omitted, which
+    # then errors with "Table 'no_table' doesn't exist". Pass it explicitly.
+    op.drop_index('ix_automation_run_automation_id', table_name='automation_run')
     op.drop_table('automation_run')
-    op.drop_index('ix_automation_next_run')
+    op.drop_index('ix_automation_next_run', table_name='automation')
     op.drop_table('automation')

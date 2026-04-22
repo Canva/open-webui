@@ -67,12 +67,15 @@ def downgrade():
     current_pk = inspector.get_pk_constraint('tag')
 
     with op.batch_alter_table('tag', schema=None) as batch_op:
-        # Drop the current primary key first, if it matches the one we know we added in upgrade
-        if current_pk and 'pk_id_user_id' == current_pk.get('name'):
-            batch_op.drop_constraint('pk_id_user_id', type_='primary')
+        # MySQL always names the primary key ``PRIMARY`` regardless of the
+        # constraint name we passed at create time, so we can't compare names
+        # here. Drop whichever PK is currently on the table before defining
+        # the new one — otherwise MySQL errors with "Multiple primary key
+        # defined".
+        if current_pk and current_pk.get('constrained_columns'):
+            pk_name = current_pk.get('name') or 'pk_id_user_id'
+            batch_op.drop_constraint(pk_name, type_='primary')
 
-        # Restore the original primary key
         batch_op.create_primary_key('pk_id', ['id'])
 
-        # Since primary key on just 'id' is restored, we now add back any unique constraints if necessary
         batch_op.create_unique_constraint('uq_id_user_id', ['id', 'user_id'])

@@ -175,10 +175,14 @@ class TestMySQLChatContentSearch:
         chat_id = _uid()
         await _seed_user(db_session, user_id)
         # Manually insert a chat whose JSON text contains the \\u0000 escape
+        # ``archived`` is declared NOT NULL in the chat table on MySQL with no
+        # SQL-level default, so an explicit value is required when inserting via
+        # raw SQL (the SQLAlchemy ORM otherwise supplies the Python-side
+        # default).
         await db_session.execute(
             text(
-                'INSERT INTO chat (id, user_id, title, chat, meta, created_at, updated_at) '
-                "VALUES (:id, :uid, 'bad chat', :chat_json, '{}', :now, :now)"
+                'INSERT INTO chat (id, user_id, title, chat, meta, archived, pinned, created_at, updated_at) '
+                "VALUES (:id, :uid, 'bad chat', :chat_json, '{}', 0, 0, :now, :now)"
             ),
             {
                 'id': chat_id,

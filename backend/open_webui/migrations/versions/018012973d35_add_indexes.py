@@ -16,17 +16,37 @@ depends_on = None
 
 
 def upgrade():
-    # Chat table indexes
-    op.create_index('folder_id_idx', 'chat', ['folder_id'])
-    op.create_index('user_id_pinned_idx', 'chat', ['user_id', 'pinned'])
-    op.create_index('user_id_archived_idx', 'chat', ['user_id', 'archived'])
-    op.create_index('updated_at_user_id_idx', 'chat', ['updated_at', 'user_id'])
-    op.create_index('folder_id_user_id_idx', 'chat', ['folder_id', 'user_id'])
+    # Many of the columns being indexed here were originally declared as
+    # TEXT/sa.Text. MySQL cannot index a TEXT column without an explicit key
+    # prefix length, so we pass ``mysql_length`` for any potentially TEXT
+    # column. SQLite and PostgreSQL ignore this kwarg.
+    PREFIX = 255
+    op.create_index(
+        'folder_id_idx', 'chat', ['folder_id'],
+        mysql_length={'folder_id': PREFIX},
+    )
+    op.create_index(
+        'user_id_pinned_idx', 'chat', ['user_id', 'pinned'],
+        mysql_length={'user_id': PREFIX},
+    )
+    op.create_index(
+        'user_id_archived_idx', 'chat', ['user_id', 'archived'],
+        mysql_length={'user_id': PREFIX},
+    )
+    op.create_index(
+        'updated_at_user_id_idx', 'chat', ['updated_at', 'user_id'],
+        mysql_length={'user_id': PREFIX},
+    )
+    op.create_index(
+        'folder_id_user_id_idx', 'chat', ['folder_id', 'user_id'],
+        mysql_length={'folder_id': PREFIX, 'user_id': PREFIX},
+    )
 
-    # Tag table index
-    op.create_index('user_id_idx', 'tag', ['user_id'])
+    op.create_index(
+        'user_id_idx', 'tag', ['user_id'],
+        mysql_length={'user_id': PREFIX},
+    )
 
-    # Function table index
     op.create_index('is_global_idx', 'function', ['is_global'])
 
 

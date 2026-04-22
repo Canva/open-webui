@@ -38,7 +38,11 @@ def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
 
     @migrator.create_model
     class Function(pw.Model):
-        id = pw.TextField(unique=True)
+        # MySQL cannot build a UNIQUE index on a TEXT column without an
+        # explicit key length, which peewee does not emit. CharField(255)
+        # maps to VARCHAR(255) on every supported dialect and accommodates
+        # any function identifier we generate.
+        id = pw.CharField(max_length=255, unique=True)
         user_id = pw.TextField()
 
         name = pw.TextField()

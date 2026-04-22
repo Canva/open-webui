@@ -116,10 +116,14 @@ def _convert_column_to_text(table: str, column: str):
 
 def upgrade() -> None:
     op.add_column('user', sa.Column('profile_banner_image_url', sa.Text(), nullable=True))
-    op.add_column('user', sa.Column('timezone', sa.String(), nullable=True))
+    # ``sa.String()`` (no length) compiles to an unbounded VARCHAR which MySQL
+    # rejects ("VARCHAR requires a length on dialect mysql"). Use ``sa.Text``
+    # for these short, non-indexed strings; SQLite/Postgres treat the two
+    # identically for these purposes.
+    op.add_column('user', sa.Column('timezone', sa.Text(), nullable=True))
 
-    op.add_column('user', sa.Column('presence_state', sa.String(), nullable=True))
-    op.add_column('user', sa.Column('status_emoji', sa.String(), nullable=True))
+    op.add_column('user', sa.Column('presence_state', sa.Text(), nullable=True))
+    op.add_column('user', sa.Column('status_emoji', sa.Text(), nullable=True))
     op.add_column('user', sa.Column('status_message', sa.Text(), nullable=True))
     op.add_column('user', sa.Column('status_expires_at', sa.BigInteger(), nullable=True))
 
@@ -231,7 +235,9 @@ def downgrade() -> None:
     op.drop_column('user', 'oauth')
 
     # --- 2. Restore api_key field ---
-    op.add_column('user', sa.Column('api_key', sa.String(), nullable=True))
+    # ``sa.String()`` without length is illegal on MySQL; mirror the upgrade()
+    # workaround and store the API key in a TEXT column.
+    op.add_column('user', sa.Column('api_key', sa.Text(), nullable=True))
 
     # Restore values from api_key
     keys = conn.execute(sa.text(f'SELECT user_id, {key_col} FROM api_key')).fetchall()

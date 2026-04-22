@@ -69,5 +69,9 @@ lint-backend:
 	uv run ruff check --fix .
 
 test-mysql:
-	cd backend && PYTHONPATH=. uv run pytest open_webui/test/test_mysql_migrations.py open_webui/test/test_mysql_queries.py -v
+	cd backend && PYTHONPATH=. uv run pytest \
+		open_webui/test/test_mysql_migrations.py \
+		open_webui/test/test_mysql_migration_chain.py \
+		open_webui/test/test_mysql_queries.py \
+		-v
 

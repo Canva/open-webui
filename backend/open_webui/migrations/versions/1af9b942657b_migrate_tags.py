@@ -92,9 +92,15 @@ def upgrade():
                 update_stmt = update_stmt.values(id=new_tag_id)
                 conn.execute(update_stmt)
 
-    # Add columns `pinned` and `meta` to 'chat'
+    # Add columns `pinned` and `meta` to 'chat'.
+    # NOTE: MySQL does not allow a literal DEFAULT on JSON columns, so we
+    # add `meta` nullable, backfill an empty object for every existing row,
+    # then enforce NOT NULL. SQLite/PostgreSQL accept this sequence too.
     op.add_column('chat', sa.Column('pinned', sa.Boolean(), nullable=True))
-    op.add_column('chat', sa.Column('meta', sa.JSON(), nullable=False, server_default='{}'))
+    op.add_column('chat', sa.Column('meta', sa.JSON(), nullable=True))
+    conn.execute(sa.text('UPDATE chat SET meta = :empty WHERE meta IS NULL'), {'empty': '{}'})
+    with op.batch_alter_table('chat', schema=None) as batch_op:
+        batch_op.alter_column('meta', existing_type=sa.JSON(), nullable=False)
 
     chatidtag = table('chatidtag', column('chat_id', sa.String()), column('tag_name', sa.String()))
     chat = table(

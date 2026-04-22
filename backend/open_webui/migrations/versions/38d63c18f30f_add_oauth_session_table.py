@@ -59,17 +59,27 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.BigInteger(), nullable=False),
     )
 
-    # Create indexes for better performance
-    op.create_index('idx_oauth_session_user_id', 'oauth_session', ['user_id'])
+    # Create indexes for better performance.
+    #
+    # ``user_id``, ``provider`` and ``token`` are declared as ``sa.Text`` for
+    # cross-dialect portability, but MySQL refuses to index TEXT columns
+    # without an explicit prefix length. ``mysql_length`` is silently ignored
+    # by SQLite and PostgreSQL.
+    PREFIX = 255
+    op.create_index(
+        'idx_oauth_session_user_id', 'oauth_session', ['user_id'],
+        mysql_length={'user_id': PREFIX},
+    )
     op.create_index('idx_oauth_session_expires_at', 'oauth_session', ['expires_at'])
-    op.create_index('idx_oauth_session_user_provider', 'oauth_session', ['user_id', 'provider'])
+    op.create_index(
+        'idx_oauth_session_user_provider', 'oauth_session', ['user_id', 'provider'],
+        mysql_length={'user_id': PREFIX, 'provider': PREFIX},
+    )
 
 
 def downgrade() -> None:
-    # Drop indexes first
-    op.drop_index('idx_oauth_session_user_provider', table_name='oauth_session')
-    op.drop_index('idx_oauth_session_expires_at', table_name='oauth_session')
-    op.drop_index('idx_oauth_session_user_id', table_name='oauth_session')
-
-    # Drop the table
+    # Dropping the table also drops every secondary index. Trying to drop
+    # ``idx_oauth_session_user_id`` first fails on MySQL with error 1553 —
+    # the index is needed by the FK on ``user_id``. ``DROP TABLE`` cleanly
+    # removes both, so just drop the table.
     op.drop_table('oauth_session')

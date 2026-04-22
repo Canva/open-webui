@@ -222,6 +222,13 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["backend/open_webui/test"]
 asyncio_mode = "auto"
+# Pin async fixtures and tests to a single session-wide event loop so that
+# session-scoped async resources (the MySQL ``create_async_engine``) can be
+# shared across all tests. Without this pytest-asyncio creates a fresh loop
+# per test, and any Future bound to the engine ends up "attached to a
+# different loop" on the second test that touches it.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 
 [tool.black]
 line-length = 120

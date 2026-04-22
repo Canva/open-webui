@@ -32,9 +32,15 @@ with suppress(ImportError):
 def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
     """Write your migrations here."""
 
+    # Use a bounded-length string instead of TEXT so MySQL can build the
+    # UNIQUE index — TEXT columns require an explicit key length on MySQL,
+    # which peewee does not emit, causing the migration to fail mid-run
+    # (column added, index creation rejected) and on retry hit a duplicate
+    # column error. CharField(max_length=255) maps to VARCHAR(255) on every
+    # supported dialect and comfortably fits any OAuth subject identifier.
     migrator.add_fields(
         'user',
-        oauth_sub=pw.TextField(null=True, unique=True),
+        oauth_sub=pw.CharField(max_length=255, null=True, unique=True),
     )
 
 
