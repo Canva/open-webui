@@ -9,7 +9,7 @@ env:
 #   buildkite/container-build/pipelines/repo-image-uploader/pipeline.yaml
 #   go/ci/signaling/buildkite/server/pipeline.yaml
 agents:
-  - queue=canva-deps-amd64-linux-prod
+  - queue=container-build-prod
 
 steps:
   - label: ":docker: Build image"

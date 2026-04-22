@@ -140,9 +140,9 @@ def get_ef(
 ):
     ef = None
     if embedding_model and engine == '':
-        from sentence_transformers import SentenceTransformer
-
         try:
+            from sentence_transformers import SentenceTransformer
+
             ef = SentenceTransformer(
                 get_model_path(embedding_model, auto_update),
                 device=DEVICE_TYPE,
@@ -195,10 +195,10 @@ def get_rf(
                     log.error(f'ExternalReranking: {e}')
                     raise Exception(ERROR_MESSAGES.DEFAULT(e))
             else:
-                import sentence_transformers
-                import torch
-
                 try:
+                    import sentence_transformers
+                    import torch
+
                     rf = sentence_transformers.CrossEncoder(
                         get_model_path(reranking_model, auto_update),
                         device=DEVICE_TYPE,

@@ -23,3 +23,7 @@ This formats (Prettier for frontend, Ruff for backend) in one pass. Fix any erro
 ## Keep the .github directory
 
 While we do not use the .github registry, keeping it allows much smoother updating from upstream with minimal merge conflicts.
+
+## Build Pipeline
+
+The Buildkite URL to monitor build jobs is at https://buildkite.com/canva-org/container-build-data-platform-open-webui
