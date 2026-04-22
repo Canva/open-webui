@@ -39,7 +39,6 @@ steps:
         docker build
         --build-arg BUILD_HASH=${BUILDKITE_COMMIT}
         -t ${IMAGE_REPO}:${BUILDKITE_COMMIT}
-        -t ${IMAGE_REPO}:latest
         .
       - docker push ${IMAGE_REPO}:${BUILDKITE_COMMIT}
       - docker push ${IMAGE_REPO}:latest
