@@ -4,7 +4,7 @@ from contextvars import ContextVar
 
 from peewee import *
 from peewee import InterfaceError as PeeWeeInterfaceError
-from peewee import PostgresqlDatabase
+from peewee import MySQLDatabase, PostgresqlDatabase
 from playhouse.db_url import connect, parse
 from playhouse.shortcuts import ReconnectMixin
 
@@ -60,8 +60,14 @@ def register_connection(db_url):
         log.info('Connected to encrypted SQLite database using SQLCipher')
 
     else:
-        # Standard database connection (existing logic)
-        db = connect(db_url, unquote_user=True, unquote_password=True)
+        # Peewee's db_url.connect() only understands bare schemes (mysql://,
+        # postgres://, sqlite://).  Strip SQLAlchemy-style driver suffixes
+        # so that e.g. mysql+pymysql:// becomes mysql://.
+        peewee_url = db_url
+        if peewee_url.startswith('mysql+'):
+            peewee_url = 'mysql://' + peewee_url.split('://', 1)[1]
+
+        db = connect(peewee_url, unquote_user=True, unquote_password=True)
         if isinstance(db, PostgresqlDatabase):
             # Enable autoconnect for SQLite databases, managed by Peewee
             db.autoconnect = True
@@ -74,6 +80,11 @@ def register_connection(db_url):
             # Use our custom database class that supports reconnection
             db = ReconnectingPostgresqlDatabase(**connection)
             db.connect(reuse_if_open=True)
+        elif isinstance(db, MySQLDatabase):
+            db.autoconnect = True
+            db.reuse_if_open = True
+            db.connect(reuse_if_open=True)
+            log.info('Connected to MySQL database')
         elif isinstance(db, SqliteDatabase):
             # Enable autoconnect for SQLite databases, managed by Peewee
             db.autoconnect = True

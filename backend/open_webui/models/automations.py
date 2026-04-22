@@ -273,7 +273,7 @@ class AutomationTable:
                 .limit(limit)
             )
 
-            if db.bind.dialect.name == 'postgresql':
+            if db.bind.dialect.name in ('postgresql', 'mysql'):
                 stmt = stmt.with_for_update(skip_locked=True)
 
             result = await db.execute(stmt)

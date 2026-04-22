@@ -15,7 +15,25 @@ branch_labels = None
 depends_on = None
 
 
+def _convert_datetime_to_epoch_mysql(conn, table_name: str, column: str):
+    """MySQL cannot express epoch extraction in MODIFY COLUMN, so use a temp column."""
+    tmp = f'{column}_epoch_tmp'
+    op.add_column(table_name, sa.Column(tmp, sa.BigInteger(), nullable=True))
+    conn.execute(sa.text(f'UPDATE `{table_name}` SET `{tmp}` = UNIX_TIMESTAMP(`{column}`)'))
+    op.drop_column(table_name, column)
+    with op.batch_alter_table(table_name) as batch_op:
+        batch_op.alter_column(tmp, new_column_name=column)
+
+
 def upgrade():
+    conn = op.get_bind()
+    dialect = conn.dialect.name
+
+    if dialect == 'mysql':
+        _convert_datetime_to_epoch_mysql(conn, 'folder', 'created_at')
+        _convert_datetime_to_epoch_mysql(conn, 'folder', 'updated_at')
+        return
+
     # Perform safe alterations using batch operation
     with op.batch_alter_table('folder', schema=None) as batch_op:
         # Step 1: Remove server defaults for created_at and updated_at

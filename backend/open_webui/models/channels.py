@@ -14,7 +14,6 @@ from open_webui.models.access_grants import (
 )
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.dialects.postgresql import JSONB
 
 
 from sqlalchemy import (

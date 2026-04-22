@@ -73,6 +73,8 @@ def _convert_column_to_json(table: str, column: str):
         # 4. Rename new JSON column → original name
         op.alter_column(table, f'{column}_json', new_column_name=column)
 
+    elif dialect == 'mysql':
+        op.alter_column(table, column, type_=sa.JSON())
     else:
         # PostgreSQL supports direct CAST
         op.alter_column(
@@ -101,6 +103,8 @@ def _convert_column_to_text(table: str, column: str):
         op.drop_column(table, column)
         op.alter_column(table, f'{column}_text', new_column_name=column)
 
+    elif dialect == 'mysql':
+        op.alter_column(table, column, type_=sa.Text())
     else:
         op.alter_column(
             table,
@@ -139,7 +143,15 @@ def upgrade() -> None:
     )
 
     conn = op.get_bind()
-    users = conn.execute(sa.text('SELECT id, oauth_sub FROM "user" WHERE oauth_sub IS NOT NULL')).fetchall()
+    # Use the dialect's identifier preparer so reserved words like `user` and
+    # `key` are quoted correctly on every backend (backticks for MySQL,
+    # double quotes for PostgreSQL/SQLite).
+    quote = conn.dialect.identifier_preparer.quote
+    user_tbl = quote('user')
+    key_col = quote('key')
+    users = conn.execute(
+        sa.text(f'SELECT id, oauth_sub FROM {user_tbl} WHERE oauth_sub IS NOT NULL')
+    ).fetchall()
 
     for uid, oauth_sub in users:
         if oauth_sub:
@@ -153,18 +165,20 @@ def upgrade() -> None:
 
             oauth_json = json.dumps({provider: {'sub': sub}})
             conn.execute(
-                sa.text('UPDATE "user" SET oauth = :oauth WHERE id = :id'),
+                sa.text(f'UPDATE {user_tbl} SET oauth = :oauth WHERE id = :id'),
                 {'oauth': oauth_json, 'id': uid},
             )
 
-    users_with_keys = conn.execute(sa.text('SELECT id, api_key FROM "user" WHERE api_key IS NOT NULL')).fetchall()
+    users_with_keys = conn.execute(
+        sa.text(f'SELECT id, api_key FROM {user_tbl} WHERE api_key IS NOT NULL')
+    ).fetchall()
     now = int(time.time())
 
     for uid, api_key in users_with_keys:
         if api_key:
             conn.execute(
-                sa.text("""
-                    INSERT INTO api_key (id, user_id, key, created_at, updated_at)
+                sa.text(f"""
+                    INSERT INTO api_key (id, user_id, {key_col}, created_at, updated_at)
                     VALUES (:id, :user_id, :key, :created_at, :updated_at)
                 """),
                 {
@@ -190,7 +204,15 @@ def downgrade() -> None:
     op.add_column('user', sa.Column('oauth_sub', sa.Text(), nullable=True))
 
     conn = op.get_bind()
-    users = conn.execute(sa.text('SELECT id, oauth FROM "user" WHERE oauth IS NOT NULL')).fetchall()
+    # See _quote_user_table comment in upgrade(): quote reserved identifiers
+    # via the dialect's preparer so MySQL backticks / Postgres double quotes
+    # are emitted correctly.
+    quote = conn.dialect.identifier_preparer.quote
+    user_tbl = quote('user')
+    key_col = quote('key')
+    users = conn.execute(
+        sa.text(f'SELECT id, oauth FROM {user_tbl} WHERE oauth IS NOT NULL')
+    ).fetchall()
 
     for uid, oauth in users:
         try:
@@ -202,7 +224,7 @@ def downgrade() -> None:
             oauth_sub = None
 
         conn.execute(
-            sa.text('UPDATE "user" SET oauth_sub = :oauth_sub WHERE id = :id'),
+            sa.text(f'UPDATE {user_tbl} SET oauth_sub = :oauth_sub WHERE id = :id'),
             {'oauth_sub': oauth_sub, 'id': uid},
         )
 
@@ -212,10 +234,10 @@ def downgrade() -> None:
     op.add_column('user', sa.Column('api_key', sa.String(), nullable=True))
 
     # Restore values from api_key
-    keys = conn.execute(sa.text('SELECT user_id, key FROM api_key')).fetchall()
+    keys = conn.execute(sa.text(f'SELECT user_id, {key_col} FROM api_key')).fetchall()
     for uid, key in keys:
         conn.execute(
-            sa.text('UPDATE "user" SET api_key = :key WHERE id = :id'),
+            sa.text(f'UPDATE {user_tbl} SET api_key = :key WHERE id = :id'),
             {'key': key, 'id': uid},
         )
 

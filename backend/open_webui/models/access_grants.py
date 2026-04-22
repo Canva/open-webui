@@ -9,7 +9,6 @@ from open_webui.internal.db import Base, get_async_db_context
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import BigInteger, Column, Text, UniqueConstraint, or_, and_
-from sqlalchemy.dialects.postgresql import JSONB
 
 log = logging.getLogger(__name__)
 

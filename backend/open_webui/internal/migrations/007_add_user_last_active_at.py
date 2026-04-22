@@ -33,8 +33,19 @@ with suppress(ImportError):
     import playhouse.postgres_ext as pw_pext
 
 
+def _quote_user_table(database: pw.Database) -> str:
+    # `user` is a reserved word in PostgreSQL and MySQL, so the table name
+    # must be quoted. Each dialect uses a different quoting character:
+    # MySQL uses backticks, while PostgreSQL/SQLite use double quotes.
+    if isinstance(database, pw.MySQLDatabase):
+        return '`user`'
+    return '"user"'
+
+
 def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
     """Write your migrations here."""
+
+    user_tbl = _quote_user_table(database)
 
     # Adding fields created_at and updated_at to the 'user' table
     migrator.add_fields(
@@ -46,7 +57,8 @@ def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
 
     # Populate the new fields from an existing 'timestamp' field
     migrator.sql(
-        'UPDATE "user" SET created_at = timestamp, updated_at = timestamp, last_active_at = timestamp WHERE timestamp IS NOT NULL'
+        f'UPDATE {user_tbl} SET created_at = timestamp, updated_at = timestamp,'
+        ' last_active_at = timestamp WHERE timestamp IS NOT NULL'
     )
 
     # Now that the data has been copied, remove the original 'timestamp' field
@@ -64,12 +76,14 @@ def migrate(migrator: Migrator, database: pw.Database, *, fake=False):
 def rollback(migrator: Migrator, database: pw.Database, *, fake=False):
     """Write your rollback migrations here."""
 
+    user_tbl = _quote_user_table(database)
+
     # Recreate the timestamp field initially allowing null values for safe transition
     migrator.add_fields('user', timestamp=pw.BigIntegerField(null=True))
 
     # Copy the earliest created_at date back into the new timestamp field
     # This assumes created_at was originally a copy of timestamp
-    migrator.sql('UPDATE "user" SET timestamp = created_at')
+    migrator.sql(f'UPDATE {user_tbl} SET timestamp = created_at')
 
     # Remove the created_at and updated_at fields
     migrator.remove_fields('user', 'created_at', 'updated_at', 'last_active_at')

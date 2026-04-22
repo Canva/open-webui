@@ -20,6 +20,12 @@ import sqlalchemy as sa
 
 from open_webui.migrations.util import get_existing_tables
 
+
+def _qi(conn, name: str) -> str:
+    """Quote an identifier using the dialect's preparer."""
+    return conn.dialect.identifier_preparer.quote_identifier(name)
+
+
 revision: str = 'f1e2d3c4b5a6'
 down_revision: Union[str, None] = '8452d01d26d7'
 branch_labels: Union[str, Sequence[str], None] = None
@@ -83,7 +89,7 @@ def upgrade() -> None:
 
         # Query all rows
         try:
-            result = conn.execute(sa.text(f'SELECT id, access_control FROM "{table_name}"'))
+            result = conn.execute(sa.text(f'SELECT id, access_control FROM {_qi(conn, table_name)}'))
             rows = result.fetchall()
         except Exception:
             continue
@@ -312,7 +318,7 @@ def downgrade() -> None:
 
             try:
                 conn.execute(
-                    sa.text(f'UPDATE "{table_name}" SET access_control = :access_control WHERE id = :id'),
+                    sa.text(f'UPDATE {_qi(conn, table_name)} SET access_control = :access_control WHERE id = :id'),
                     {'access_control': access_control_value, 'id': resource_id},
                 )
             except Exception:
@@ -325,7 +331,7 @@ def downgrade() -> None:
             try:
                 conn.execute(
                     sa.text(f"""
-                        UPDATE "{table_name}" 
+                        UPDATE {_qi(conn, table_name)}
                         SET access_control = :private_value
                         WHERE id NOT IN (
                             SELECT DISTINCT resource_id FROM access_grant WHERE resource_type = :resource_type

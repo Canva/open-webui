@@ -14,7 +14,6 @@ from open_webui.models.access_grants import AccessGrantModel, AccessGrants
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import BigInteger, Column, Text, Boolean
 
 log = logging.getLogger(__name__)
@@ -321,8 +320,8 @@ class ModelsTable:
                 tag = filter.get('tag')
                 if tag:
                     # SQLite stores JSON text via json.dumps(ensure_ascii=True),
-                    # so non-ASCII chars are \uXXXX-escaped. PostgreSQL native JSONB
-                    # stores literal Unicode. Use the right pattern for each.
+                    # so non-ASCII chars are \uXXXX-escaped. PostgreSQL/MySQL native
+                    # JSON stores literal Unicode. Use the right pattern for each.
                     if db.bind.dialect.name == 'sqlite':
                         if tag.isascii():
                             meta_text = func.lower(cast(Model.meta, String))

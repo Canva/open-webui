@@ -1,7 +1,7 @@
 import time
 from typing import Optional
 
-from sqlalchemy import select, delete, update, func, or_, case, exists
+from sqlalchemy import select, delete, update, func, or_, case, exists, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from open_webui.internal.db import Base, JSONField, get_async_db_context
 
@@ -328,6 +328,10 @@ class UsersTable:
                 stmt = select(User)
                 if dialect_name == 'sqlite':
                     stmt = stmt.filter(User.oauth.contains({provider: {'sub': sub}}))
+                elif dialect_name == 'mysql':
+                    stmt = stmt.filter(text('JSON_UNQUOTE(JSON_EXTRACT(`user`.oauth, :path)) = :sub')).params(
+                        path=f'$.{provider}.sub', sub=sub
+                    )
                 elif dialect_name == 'postgresql':
                     stmt = stmt.filter(User.oauth[provider].cast(JSONB)['sub'].astext == sub)
 
@@ -335,7 +339,6 @@ class UsersTable:
                 user = result.scalars().first()
                 return UserModel.model_validate(user) if user else None
         except Exception as e:
-            # You may want to log the exception here
             return None
 
     async def get_user_by_scim_external_id(
@@ -348,6 +351,10 @@ class UsersTable:
                 stmt = select(User)
                 if dialect_name == 'sqlite':
                     stmt = stmt.filter(User.scim.contains({provider: {'external_id': external_id}}))
+                elif dialect_name == 'mysql':
+                    stmt = stmt.filter(text('JSON_UNQUOTE(JSON_EXTRACT(`user`.scim, :path)) = :external_id')).params(
+                        path=f'$.{provider}.external_id', external_id=external_id
+                    )
                 elif dialect_name == 'postgresql':
                     stmt = stmt.filter(User.scim[provider].cast(JSONB)['external_id'].astext == external_id)
 

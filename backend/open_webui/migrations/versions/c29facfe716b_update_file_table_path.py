@@ -23,16 +23,21 @@ def upgrade():
     op.add_column('file', sa.Column('path', sa.Text(), nullable=True))
 
     # 2. Convert the `meta` column from Text/JSONField to `JSON()`
-    # Use Alembic's default batch_op for dialect compatibility.
-    with op.batch_alter_table('file', schema=None) as batch_op:
-        batch_op.alter_column(
-            'meta',
-            type_=sa.JSON(),
-            existing_type=sa.Text(),
-            existing_nullable=True,
-            nullable=True,
-            postgresql_using='meta::json',
-        )
+    conn = op.get_bind()
+    dialect = conn.dialect.name
+
+    if dialect == 'mysql':
+        op.alter_column('file', 'meta', type_=sa.JSON(), existing_type=sa.Text(), existing_nullable=True, nullable=True)
+    else:
+        with op.batch_alter_table('file', schema=None) as batch_op:
+            batch_op.alter_column(
+                'meta',
+                type_=sa.JSON(),
+                existing_type=sa.Text(),
+                existing_nullable=True,
+                nullable=True,
+                postgresql_using='meta::json',
+            )
 
     # 3. Migrate legacy data from `meta` JSONField
     # Fetch and process `meta` data from the table, add values to the new `path` column as necessary.
