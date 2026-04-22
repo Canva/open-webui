@@ -60,8 +60,14 @@ def register_connection(db_url):
         log.info('Connected to encrypted SQLite database using SQLCipher')
 
     else:
-        # Standard database connection (existing logic)
-        db = connect(db_url, unquote_user=True, unquote_password=True)
+        # Peewee's db_url.connect() only understands bare schemes (mysql://,
+        # postgres://, sqlite://).  Strip SQLAlchemy-style driver suffixes
+        # so that e.g. mysql+pymysql:// becomes mysql://.
+        peewee_url = db_url
+        if peewee_url.startswith('mysql+'):
+            peewee_url = 'mysql://' + peewee_url.split('://', 1)[1]
+
+        db = connect(peewee_url, unquote_user=True, unquote_password=True)
         if isinstance(db, PostgresqlDatabase):
             # Enable autoconnect for SQLite databases, managed by Peewee
             db.autoconnect = True
