@@ -35,9 +35,7 @@ _MYSQL_PK_VARCHAR_LEN = 255
 
 
 def _is_textual_type(type_) -> bool:
-    return isinstance(type_, sa.Text) or (
-        isinstance(type_, sa.String) and type_.length is None
-    )
+    return isinstance(type_, sa.Text) or (isinstance(type_, sa.String) and type_.length is None)
 
 
 def _column_needs_bounded_string(column) -> bool:
@@ -108,11 +106,7 @@ def _probe_text_columns(table_name: str) -> set[str]:
         return set()
     try:
         inspector = sa.inspect(_ACTIVE_MIGRATION_CONN)
-        return {
-            c['name']
-            for c in inspector.get_columns(table_name)
-            if _is_textual_type(c['type'])
-        }
+        return {c['name'] for c in inspector.get_columns(table_name) if _is_textual_type(c['type'])}
     except Exception:  # pragma: no cover — best-effort schema probe
         return set()
 

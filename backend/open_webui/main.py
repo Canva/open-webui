@@ -527,6 +527,11 @@ from open_webui.env import (
     WEBUI_ADMIN_EMAIL,
     WEBUI_ADMIN_PASSWORD,
     WEBUI_ADMIN_NAME,
+    # Sync Service Account
+    OPENWEBUI_SYNC_USERNAME,
+    OPENWEBUI_SYNC_PASSWORD,
+    OPENWEBUI_SYNC_NAME,
+    OPENWEBUI_SYNC_API_KEY,
     ENABLE_EASTER_EGGS,
     LOG_FORMAT,
     # OAuth Back-Channel Logout
@@ -560,6 +565,7 @@ from open_webui.utils.auth import (
     get_admin_user,
     get_verified_user,
     create_admin_user,
+    ensure_sync_user,
 )
 from open_webui.utils.plugin import install_tool_and_function_dependencies
 from open_webui.utils.oauth import (
@@ -648,6 +654,18 @@ async def lifespan(app: FastAPI):
         if await create_admin_user(WEBUI_ADMIN_EMAIL, WEBUI_ADMIN_PASSWORD, WEBUI_ADMIN_NAME):
             # Disable signup since we now have an admin
             app.state.config.ENABLE_SIGNUP = False
+
+    # Ensure the agent-platform sync service account on every boot. Unlike
+    # WEBUI_ADMIN_* this runs regardless of has_users() and reconciles the
+    # password / role to match env, so credential rotation is just an env
+    # change plus restart.
+    if OPENWEBUI_SYNC_USERNAME and OPENWEBUI_SYNC_PASSWORD:
+        await ensure_sync_user(
+            OPENWEBUI_SYNC_USERNAME,
+            OPENWEBUI_SYNC_PASSWORD,
+            OPENWEBUI_SYNC_NAME,
+            api_key=OPENWEBUI_SYNC_API_KEY or None,
+        )
 
     if SAFE_MODE:
         await Functions.deactivate_all_functions()

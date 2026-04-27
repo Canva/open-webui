@@ -2918,11 +2918,11 @@
 										bind:history
 										bind:autoScroll
 										bind:prompt
+										bind:selectedModels
+										bind:atSelectedModel
 										setInputText={(text) => {
 											messageInput?.setText(text);
 										}}
-										{selectedModels}
-										{atSelectedModel}
 										{sendMessage}
 										{showMessage}
 										{submitMessage}
@@ -2934,6 +2934,9 @@
 										topPadding={true}
 										bottomPadding={files.length > 0}
 										{onSelect}
+										focusComposer={async () => {
+											await messageInput?.setText('');
+										}}
 									/>
 								</div>
 							</div>
@@ -3020,10 +3023,11 @@
 								</div>
 							</div>
 						{:else}
-							<div class="flex items-center h-full">
+							<div class="h-full overflow-auto">
 								<Placeholder
+									bind:selectedModels
+									bind:atSelectedModel
 									{history}
-									{selectedModels}
 									bind:messageInput
 									bind:files
 									bind:prompt
@@ -3033,7 +3037,6 @@
 									bind:imageGenerationEnabled
 									bind:codeInterpreterEnabled
 									bind:webSearchEnabled
-									bind:atSelectedModel
 									bind:showCommands
 									bind:dragged
 									{pendingOAuthTools}

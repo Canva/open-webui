@@ -524,6 +524,23 @@ WEBUI_ADMIN_EMAIL = os.environ.get('WEBUI_ADMIN_EMAIL', '')
 WEBUI_ADMIN_PASSWORD = os.environ.get('WEBUI_ADMIN_PASSWORD', '')
 WEBUI_ADMIN_NAME = os.environ.get('WEBUI_ADMIN_NAME', 'Admin')
 
+####################################
+# Sync Service Account
+####################################
+
+# Service-account admin user reconciled on every startup (idempotent create or
+# password reset). Used by the agent-platform sync job to push models and
+# skills into the DB. Rotates by changing the env vars and restarting.
+OPENWEBUI_SYNC_USERNAME = os.environ.get('OPENWEBUI_SYNC_USERNAME', '')
+OPENWEBUI_SYNC_PASSWORD = os.environ.get('OPENWEBUI_SYNC_PASSWORD', '')
+OPENWEBUI_SYNC_NAME = os.environ.get('OPENWEBUI_SYNC_NAME', 'Agent Platform')
+# Optional stable API key seeded onto the sync user. When set, the syncer can
+# call the API with `Authorization: Bearer <api_key>` instead of POSTing to
+# /api/v1/auths/signin (which is hard-wired to admin@localhost when
+# WEBUI_AUTH=false). Must start with `sk-` to be treated as an API key by the
+# auth dispatcher in utils/auth.py.
+OPENWEBUI_SYNC_API_KEY = os.environ.get('OPENWEBUI_SYNC_API_KEY', '')
+
 WEBUI_AUTH_TRUSTED_EMAIL_HEADER = os.environ.get('WEBUI_AUTH_TRUSTED_EMAIL_HEADER', None)
 WEBUI_AUTH_TRUSTED_NAME_HEADER = os.environ.get('WEBUI_AUTH_TRUSTED_NAME_HEADER', None)
 WEBUI_AUTH_TRUSTED_GROUPS_HEADER = os.environ.get('WEBUI_AUTH_TRUSTED_GROUPS_HEADER', None)

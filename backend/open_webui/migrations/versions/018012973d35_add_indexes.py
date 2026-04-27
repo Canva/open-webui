@@ -22,28 +22,40 @@ def upgrade():
     # column. SQLite and PostgreSQL ignore this kwarg.
     PREFIX = 255
     op.create_index(
-        'folder_id_idx', 'chat', ['folder_id'],
+        'folder_id_idx',
+        'chat',
+        ['folder_id'],
         mysql_length={'folder_id': PREFIX},
     )
     op.create_index(
-        'user_id_pinned_idx', 'chat', ['user_id', 'pinned'],
+        'user_id_pinned_idx',
+        'chat',
+        ['user_id', 'pinned'],
         mysql_length={'user_id': PREFIX},
     )
     op.create_index(
-        'user_id_archived_idx', 'chat', ['user_id', 'archived'],
+        'user_id_archived_idx',
+        'chat',
+        ['user_id', 'archived'],
         mysql_length={'user_id': PREFIX},
     )
     op.create_index(
-        'updated_at_user_id_idx', 'chat', ['updated_at', 'user_id'],
+        'updated_at_user_id_idx',
+        'chat',
+        ['updated_at', 'user_id'],
         mysql_length={'user_id': PREFIX},
     )
     op.create_index(
-        'folder_id_user_id_idx', 'chat', ['folder_id', 'user_id'],
+        'folder_id_user_id_idx',
+        'chat',
+        ['folder_id', 'user_id'],
         mysql_length={'folder_id': PREFIX, 'user_id': PREFIX},
     )
 
     op.create_index(
-        'user_id_idx', 'tag', ['user_id'],
+        'user_id_idx',
+        'tag',
+        ['user_id'],
         mysql_length={'user_id': PREFIX},
     )
 

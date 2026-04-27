@@ -505,3 +505,72 @@ async def create_admin_user(email: str, password: str, name: str = 'Admin'):
     except Exception as e:
         log.error(f'Error creating admin account: {e}')
         return None
+
+
+async def ensure_sync_user(
+    email: str,
+    password: str,
+    name: str = 'Agent Platform',
+    api_key: Optional[str] = None,
+):
+    """
+    Idempotently ensure a service-account admin user exists with the given
+    credentials. Unlike create_admin_user this runs on every startup
+    regardless of has_users() state and reconciles password / role / name to
+    match the environment, so rotating credentials is just an env change plus
+    restart. Manual UI changes to this account will be overwritten on boot;
+    that is intentional - this is a service account, not a human one.
+
+    When `api_key` is provided it is also seeded/reconciled on the user.
+    The auth dispatcher in `get_current_user` only treats bearer tokens
+    starting with `sk-` as API keys (anything else is parsed as JWT), so we
+    refuse to seed a key that doesn't carry that prefix - fail loud rather
+    than silently store a key that the syncer can never authenticate with.
+    """
+
+    if not email or not password:
+        return None
+
+    if api_key is not None and api_key != '' and not api_key.startswith('sk-'):
+        log.error(
+            "OPENWEBUI_SYNC_API_KEY must start with 'sk-' or it will be parsed as a JWT and rejected; "
+            'refusing to seed sync user with a non-conforming key.'
+        )
+        return None
+
+    email_lc = email.lower()
+
+    try:
+        hashed = get_password_hash(password)
+        existing = await Users.get_user_by_email(email_lc)
+
+        if existing is None:
+            log.info(f'Creating sync user from environment variables: {email_lc}')
+            user = await Auths.insert_new_auth(
+                email=email_lc,
+                password=hashed,
+                name=name,
+                role='admin',
+            )
+            if not user:
+                log.error('Failed to create sync user from environment variables')
+                return user
+        else:
+            log.debug(f'Reconciling existing sync user: {email_lc}')
+            await Auths.update_user_password_by_id(existing.id, hashed)
+            if existing.role != 'admin':
+                await Users.update_user_role_by_id(existing.id, 'admin')
+            if existing.name != name:
+                await Users.update_user_by_id(existing.id, {'name': name})
+            user = existing
+
+        if api_key:
+            current_key = await Users.get_user_api_key_by_id(user.id)
+            if current_key != api_key:
+                log.info(f'Reconciling sync user API key: {email_lc}')
+                await Users.update_user_api_key_by_id(user.id, api_key)
+
+        return user
+    except Exception as e:
+        log.error(f'Error ensuring sync user: {e}')
+        return None

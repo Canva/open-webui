@@ -23,6 +23,26 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _get_columns(table_name: str) -> set[str]:
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table(table_name):
+        return set()
+    return {column['name'] for column in inspector.get_columns(table_name)}
+
+
+def _has_column(table_name: str, column_name: str) -> bool:
+    return column_name in _get_columns(table_name)
+
+
+def _table_exists(table_name: str) -> bool:
+    return sa.inspect(op.get_bind()).has_table(table_name)
+
+
+def _add_column_if_missing(table_name: str, column: sa.Column) -> None:
+    if not _has_column(table_name, column.name):
+        op.add_column(table_name, column)
+
+
 def _drop_sqlite_indexes_for_column(table_name, column_name, conn):
     """
     SQLite requires manual removal of any indexes referencing a column
@@ -32,6 +52,13 @@ def _drop_sqlite_indexes_for_column(table_name, column_name, conn):
 
     for idx in indexes:
         index_name = idx[1]  # index name
+        # SQLite reports internal backing indexes for UNIQUE / PRIMARY KEY
+        # constraints here as well (``sqlite_autoindex_*``). Those cannot be
+        # dropped explicitly; ``batch_alter_table`` will rebuild the table and
+        # remove the constraint-backed index as part of the column drop.
+        index_origin = idx[3] if len(idx) > 3 else None
+        if index_name.startswith('sqlite_autoindex_') or index_origin in {'u', 'pk'}:
+            continue
         # Get indexed columns
         idx_info = conn.execute(sa.text(f"PRAGMA index_info('{index_name}')")).fetchall()
 
@@ -43,35 +70,42 @@ def _drop_sqlite_indexes_for_column(table_name, column_name, conn):
 def _convert_column_to_json(table: str, column: str):
     conn = op.get_bind()
     dialect = conn.dialect.name
+    source_column = column
+    temp_column = f'{column}_json'
+
+    if not (_has_column(table, source_column) or _has_column(table, temp_column)):
+        return
 
     # SQLite cannot ALTER COLUMN → must recreate column
     if dialect == 'sqlite':
         # 1. Add temporary column
-        op.add_column(table, sa.Column(f'{column}_json', sa.JSON(), nullable=True))
+        _add_column_if_missing(table, sa.Column(temp_column, sa.JSON(), nullable=True))
 
         # 2. Load old data
-        rows = conn.execute(sa.text(f'SELECT id, {column} FROM "{table}"')).fetchall()
+        if _has_column(table, source_column):
+            rows = conn.execute(sa.text(f'SELECT id, {source_column} FROM "{table}"')).fetchall()
 
-        for row in rows:
-            uid, raw = row
-            if raw is None:
-                parsed = None
-            else:
-                try:
-                    parsed = json.loads(raw)
-                except Exception:
-                    parsed = None  # fallback safe behavior
+            for row in rows:
+                uid, raw = row
+                if raw is None:
+                    parsed = None
+                else:
+                    try:
+                        parsed = json.loads(raw)
+                    except Exception:
+                        parsed = None  # fallback safe behavior
 
-            conn.execute(
-                sa.text(f'UPDATE "{table}" SET {column}_json = :val WHERE id = :id'),
-                {'val': json.dumps(parsed) if parsed else None, 'id': uid},
-            )
+                conn.execute(
+                    sa.text(f'UPDATE "{table}" SET {temp_column} = :val WHERE id = :id'),
+                    {'val': json.dumps(parsed) if parsed else None, 'id': uid},
+                )
 
-        # 3. Drop old TEXT column
-        op.drop_column(table, column)
+            # 3. Drop old TEXT column
+            op.drop_column(table, source_column)
 
         # 4. Rename new JSON column → original name
-        op.alter_column(table, f'{column}_json', new_column_name=column)
+        if _has_column(table, temp_column):
+            op.alter_column(table, temp_column, new_column_name=source_column)
 
     elif dialect == 'mysql':
         op.alter_column(table, column, type_=sa.JSON())
@@ -88,20 +122,27 @@ def _convert_column_to_json(table: str, column: str):
 def _convert_column_to_text(table: str, column: str):
     conn = op.get_bind()
     dialect = conn.dialect.name
+    source_column = column
+    temp_column = f'{column}_text'
+
+    if not (_has_column(table, source_column) or _has_column(table, temp_column)):
+        return
 
     if dialect == 'sqlite':
-        op.add_column(table, sa.Column(f'{column}_text', sa.Text(), nullable=True))
+        _add_column_if_missing(table, sa.Column(temp_column, sa.Text(), nullable=True))
 
-        rows = conn.execute(sa.text(f'SELECT id, {column} FROM "{table}"')).fetchall()
+        if _has_column(table, source_column):
+            rows = conn.execute(sa.text(f'SELECT id, {source_column} FROM "{table}"')).fetchall()
 
-        for uid, raw in rows:
-            conn.execute(
-                sa.text(f'UPDATE "{table}" SET {column}_text = :val WHERE id = :id'),
-                {'val': json.dumps(raw) if raw else None, 'id': uid},
-            )
+            for uid, raw in rows:
+                conn.execute(
+                    sa.text(f'UPDATE "{table}" SET {temp_column} = :val WHERE id = :id'),
+                    {'val': json.dumps(raw) if raw else None, 'id': uid},
+                )
 
-        op.drop_column(table, column)
-        op.alter_column(table, f'{column}_text', new_column_name=column)
+            op.drop_column(table, source_column)
+        if _has_column(table, temp_column):
+            op.alter_column(table, temp_column, new_column_name=source_column)
 
     elif dialect == 'mysql':
         op.alter_column(table, column, type_=sa.Text())
@@ -115,36 +156,37 @@ def _convert_column_to_text(table: str, column: str):
 
 
 def upgrade() -> None:
-    op.add_column('user', sa.Column('profile_banner_image_url', sa.Text(), nullable=True))
+    _add_column_if_missing('user', sa.Column('profile_banner_image_url', sa.Text(), nullable=True))
     # ``sa.String()`` (no length) compiles to an unbounded VARCHAR which MySQL
     # rejects ("VARCHAR requires a length on dialect mysql"). Use ``sa.Text``
     # for these short, non-indexed strings; SQLite/Postgres treat the two
     # identically for these purposes.
-    op.add_column('user', sa.Column('timezone', sa.Text(), nullable=True))
+    _add_column_if_missing('user', sa.Column('timezone', sa.Text(), nullable=True))
 
-    op.add_column('user', sa.Column('presence_state', sa.Text(), nullable=True))
-    op.add_column('user', sa.Column('status_emoji', sa.Text(), nullable=True))
-    op.add_column('user', sa.Column('status_message', sa.Text(), nullable=True))
-    op.add_column('user', sa.Column('status_expires_at', sa.BigInteger(), nullable=True))
+    _add_column_if_missing('user', sa.Column('presence_state', sa.Text(), nullable=True))
+    _add_column_if_missing('user', sa.Column('status_emoji', sa.Text(), nullable=True))
+    _add_column_if_missing('user', sa.Column('status_message', sa.Text(), nullable=True))
+    _add_column_if_missing('user', sa.Column('status_expires_at', sa.BigInteger(), nullable=True))
 
-    op.add_column('user', sa.Column('oauth', sa.JSON(), nullable=True))
+    _add_column_if_missing('user', sa.Column('oauth', sa.JSON(), nullable=True))
 
     # Convert info (TEXT/JSONField) → JSON
     _convert_column_to_json('user', 'info')
     # Convert settings (TEXT/JSONField) → JSON
     _convert_column_to_json('user', 'settings')
 
-    op.create_table(
-        'api_key',
-        sa.Column('id', sa.Text(), primary_key=True, unique=True),
-        sa.Column('user_id', sa.Text(), sa.ForeignKey('user.id', ondelete='CASCADE')),
-        sa.Column('key', sa.Text(), unique=True, nullable=False),
-        sa.Column('data', sa.JSON(), nullable=True),
-        sa.Column('expires_at', sa.BigInteger(), nullable=True),
-        sa.Column('last_used_at', sa.BigInteger(), nullable=True),
-        sa.Column('created_at', sa.BigInteger(), nullable=False),
-        sa.Column('updated_at', sa.BigInteger(), nullable=False),
-    )
+    if not _table_exists('api_key'):
+        op.create_table(
+            'api_key',
+            sa.Column('id', sa.Text(), primary_key=True, unique=True),
+            sa.Column('user_id', sa.Text(), sa.ForeignKey('user.id', ondelete='CASCADE')),
+            sa.Column('key', sa.Text(), unique=True, nullable=False),
+            sa.Column('data', sa.JSON(), nullable=True),
+            sa.Column('expires_at', sa.BigInteger(), nullable=True),
+            sa.Column('last_used_at', sa.BigInteger(), nullable=True),
+            sa.Column('created_at', sa.BigInteger(), nullable=False),
+            sa.Column('updated_at', sa.BigInteger(), nullable=False),
+        )
 
     conn = op.get_bind()
     # Use the dialect's identifier preparer so reserved words like `user` and
@@ -153,33 +195,41 @@ def upgrade() -> None:
     quote = conn.dialect.identifier_preparer.quote
     user_tbl = quote('user')
     key_col = quote('key')
-    users = conn.execute(
-        sa.text(f'SELECT id, oauth_sub FROM {user_tbl} WHERE oauth_sub IS NOT NULL')
-    ).fetchall()
+    if _has_column('user', 'oauth_sub') and _has_column('user', 'oauth'):
+        users = conn.execute(
+            sa.text(f'SELECT id, oauth_sub FROM {user_tbl} WHERE oauth_sub IS NOT NULL AND oauth IS NULL')
+        ).fetchall()
 
-    for uid, oauth_sub in users:
-        if oauth_sub:
-            # Example formats supported:
-            #   provider@sub
-            #   plain sub (stored as {"oidc": {"sub": sub}})
-            if '@' in oauth_sub:
-                provider, sub = oauth_sub.split('@', 1)
-            else:
-                provider, sub = 'oidc', oauth_sub
+        for uid, oauth_sub in users:
+            if oauth_sub:
+                # Example formats supported:
+                #   provider@sub
+                #   plain sub (stored as {"oidc": {"sub": sub}})
+                if '@' in oauth_sub:
+                    provider, sub = oauth_sub.split('@', 1)
+                else:
+                    provider, sub = 'oidc', oauth_sub
 
-            oauth_json = json.dumps({provider: {'sub': sub}})
-            conn.execute(
-                sa.text(f'UPDATE {user_tbl} SET oauth = :oauth WHERE id = :id'),
-                {'oauth': oauth_json, 'id': uid},
-            )
+                oauth_json = json.dumps({provider: {'sub': sub}})
+                conn.execute(
+                    sa.text(f'UPDATE {user_tbl} SET oauth = :oauth WHERE id = :id'),
+                    {'oauth': oauth_json, 'id': uid},
+                )
 
-    users_with_keys = conn.execute(
-        sa.text(f'SELECT id, api_key FROM {user_tbl} WHERE api_key IS NOT NULL')
-    ).fetchall()
+    users_with_keys = []
+    if _has_column('user', 'api_key') and _table_exists('api_key'):
+        users_with_keys = conn.execute(
+            sa.text(f'SELECT id, api_key FROM {user_tbl} WHERE api_key IS NOT NULL')
+        ).fetchall()
     now = int(time.time())
+    existing_api_key_user_ids = set()
+    if _table_exists('api_key') and _has_column('api_key', 'user_id'):
+        existing_api_key_user_ids = {
+            user_id for (user_id,) in conn.execute(sa.text('SELECT user_id FROM api_key')).fetchall()
+        }
 
     for uid, api_key in users_with_keys:
-        if api_key:
+        if api_key and uid not in existing_api_key_user_ids:
             conn.execute(
                 sa.text(f"""
                     INSERT INTO api_key (id, user_id, {key_col}, created_at, updated_at)
@@ -195,12 +245,16 @@ def upgrade() -> None:
             )
 
     if conn.dialect.name == 'sqlite':
-        _drop_sqlite_indexes_for_column('user', 'api_key', conn)
-        _drop_sqlite_indexes_for_column('user', 'oauth_sub', conn)
+        if _has_column('user', 'api_key'):
+            _drop_sqlite_indexes_for_column('user', 'api_key', conn)
+        if _has_column('user', 'oauth_sub'):
+            _drop_sqlite_indexes_for_column('user', 'oauth_sub', conn)
 
-    with op.batch_alter_table('user') as batch_op:
-        batch_op.drop_column('api_key')
-        batch_op.drop_column('oauth_sub')
+    columns_to_drop = [column for column in ('api_key', 'oauth_sub') if _has_column('user', column)]
+    if columns_to_drop:
+        with op.batch_alter_table('user') as batch_op:
+            for column in columns_to_drop:
+                batch_op.drop_column(column)
 
 
 def downgrade() -> None:
@@ -214,9 +268,7 @@ def downgrade() -> None:
     quote = conn.dialect.identifier_preparer.quote
     user_tbl = quote('user')
     key_col = quote('key')
-    users = conn.execute(
-        sa.text(f'SELECT id, oauth FROM {user_tbl} WHERE oauth IS NOT NULL')
-    ).fetchall()
+    users = conn.execute(sa.text(f'SELECT id, oauth FROM {user_tbl} WHERE oauth IS NOT NULL')).fetchall()
 
     for uid, oauth in users:
         try:

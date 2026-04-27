@@ -4,6 +4,7 @@ import uuid
 import time
 import datetime
 import logging
+from typing import Awaitable, Callable
 from aiohttp import ClientSession
 import urllib
 
@@ -42,6 +43,7 @@ from open_webui.env import (
     ENABLE_INITIAL_ADMIN_SIGNUP,
     ENABLE_OAUTH_TOKEN_EXCHANGE,
     AIOHTTP_CLIENT_SESSION_SSL,
+    OPENWEBUI_SYNC_USERNAME,
 )
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response, JSONResponse
@@ -95,6 +97,49 @@ log = logging.getLogger(__name__)
 # Forgive us our failed attempts, as we forgive those
 # who exceed their allotted rate against this gate.
 signin_rate_limiter = RateLimiter(redis_client=get_redis_client(), limit=5 * 3, window=60 * 3)
+
+
+# Per-email locks that serialize the auto-signup flows (WEBUI_AUTH=false
+# bootstrap and trusted-header auto-register). The user/auth tables don't
+# carry a UNIQUE constraint on `email`, so without serialization two parallel
+# signin requests can both observe a missing user, both call signup_handler,
+# and both insert duplicate rows. This protects single-worker deployments;
+# multi-worker setups still need a DB-level unique constraint to be safe.
+_auto_signup_locks: dict[str, asyncio.Lock] = {}
+_auto_signup_locks_guard = asyncio.Lock()
+
+
+async def _get_auto_signup_lock(email: str) -> asyncio.Lock:
+    async with _auto_signup_locks_guard:
+        lock = _auto_signup_locks.get(email)
+        if lock is None:
+            lock = asyncio.Lock()
+            _auto_signup_locks[email] = lock
+        return lock
+
+
+async def _ensure_user_via_lock(
+    *,
+    email: str,
+    db: AsyncSession,
+    create: Callable[[], Awaitable[None]],
+) -> None:
+    """Run ``create()`` at most once per email under an in-process lock.
+
+    The lock holder re-checks ``get_user_by_email`` *after* rolling back
+    the request session so the re-read sees rows committed by a sibling
+    request whose snapshot would otherwise be hidden under MySQL's default
+    REPEATABLE READ isolation.
+    """
+    lock = await _get_auto_signup_lock(email)
+    async with lock:
+        # Drop the prior snapshot so the next read starts a fresh transaction
+        # and observes commits from any concurrent auto-signup request that
+        # ran while we were queued on the lock.
+        await db.rollback()
+        if await Users.get_user_by_email(email, db=db) is not None:
+            return
+        await create()
 
 
 async def create_session_response(
@@ -575,13 +620,21 @@ async def signin(
             except Exception as e:
                 pass
 
-        if not await Users.get_user_by_email(email.lower(), db=db):
-            await signup_handler(
-                request,
-                email,
-                str(uuid.uuid4()),
-                name,
+        normalized_email = email.lower()
+        if not await Users.get_user_by_email(normalized_email, db=db):
+            async def _create_trusted_user() -> None:
+                await signup_handler(
+                    request,
+                    email,
+                    str(uuid.uuid4()),
+                    name,
+                    db=db,
+                )
+
+            await _ensure_user_via_lock(
+                email=normalized_email,
                 db=db,
+                create=_create_trusted_user,
             )
 
         user = await Auths.authenticate_user_by_email(email, db=db)
@@ -604,30 +657,37 @@ async def signin(
     elif WEBUI_AUTH == False:
         admin_email = 'admin@localhost'
         admin_password = 'admin'
+        normalized_email = admin_email.lower()
 
-        if await Users.get_user_by_email(admin_email.lower(), db=db):
-            user = await Auths.authenticate_user(
-                admin_email.lower(),
-                lambda pw: verify_password(admin_password, pw),
-                db=db,
-            )
-        else:
-            if await Users.has_users(db=db):
-                raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
+        if not await Users.get_user_by_email(normalized_email, db=db):
+            async def _create_bootstrap_admin() -> None:
+                # The sync service account (OPENWEBUI_SYNC_USERNAME) is
+                # reconciled on every boot and would otherwise block this
+                # WEBUI_AUTH=false bootstrap. Treat it as a non-user for the
+                # existence check.
+                sync_emails = [OPENWEBUI_SYNC_USERNAME] if OPENWEBUI_SYNC_USERNAME else None
+                if await Users.has_users(db=db, exclude_emails=sync_emails):
+                    raise HTTPException(400, detail=ERROR_MESSAGES.EXISTING_USERS)
 
-            await signup_handler(
-                request,
-                admin_email,
-                admin_password,
-                'User',
+                await signup_handler(
+                    request,
+                    admin_email,
+                    admin_password,
+                    'User',
+                    db=db,
+                )
+
+            await _ensure_user_via_lock(
+                email=normalized_email,
                 db=db,
+                create=_create_bootstrap_admin,
             )
 
-            user = await Auths.authenticate_user(
-                admin_email.lower(),
-                lambda pw: verify_password(admin_password, pw),
-                db=db,
-            )
+        user = await Auths.authenticate_user(
+            normalized_email,
+            lambda pw: verify_password(admin_password, pw),
+            db=db,
+        )
     else:
         if signin_rate_limiter.is_limited(form_data.email.lower()):
             raise HTTPException(
