@@ -36,11 +36,22 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 COPY package.json package-lock.json ./
-RUN CYPRESS_INSTALL_BINARY=0 npm ci --force
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    CYPRESS_INSTALL_BINARY=0 npm ci --force
 
-COPY . .
+# Only copy what `npm run build` (vite + svelte-kit + prepare-pyodide) actually
+# reads. This decouples the frontend cache key from backend-only edits.
+COPY src ./src
+COPY static ./static
+COPY scripts ./scripts
+COPY svelte.config.js vite.config.ts tsconfig.json \
+     postcss.config.js tailwind.config.js ./
 ENV APP_BUILD_HASH=${BUILD_HASH}
 RUN npm run build
+
+# Pulled into the backend stage via COPY --from=build; placed AFTER `npm run
+# build` so CHANGELOG churn doesn't invalidate the frontend build cache.
+COPY CHANGELOG.md ./CHANGELOG.md
 
 ######## WebUI backend ########
 FROM python:3.11.14-slim-bookworm AS base
@@ -120,23 +131,28 @@ RUN if [ $UID -ne 0 ]; then \
 RUN mkdir -p $HOME/.cache/chroma
 RUN echo -n 00000000-0000-0000-0000-000000000000 > $HOME/.cache/chroma/telemetry_user_id
 
-# Make sure the user has access to the app and root directory
-RUN chown -R $UID:$GID /app $HOME
-
-# Install common system dependencies
-RUN apt-get update && \
+# Install common system dependencies. Cache mounts persist apt artefacts so
+# layer-cache misses don't re-download every package from the mirror.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     git build-essential pandoc gcc netcat-openbsd curl jq \
     libmariadb-dev \
     python3-dev \
-    ffmpeg libsm6 libxext6 zstd \
-    && rm -rf /var/lib/apt/lists/*
+    ffmpeg libsm6 libxext6 zstd
+
+# Use the prebuilt uv binary instead of `pip install uv`. Mirrors the root
+# agents Dockerfile and avoids a PyPI roundtrip on every cold build.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # install python dependencies
 COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
 
-RUN set -e; \
-    pip3 install --no-cache-dir uv; \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    set -e; \
     if [ "$USE_SLIM" = "true" ]; then \
     # Slim build: skip torch and heavy ML dependencies entirely.
     # Removes ~2GB+ of torch/torchvision/torchaudio, sentence-transformers,
@@ -144,28 +160,26 @@ RUN set -e; \
     # STT features will be unavailable — use API-based alternatives instead
     # (RAG_EMBEDDING_ENGINE=openai/ollama, external reranker, OpenAI TTS/STT).
     grep -vE '^(transformers|sentence-transformers|accelerate|einops|colbert-ai|faster-whisper|sentencepiece|soundfile|onnxruntime|rapidocr-onnxruntime)==' requirements.txt > /tmp/requirements-slim.txt; \
-    uv pip install --system -r /tmp/requirements-slim.txt --no-cache-dir; \
+    uv pip install --system -r /tmp/requirements-slim.txt; \
     elif [ "$USE_CUDA" = "true" ]; then \
-    # If you use CUDA the whisper and embedding model will be downloaded on first use
     # fix: pin torch<=2.9.1 - torch 2.10.0 aarch64 wheels cause SIGILL on ARM devices (RPi 4 Cortex-A72) #21349
-    pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir; \
-    uv pip install --system -r requirements.txt --no-cache-dir; \
-    python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')"; \
-    python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ.get('AUXILIARY_EMBEDDING_MODEL', 'TaylorAI/bge-micro-v2'), device='cpu')"; \
-    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
-    python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
-    python -c "import nltk; nltk.download('punkt_tab')"; \
+    pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER; \
+    uv pip install --system -r requirements.txt; \
     else \
-    pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir; \
-    uv pip install --system -r requirements.txt --no-cache-dir; \
+    pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu; \
+    uv pip install --system -r requirements.txt; \
+    fi; \
+    mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/
+
+# Pre-fetch ML model weights in a separate layer so `requirements.txt` churn
+# doesn't re-download ~1.5GB of weights. Slim builds skip this entirely.
+RUN if [ "$USE_SLIM" != "true" ]; then \
     python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')"; \
     python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ.get('AUXILIARY_EMBEDDING_MODEL', 'TaylorAI/bge-micro-v2'), device='cpu')"; \
     python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
     python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
     python -c "import nltk; nltk.download('punkt_tab')"; \
-    fi; \
-    mkdir -p /app/backend/data; chown -R $UID:$GID /app/backend/data/; \
-    rm -rf /var/lib/apt/lists/*;
+    fi
 
 # Install Ollama if requested
 RUN if [ "$USE_OLLAMA" = "true" ]; then \
@@ -184,7 +198,9 @@ COPY --chown=$UID:$GID --from=build /app/build /app/build
 COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
 COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 
-# copy backend files
+# copy backend files. Fonts (~63 MB, near-immutable) are copied in their own
+# layer first so backend Python edits don't rewrite them on every build.
+COPY --chown=$UID:$GID ./backend/open_webui/static ./open_webui/static
 COPY --chown=$UID:$GID ./backend .
 
 EXPOSE 8080
