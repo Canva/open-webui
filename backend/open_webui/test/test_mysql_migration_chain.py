@@ -83,7 +83,9 @@ class TestMySQLMigrationChain:
             # b10670c03dd5 respectively and stay forever.
             user_columns = {c['name'] for c in inspector.get_columns('user')}
             assert {'created_at', 'updated_at', 'last_active_at', 'oauth'} <= user_columns
-            assert 'oauth_sub' not in user_columns, 'b10670c03dd5_update_user_table should have dropped oauth_sub'
+            assert 'oauth_sub' not in user_columns, (
+                'b10670c03dd5_update_user_table should have dropped oauth_sub'
+            )
 
             with engine.connect() as conn:
                 version = conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one()

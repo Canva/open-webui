@@ -56,7 +56,6 @@
 	export let autoScroll;
 
 	export let onSelect = (e) => {};
-	export let focusComposer: Function = () => {};
 
 	export let messagesCount: number | null = 8;
 	let messagesLoading = false;
@@ -549,12 +548,7 @@
 
 <div class={className}>
 	{#if Object.keys(history?.messages ?? {}).length == 0}
-		<ChatPlaceholder
-			bind:modelIds={selectedModels}
-			bind:atSelectedModel
-			{onSelect}
-			{focusComposer}
-		/>
+		<ChatPlaceholder modelIds={selectedModels} {atSelectedModel} {onSelect} />
 	{:else}
 		<div class="w-full pt-2">
 			{#key chatId}

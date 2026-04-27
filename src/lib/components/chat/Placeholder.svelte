@@ -1,22 +1,28 @@
 <script lang="ts">
-	import { getContext, createEventDispatcher } from 'svelte';
-	import { fade } from 'svelte/transition';
+	import { toast } from 'svelte-sonner';
+	import { marked } from 'marked';
+	import DOMPurify from 'dompurify';
+
+	import { onMount, getContext, tick, createEventDispatcher } from 'svelte';
+	import { blur, fade } from 'svelte/transition';
 
 	const dispatch = createEventDispatcher();
 
 	import { getChatList } from '$lib/apis/chats';
+	import { updateFolderById } from '$lib/apis/folders';
 
 	import {
 		config,
+		user,
 		models as _models,
-		type Model,
 		temporaryChatEnabled,
 		selectedFolder,
 		chats,
 		currentChatPage
 	} from '$lib/stores';
+	import { sanitizeResponseContent, extractCurlyBraceWords } from '$lib/utils';
+	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
-	import AgentHome from './AgentHome.svelte';
 	import Suggestions from './Suggestions.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
@@ -32,7 +38,7 @@
 	export let autoScroll = false;
 
 	export let atSelectedModel: Model | undefined;
-	export let selectedModels: string[] = [''];
+	export let selectedModels: [''];
 
 	export let history;
 
@@ -58,18 +64,21 @@
 
 	export let dragged = false;
 
-	$: activeModel =
-		atSelectedModel ??
-		selectedModels
-			.map((id) => $_models.find((model) => model.id === id))
-			.find((model) => model !== undefined);
+	let models = [];
+	let selectedModelIdx = 0;
+
+	$: if (selectedModels.length > 0) {
+		selectedModelIdx = models.length - 1;
+	}
+
+	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
 </script>
 
-<div class="w-full">
+<div class="m-auto w-full max-w-6xl px-2 @2xl:px-20 translate-y-6 py-24 text-center">
 	{#if $temporaryChatEnabled}
 		<Tooltip
 			content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
-			className="w-full flex justify-center pt-6"
+			className="w-full flex justify-center mb-0.5"
 			placement="top"
 		>
 			<div class="flex items-center gap-2 text-gray-500 text-base my-2 w-fit">
@@ -78,8 +87,10 @@
 		</Tooltip>
 	{/if}
 
-	<div class="w-full text-gray-800 dark:text-gray-100 flex items-center gap-4 font-primary">
-		<div class="w-full">
+	<div
+		class="w-full text-3xl text-gray-800 dark:text-gray-100 text-center flex items-center gap-4 font-primary"
+	>
+		<div class="w-full flex flex-col justify-center items-center">
 			{#if $selectedFolder}
 				<FolderTitle
 					folder={$selectedFolder}
@@ -95,16 +106,109 @@
 					}}
 				/>
 			{:else}
-				<AgentHome
-					bind:selectedModels
-					bind:atSelectedModel
-					onAgentSelect={async () => {
-						await messageInput?.setText('');
-					}}
-				/>
+				<div class="flex flex-row justify-center gap-2.5 @sm:gap-3 w-fit px-5 max-w-xl">
+					<div class="flex shrink-0 justify-center">
+						<div class="flex -space-x-4 mb-0.5" in:fade={{ duration: 100 }}>
+							{#each models as model, modelIdx}
+								<Tooltip
+									content={(models[modelIdx]?.info?.meta?.tags ?? [])
+										.map((tag) => tag.name.toUpperCase())
+										.join(', ')}
+									placement="top"
+								>
+									<button
+										aria-hidden={models.length <= 1}
+										aria-label={$i18n.t('Get information on {{name}} in the UI', {
+											name: models[modelIdx]?.name
+										})}
+										on:click={() => {
+											selectedModelIdx = modelIdx;
+										}}
+									>
+										<img
+											src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`}
+											class=" size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none"
+											aria-hidden="true"
+											draggable="false"
+											on:error={(e) => {
+												e.currentTarget.src = '/favicon.png';
+											}}
+										/>
+									</button>
+								</Tooltip>
+							{/each}
+						</div>
+					</div>
+
+					<div
+						class=" text-3xl @sm:text-3xl line-clamp-1 flex items-center"
+						in:fade={{ duration: 100 }}
+					>
+						{#if models[selectedModelIdx]?.name}
+							<Tooltip
+								content={models[selectedModelIdx]?.name}
+								placement="top"
+								className=" flex items-center "
+							>
+								<span class="line-clamp-1">
+									{models[selectedModelIdx]?.name}
+								</span>
+							</Tooltip>
+						{:else}
+							{$i18n.t('Hello, {{name}}', { name: $user?.name })}
+						{/if}
+					</div>
+				</div>
+
+				<div class="flex mt-1 mb-2">
+					<div in:fade={{ duration: 100, delay: 50 }}>
+						{#if models[selectedModelIdx]?.info?.meta?.description ?? null}
+							<Tooltip
+								className=" w-fit"
+								content={DOMPurify.sanitize(
+									marked.parse(
+										sanitizeResponseContent(
+											models[selectedModelIdx]?.info?.meta?.description ?? ''
+										).replaceAll('\n', '<br>')
+									)
+								)}
+								placement="top"
+							>
+								<div
+									class="mt-0.5 px-2 text-sm font-normal text-gray-500 dark:text-gray-400 line-clamp-4 max-w-xl markdown"
+								>
+									{@html DOMPurify.sanitize(
+										marked.parse(
+											sanitizeResponseContent(
+												models[selectedModelIdx]?.info?.meta?.description ?? ''
+											).replaceAll('\n', '<br>')
+										)
+									)}
+								</div>
+							</Tooltip>
+
+							{#if models[selectedModelIdx]?.info?.meta?.user}
+								<div class="mt-0.5 text-sm font-normal text-gray-400 dark:text-gray-500">
+									By
+									{#if models[selectedModelIdx]?.info?.meta?.user.community}
+										<a
+											href="https://openwebui.com/m/{models[selectedModelIdx]?.info?.meta?.user
+												.username}"
+											>{models[selectedModelIdx]?.info?.meta?.user.name
+												? models[selectedModelIdx]?.info?.meta?.user.name
+												: `@${models[selectedModelIdx]?.info?.meta?.user.username}`}</a
+										>
+									{:else}
+										{models[selectedModelIdx]?.info?.meta?.user.name}
+									{/if}
+								</div>
+							{/if}
+						{/if}
+					</div>
+				</div>
 			{/if}
 
-			<div class="mx-auto w-full max-w-3xl px-3 pb-4 text-base font-normal">
+			<div class="text-base font-normal @md:max-w-3xl w-full py-3 {atSelectedModel ? 'mt-2' : ''}">
 				<MessageInput
 					bind:this={messageInput}
 					{history}
@@ -143,11 +247,11 @@
 			<FolderPlaceholder folder={$selectedFolder} />
 		</div>
 	{:else}
-		<div class="mx-auto max-w-3xl px-3 pb-8 font-primary" in:fade={{ duration: 200, delay: 200 }}>
-			<div>
+		<div class="mx-auto max-w-2xl font-primary mt-2" in:fade={{ duration: 200, delay: 200 }}>
+			<div class="mx-5">
 				<Suggestions
 					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-						activeModel?.info?.meta?.suggestion_prompts ??
+						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
 						$config?.default_prompt_suggestions ??
 						[]}
 					inputValue={prompt}

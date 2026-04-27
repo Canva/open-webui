@@ -164,7 +164,9 @@ class TestMySQLChatContentSearch:
         await _seed_user(db_session, user_id)
         await _seed_chat(db_session, chat_id, user_id, title='Quantum Physics Discussion')
 
-        result = await db_session.execute(select(Chat.id).where(Chat.title.ilike('%quantum%'), Chat.id == chat_id))
+        result = await db_session.execute(
+            select(Chat.id).where(Chat.title.ilike('%quantum%'), Chat.id == chat_id)
+        )
         assert result.scalar_one_or_none() == chat_id
 
     async def test_null_byte_safety_filter(self, db_session: AsyncSession):

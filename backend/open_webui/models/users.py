@@ -531,19 +531,9 @@ class UsersTable:
             result = await db.execute(select(func.count()).select_from(User))
             return result.scalar()
 
-    async def has_users(
-        self,
-        db: Optional[AsyncSession] = None,
-        *,
-        exclude_emails: Optional[list[str]] = None,
-    ) -> bool:
+    async def has_users(self, db: Optional[AsyncSession] = None) -> bool:
         async with get_async_db_context(db) as db:
-            stmt = select(User)
-            if exclude_emails:
-                normalized = [e.lower() for e in exclude_emails if e]
-                if normalized:
-                    stmt = stmt.where(func.lower(User.email).notin_(normalized))
-            result = await db.execute(select(exists(stmt)))
+            result = await db.execute(select(exists(select(User))))
             return result.scalar()
 
     async def get_first_user(self, db: Optional[AsyncSession] = None) -> UserModel:

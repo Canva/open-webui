@@ -34,7 +34,7 @@ update:
 ###############################################################################
 # Canva targets
 ###############################################################################
-.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend setup test-mysql dev-backend dev-frontend
+.PHONY: build lint lint-frontend lint-backend format format-frontend format-backend setup test-mysql
 
 NVM_DIR    ?= $(HOME)/.nvm
 NVM_NODE   := $(firstword $(wildcard $(NVM_DIR)/versions/node/v22.*/bin))
@@ -48,15 +48,6 @@ IMAGE_TAG  ?= latest
 setup:
 	uv sync --all-groups
 	$(NPM) ci
-
-dev-backend:
-	@if [ -f local-compose.env ]; then echo "Loading env from local-compose.env"; \
-	else echo "Note: local-compose.env not found - relying on current shell env. Copy local-compose.env.example to enable local-compose defaults."; fi
-	cd backend && export PORT=5080 && \
-		uv run $$([ -f ../local-compose.env ] && echo --env-file ../local-compose.env) ./dev.sh
-
-dev-frontend:
-	$(NPM) run dev
 
 build:
 	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .

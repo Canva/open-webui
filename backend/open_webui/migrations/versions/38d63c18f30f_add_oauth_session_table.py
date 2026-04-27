@@ -67,16 +67,12 @@ def upgrade() -> None:
     # by SQLite and PostgreSQL.
     PREFIX = 255
     op.create_index(
-        'idx_oauth_session_user_id',
-        'oauth_session',
-        ['user_id'],
+        'idx_oauth_session_user_id', 'oauth_session', ['user_id'],
         mysql_length={'user_id': PREFIX},
     )
     op.create_index('idx_oauth_session_expires_at', 'oauth_session', ['expires_at'])
     op.create_index(
-        'idx_oauth_session_user_provider',
-        'oauth_session',
-        ['user_id', 'provider'],
+        'idx_oauth_session_user_provider', 'oauth_session', ['user_id', 'provider'],
         mysql_length={'user_id': PREFIX, 'provider': PREFIX},
     )
 
