@@ -7,7 +7,7 @@ Take the rebuild from "feature complete on a developer laptop" to "running in pr
 ## Deliverables
 
 - `rebuild/backend/app/observability/` package: OTel bootstrap (`otel.py`), structured JSON logger (`logging.py`), correlation-id middleware (`middleware.py`), and ASGI/SQLAlchemy/socket.io instrumentation glue.
-- New env vars wired through `Settings` for observability: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, and `LOG_FORMAT` (`json` in prod, `text` in dev). `LOG_LEVEL` already exists from M0 (`m0-foundations.md` §Settings) and is not redeclared. The full list of M5-introduced settings (including the rate-limit, trusted-proxy, file-upload, banner, and timeout knobs added in later sections) is collected in [§ Settings additions](#settings-additions) below so M0's settings table stays the canonical reference.
+- New env vars wired through `Settings` for observability: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, and `LOG_FORMAT` (`json` in prod, `text` in dev). `LOG_LEVEL` already exists from M0 (`m0-foundations.md` §Settings) and is not redeclared. The full list of M5-introduced backend settings (the rate-limit, trusted-proxy, and file-upload knobs added in later sections) is collected in [§ Settings additions](#settings-additions) below so M0's settings table stays the canonical reference. The launch banner is owned by SvelteKit as a `PUBLIC_LAUNCH_BANNER_UNTIL` env var (frontend-only, not part of `Settings`); per-route HTTP timeouts are not env-driven (constants on the route declarations).
 - `rebuild/backend/app/security/` package: trusted-IP allowlist middleware (`trusted_ip.py`), security-headers middleware (`headers.py`), CORS configuration helper, MIME/extension sniffer used by the file upload endpoint.
 - `rebuild/backend/app/ratelimit/` package: Redis-backed sliding-window limiter, FastAPI dependency, and three configured buckets (chat completions, file uploads, webhook ingress).
 - `rebuild/.buildkite/rebuild.yml` build/test/push/deploy pipeline (path-filtered to `rebuild/**`), with stages `lint → test → build → push → deploy-staging → smoke → deploy-prod`.
@@ -17,6 +17,7 @@ Take the rebuild from "feature complete on a developer laptop" to "running in pr
 - `rebuild/comms/`: Slack pre-cutover post, Slack post-cutover post, in-product banner copy, and FAQ markdown.
 - `rebuild/backend/tests/load/k6_chat.js`: k6 load script targeting the chat completion endpoint.
 - `rebuild/backend/tests/chaos/`: pytest-driven chaos scenarios (kill-pod-mid-stream, kill-scheduler-mid-tick, kill-migration-pod-mid-apply).
+- `rebuild/backend/tests/integration/test_trusted_proxy.py`: asserts the `TrustedIpMiddleware` strips `X-Forwarded-Email` from requests outside `settings.TRUSTED_PROXY_CIDRS` and emits a redacted `security.trusted_proxy.miss` log line; covers both the inside-CIDR (200 with the expected `User`) and outside-CIDR (header stripped, route returns 401) paths. Referenced by the M5 acceptance criterion on the trusted-proxy boundary.
 - Smoke E2E pack (5 specs) in `rebuild/frontend/tests/smoke/` reused as the post-deploy gate.
 - A grafana dashboard JSON in `rebuild/observability/dashboards/openwebui-rebuild.json` covering the signals listed below, importable into Canva's standard Grafana stack.
 
@@ -33,12 +34,12 @@ M5 extends the M0 `Settings` class with the production knobs needed for observab
 | `RATELIMIT_CHAT_TOKENS_PER_MIN` | `int` | `60_000` | Per-user token budget for chat completions across a sliding 60 s window. Enforced by the Redis Lua script in `app/ratelimit/limiter.py`. |
 | `RATELIMIT_FILE_UPLOADS_PER_MIN` | `int` | `30` | Per-user file upload count across a sliding 60 s window. |
 | `RATELIMIT_WEBHOOK_PER_MIN` | `int` | `60` | Per-webhook token ingress count across a sliding 60 s window. Keyed by webhook `id`, not by user. |
-| `TRUSTED_PROXY_CIDRS` | `list[str]` | `[]` | CSV-parsed list of CIDRs for the `TrustedIPMiddleware` allowlist. Required in `ENV=prod`; the app refuses to start otherwise. Empty in dev so local development isn't broken. |
+| `TRUSTED_PROXY_CIDRS` | `list[str]` | `[]` | CSV-parsed list of CIDRs for the `TrustedIpMiddleware` allowlist. Required in `ENV=prod`; the app refuses to start otherwise. Empty in dev so local development isn't broken. |
 | `ALLOWED_FILE_TYPES` | `list[str]` | `["image/png","image/jpeg","image/gif","image/webp","text/plain","text/markdown","application/pdf"]` | CSV-parsed list of MIME types accepted by the file upload endpoint. Sniffed MIME, declared `Content-Type`, and file extension are cross-checked against this list. |
 
 The launch banner's deactivation date is owned by the **SvelteKit** side as `PUBLIC_LAUNCH_BANNER_UNTIL` (read from `$env/static/public` in the root layout) — the banner is a frontend artefact, FastAPI does not render or know about it, so duplicating the value into the backend `Settings` would be wasted coupling. The Helm chart sets the same ISO-date value on both the FastAPI Deployment (no-op, intentionally absent) and the SvelteKit build (`PUBLIC_LAUNCH_BANNER_UNTIL=2026-05-12` baked into the bundle at build time). After 30 days the legacy archive link in the banner copy is stripped by a code change in the same release, not via env.
 
-Per-route HTTP timeouts are *not* env-driven — they are declared inline at the route via the `@route_timeout(seconds)` decorator (see [§ Per-route HTTP timeouts](#per-route-http-timeouts) below) so the value lives next to the route it constrains.
+Per-route HTTP timeouts are *not* env-driven — they are declared inline at the route via the `timeout(seconds)` dependency factory (`dependencies=[timeout(seconds)]`; see [§ Per-route HTTP timeouts](#per-route-http-timeouts) below) so the value lives next to the route it constrains.
 
 ## Observability
 
@@ -48,7 +49,7 @@ The rebuild emits **traces, metrics, and logs** through OpenTelemetry, all expor
 
 `rebuild/backend/app/observability/otel.py` exposes a single `setup_otel(app, db_engine)` called from `lifespan` before any router is mounted. It:
 
-1. Builds a `Resource` from `OTEL_SERVICE_NAME` (default `openwebui-rebuild`), `service.version` (build-time env `BUILD_HASH`), `deployment.environment` (`staging`/`prod`), and any extra attributes from `OTEL_RESOURCE_ATTRIBUTES` (semicolon-separated `k=v` pairs, OTel spec format).
+1. Builds a `Resource` from `OTEL_SERVICE_NAME` (default `openwebui-rebuild`), `service.version` (build-time env `BUILD_HASH`), `deployment.environment` (`staging`/`prod`), and any extra attributes from `OTEL_RESOURCE_ATTRIBUTES` (comma-separated `k=v` pairs, OTel spec format — same syntax as the Settings-table entry above).
 2. Configures a `TracerProvider` with a `BatchSpanProcessor` and an `OTLPSpanExporter` (gRPC) pointed at `OTEL_EXPORTER_OTLP_ENDPOINT`. Insecure mode only when `ENV=dev` and explicitly opted in via `OTEL_EXPORTER_OTLP_INSECURE=true`.
 3. Configures a `MeterProvider` with a `PeriodicExportingMetricReader` (60 s interval) and an `OTLPMetricExporter`.
 4. Configures a `LoggerProvider` with a `BatchLogRecordProcessor` and an `OTLPLogExporter`. The structured-logging handler emits both to stdout (for k8s log collection) and to OTel logs (for trace-correlated views).
@@ -82,7 +83,7 @@ Inbound requests already carry a `traceparent` header injected by Canva's edge s
 - `trace_id`, `span_id` (extracted from the current OTel context via `LoggingInstrumentor`).
 - `correlation_id` (per-request UUID set by `CorrelationIdMiddleware`; survives across socket.io events for the lifetime of a connection).
 - `user_email` and `user_id_hash` only when present (see PII handling below).
-- `route` (FastAPI route template, e.g. `/api/chats/{chat_id}/messages`, never the resolved path so dashboards aggregate cleanly).
+- `route` (FastAPI route template, e.g. `/api/chats/{id}/messages`, never the resolved path so dashboards aggregate cleanly).
 - Any extra `extra={...}` keys passed by the caller.
 
 ### PII handling
@@ -131,9 +132,9 @@ Two extra panels (no SLO, monitoring only): pod CPU/memory utilisation and per-p
 
 | Bucket | Key | Limit (default) | Cost | Failure mode |
 |---|---|---|---|---|
-| `chat_tokens` | `rl:chat:{user_email}` | 200 000 tokens / minute | tokens estimated by `tiktoken` for the request, then reconciled with actual usage from the gateway response | 429 with `Retry-After`; SSE: 1 frame `{"error":"rate_limited"}` then close |
-| `file_uploads` | `rl:upload:{user_email}` | 30 requests / minute | 1 per request | 429 with `Retry-After`; multipart form rejected before stream-to-DB |
-| `webhook_ingress` | `rl:webhook:{webhook_id}` | 60 requests / minute | 1 per request | 429 with `Retry-After`; webhook caller's job to retry |
+| `chat_tokens` | `rl:chat:{user_email}` | 60 000 tokens / minute (`settings.RATELIMIT_CHAT_TOKENS_PER_MIN`) | tokens estimated by `tiktoken` for the request, then reconciled with actual usage from the gateway response | 429 with `Retry-After`; SSE: 1 frame `{"error":"rate_limited"}` then close |
+| `file_uploads` | `rl:upload:{user_email}` | 30 requests / minute (`settings.RATELIMIT_FILE_UPLOADS_PER_MIN`) | 1 per request | 429 with `Retry-After`; multipart form rejected before stream-to-DB |
+| `webhook_ingress` | `rl:webhook:{webhook_id}` | 60 requests / minute (`settings.RATELIMIT_WEBHOOK_PER_MIN`) | 1 per request | 429 with `Retry-After`; webhook caller's job to retry |
 
 `Settings` exposes overrides per env var (`RATELIMIT_CHAT_TOKENS_PER_MIN`, etc.) so that production can be raised without a code change once we have baseline numbers.
 
@@ -160,11 +161,11 @@ def timeout(seconds: float):
 ```python
 # rebuild/backend/app/routers/chats.py
 @router.post(
-    "/{chat_id}/messages",
+    "/{id}/messages",
     response_model=...,
     dependencies=[timeout(300)],
 )
-async def send_message(...): ...
+async def post_message(...): ...
 ```
 
 The dispatch table below documents the project-wide policy; the actual values live as literal `timeout(N)` calls on each affected route. We considered the alternative — a `@route_timeout(seconds)` decorator that mutates a route attribute, paired with a middleware that reads `request.scope["route"].timeout_seconds` — and rejected it: a decorator + middleware split scatters one feature across three files, relies on a slightly awkward `request.scope["route"]` access, and is harder to override per-test. The dependency factory is one file, declarative at the call site, and trivially overridable via `app.dependency_overrides`. The global `TimeoutMiddleware` still exists, but only as the default-15s safety net for routes without an explicit `timeout(...)` dependency; it does not read any route attributes.
@@ -183,7 +184,7 @@ The dispatch table below documents the project-wide policy; the actual values li
 
 ### SSE stream timeout
 
-Defined in code as `SSE_STREAM_TIMEOUT_SECONDS = 300`. Implementation: the streaming generator (M1, `app.services.chat_stream.stream_chat`) wraps the upstream `OpenAICompatibleProvider.stream()` call in `asyncio.wait_for` with a 5-minute deadline. When the deadline trips, the generator emits the M1-defined `timeout` SSE event (`event: timeout\ndata: {"assistant_message_id": "...", "limit_seconds": 300}\n\n`), persists the assistant message with `cancelled=True, done=True`, and returns. The client renders a "Stream timed out at 5 minutes; click regenerate to continue" inline notice keyed off the `timeout` event. This is the same code path as user-cancellation from M1; M5 only sets the value of the constant, it does not introduce a new event type.
+Defined in code as `SSE_STREAM_TIMEOUT_SECONDS = 300`. Implementation: the streaming generator (M1, `app.services.chat_stream.stream_chat`) wraps the upstream `OpenAICompatibleProvider.stream()` iteration in `async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS)` with a 5-minute deadline. When the deadline trips, the generator catches `asyncio.TimeoutError`, emits the M1-defined `timeout` SSE event (`event: timeout\ndata: {"assistant_message_id": "...", "limit_seconds": 300}\n\n`), persists the assistant message with `cancelled=True, done=True`, and returns. The client renders a "Stream timed out at 5 minutes; click regenerate to continue" inline notice keyed off the `timeout` event. This is the same persistence shape as user-cancellation from M1; M5 only sets the value of the constant, it does not introduce a new event type. The `timeout(300)` route-layer dependency (see § Per-route HTTP timeouts above) is set to the same value as a backstop, but the in-generator deadline is the primary cap so the persist-partial branch always owns the cleanup path.
 
 ### APScheduler tick — short statement timeout
 
@@ -350,7 +351,7 @@ This is intentionally lightweight — the rebuild's MySQL instance is a managed 
 
 ### SSE / WebSocket heartbeats and idle disconnect
 
-- **SSE**: every `STREAM_HEARTBEAT_SECONDS` of upstream silence (M0 constant; default 15 s), the streaming generator emits a `: keepalive\n\n` comment frame. Most reverse proxies drop idle connections at 60 s; 15 s is well inside that. The 5-minute hard cap above is the outer bound.
+- **SSE**: every `STREAM_HEARTBEAT_SECONDS` of upstream silence (M0 constant; default 15 s), the streaming generator emits a `: keep-alive\n\n` comment frame (same byte-string as `m1-conversations.md` § SSE streaming and `FastAPI-best-practises.md` § A.7 Streaming responses (SSE)). Most reverse proxies drop idle connections at 60 s; 15 s is well inside that. The 5-minute hard cap above is the outer bound.
 - **WebSocket (socket.io)**: `ping_interval=STREAM_HEARTBEAT_SECONDS`, `ping_timeout=STREAM_HEARTBEAT_SECONDS * 2` (M3 wires both — see [m3-channels.md § Stack](m3-channels.md#stack)). Idle connections (no client events for 30 minutes) are forcibly disconnected by a periodic task that scans the session pool. Channel auto-reply tasks (`@model`) are bounded to 60 s of generation regardless of socket state, with cancellation if the originating user disconnects.
 
 ## Deploy pipeline
@@ -474,7 +475,7 @@ Triggered by any of: synthetic monitor failing for 3 consecutive runs, 5xx rate 
 
 #### In-product banner (first 2 weeks)
 
-> History reset on launch. Old chats and channels live read-only at archive.openwebui.canva-internal.com for 30 days. [Dismiss]
+> History reset on launch. Old chats and channels live read-only at archive.openwebui.canva-internal.com for 30 days.
 
 #### Slack post (T+0)
 
@@ -561,7 +562,7 @@ Failures page the on-call rotation. Five-minute cadence is balanced against budg
 - [ ] CORS is locked to `settings.CORS_ALLOW_ORIGINS`; security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) are present on every response and verified by an E2E.
 - [ ] File upload rejects non-allowed MIME types, mismatched declared/sniffed types, and files > 5 MiB.
 - [ ] Webhook tokens are stored as SHA-256 hashes; plaintext appears only in the creation response.
-- [ ] SSE keepalive and socket.io `ping_interval` both wired to `STREAM_HEARTBEAT_SECONDS` (M0 constant; default 15 s); socket.io `ping_timeout = 2 * STREAM_HEARTBEAT_SECONDS`; idle disconnect at 30 min. No hard-coded heartbeat cadence anywhere in the codebase (verified by `rg -n "ping_interval=|keepalive.*15"` returning only the constant import).
+- [ ] SSE keep-alive and socket.io `ping_interval` both wired to `STREAM_HEARTBEAT_SECONDS` (M0 constant; default 15 s); socket.io `ping_timeout = 2 * STREAM_HEARTBEAT_SECONDS`; idle disconnect at 30 min. No hard-coded heartbeat cadence anywhere in the codebase (verified by `rg -n "ping_interval=|keep-alive.*15"` returning only the constant import).
 - [ ] Buildkite pipeline lints, tests, builds, pushes, and deploys to staging on every main commit; promotes to prod via manual unblock.
 - [ ] `alembic upgrade head` runs as a pre-upgrade Helm Job and gates the rollout. The Job is operator-rerunnable: a chaos test that kills the Job pod after exactly one of M3's eight `CREATE TABLE`s has committed, then re-applies the same Helm release, completes the migration on the retry without manual schema repair (covered by an M5 chaos scenario in `rebuild/backend/tests/chaos/test_migration_partial_apply.py`).
 - [ ] Smoke E2E pack passes against staging and prod post-deploy; failure rolls back automatically.

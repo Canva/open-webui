@@ -14,6 +14,7 @@ Deliver scheduled, server-side prompt execution for the slim rebuild: users defi
 - `rebuild/backend/app/routers/_test_hooks.py` — `/test/scheduler/tick` endpoint registered only when `settings.ENV in {"test", "staging"}` (the M5 smoke pack runs against staging and needs to fast-forward without waiting for the natural tick).
 - `rebuild/backend/alembic/versions/0005_m4_automations.py` — single Alembic revision adding the two tables and their indexes.
 - `rebuild/backend/app/main.py` — wire the scheduler into the FastAPI lifespan (`startup`/`shutdown`) so it runs in the same process as the API.
+- `rebuild/frontend/src/routes/(app)/automations/+layout.svelte` — instantiates `AutomationsStore` and provides it via `setContext` so both the list and detail routes share one client-side cache (per-request scope, no module-level state — see [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting)).
 - `rebuild/frontend/src/routes/(app)/automations/+page.svelte` — list view.
 - `rebuild/frontend/src/routes/(app)/automations/[id]/+page.svelte` — editor + run history view.
 - `rebuild/frontend/src/lib/components/automations/{AutomationList,AutomationEditor,RRulePicker,RunHistory,TargetSelector}.svelte` — components ported and trimmed from `src/lib/components/automations/*`.
@@ -253,7 +254,7 @@ scheduler.add_job(
 
 ```python
 async def tick() -> None:
-    async with async_session() as session:
+    async with AsyncSessionLocal() as session:
         async with session.begin():
             now = now_ms()
             stmt = (
@@ -335,6 +336,8 @@ async def force_tick() -> dict[str, int]:
 
 Registered in `app/main.py` only when `settings.ENV in {"test", "staging"}`. The E2E suite calls this endpoint via Playwright's `request.post()` to fast-forward the scheduler instead of waiting 30 seconds; the M5 staging smoke pack uses the same endpoint to validate the scheduler end-to-end without 30-second waits in the smoke job. Production (`ENV == "prod"`) returns 404. The unit and integration suites import `tick` directly.
 
+Both gates are deliberate. The startup-time registration is the **primary** control — production never even mounts the route, so a refactor that breaks the inner `if` cannot expose it. The runtime `if settings.ENV not in {"test", "staging"}` check inside the handler is **defence in depth** against the failure mode where a future refactor accidentally moves the registration outside the env conditional (e.g. someone unifies all routers into a single registration block to "simplify"). Both checks read from the same `settings.ENV` source of truth, so they cannot disagree.
+
 ## Execute pipeline
 
 Given an `automation_id` and `run_id`, `_execute` does:
@@ -358,7 +361,7 @@ Any exception raised between step 3 and step 6 is caught:
 ```python
 except Exception as exc:
     log.exception("automation %s run %s failed", automation_id, run_id)
-    async with async_session() as session, session.begin():
+    async with AsyncSessionLocal() as session, session.begin():
         await session.execute(
             update(AutomationRun)
             .where(AutomationRun.id == run_id)
@@ -425,7 +428,7 @@ All endpoints are mounted at `/api/automations`, require the trusted-header user
 | `DELETE` | `/api/automations/{id}` | 204. Cascade-deletes all `automation_run` rows. |
 | `POST` | `/api/automations/{id}/run-now` | Inline trigger. Synchronous. Returns the resulting `AutomationRun`. Does not touch `next_run_at` or `last_run_at` — the scheduler still owns those. |
 | `GET` | `/api/automations/{id}/runs?cursor=…&limit=…` | Paginated run history, latest first. Default limit 25, max 100. Cursor is opaque base64 of `(created_at, id)` to avoid offset drift on busy automations. |
-| `POST` | `/api/automations/preview-rrule` | Non-mutating helper for the editor's "Next 5 runs" panel and live RRULE validation. Body: `{rrule: string}`. Response: `{next_runs: datetime[]}` (length 5, computed in the caller's IANA timezone via the same `validate_rrule` / `next_n_runs` helpers used by `POST /api/automations`). Returns 422 with the parser error on an invalid RRULE. Rate-limited at the IP level by the M5 sliding-window limiter (default 60 req/min) — every keystroke in `<RRulePicker>` debounces to one call so the editor stays well below the limit. |
+| `POST` | `/api/automations/preview-rrule` | Non-mutating helper for the editor's "Next 5 runs" panel and live RRULE validation. Body: `{rrule: string}`. Response: `{next_runs: datetime[]}` (length 5, computed in the caller's IANA timezone via the same `validate` / `preview` helpers from `app.services.rrule` used by `POST /api/automations`). Returns 422 with the parser error on an invalid RRULE. Client-side throttled: `<RRulePicker>` debounces to one call per change, so the editor stays well below any reasonable server-side limit. No dedicated rate-limit bucket is added in M5 (the buckets are chat completions, file uploads, and webhook ingress); the request is still subject to the global per-route HTTP timeout in `m5-hardening.md` § Per-route HTTP timeouts. |
 
 All endpoints enforce ownership: the requesting `user.id` must equal `automation.user_id`. There is no admin override (the rebuild has no admin role — see top-level plan section 3). For the channel target, the user must be a member of `target_channel_id` at create/update time; subsequent membership loss is a soft failure handled at execute time (the run errors with `error="not a member"` and is not retried until the user fixes it or removes the automation).
 

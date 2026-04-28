@@ -68,9 +68,9 @@ plan is biased toward precision over brevity.
 - `rebuild/frontend/src/lib/components/channel/*` — ported components listed in
   section 9, with dead imports removed.
 - `rebuild/frontend/src/lib/stores/realtime.svelte.ts`, `channels.svelte.ts`,
-  `messages.svelte.ts`, `typing.svelte.ts`, `presence.svelte.ts`,
-  `reads.svelte.ts` — one class per store, instances provided via `setContext`
-  in `(app)/channels/+layout.svelte`. See
+  `messages.svelte.ts`, `thread.svelte.ts`, `typing.svelte.ts`,
+  `presence.svelte.ts`, `reads.svelte.ts` — one class per store, instances
+  provided via `setContext` in `(app)/channels/+layout.svelte`. See
   [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting)
   for the canonical pattern; do not redeclare it here. Module-level `$state` is
   banned (per-user data → SSR leak), and reactive collections use `SvelteMap` /
@@ -81,10 +81,19 @@ plan is biased toward precision over brevity.
   suites covering the regression paths in section 11.
 - `rebuild/backend/scripts/bench_channels.py` — async load generator used to
   validate the 200ms p95 fan-out target in section 10.
+- `rebuild/backend/scripts/transfer_channel_owner.py` — admin CLI that
+  reassigns `channel.user_id` from one member to another (in the same
+  channel) so an operator can satisfy the `RESTRICT` FK before hard-deleting
+  a user account. Single-purpose, ≤80 LOC; covered by
+  `tests/integration/test_transfer_channel_owner.py` (asserts: refuses
+  reassignment to a non-member, idempotent re-run is a no-op, audit-log
+  line emitted with both user IDs). The same script is referenced by the
+  `channel.user_id` rationale comment in `app/models/channels.py` so the
+  reader sees the runbook lever next to the constraint that demands it.
 
 ## Data model
 
-All identifiers are 36-char **UUIDv7** (RFC 9562) strings stored as `String(36)` (= `VARString(36)`) — locked project-wide by `rebuild.md` §9 and `database-best-practises.md` §B.2 — generated app-side via `from app.core.ids import new_id` (the M0 helper), never `uuid.uuid4()`. UUIDv7's leading 48-bit ms timestamp gives near-monotonic InnoDB B-tree insertion locality, which keeps the hot end of the wide composite indexes on `channel_message` (and the `(channel_id, created_at)` lookups that the realtime fan-out depends on) cacheable under load. Hex-digest hashes (e.g. `channel_webhook.token_hash` SHA-256) are still fixed-width `CHAR(64)` because the value is always exactly 64 ASCII chars and the equality lookup wants bit-for-bit comparison. Timestamps are
+All identifiers are 36-char **UUIDv7** (RFC 9562) strings stored as `String(36)` (= `VARCHAR(36)`) — locked project-wide by `rebuild.md` §9 and `database-best-practises.md` §B.2 — generated app-side via `from app.core.ids import new_id` (the M0 helper), never `uuid.uuid4()`. UUIDv7's leading 48-bit ms timestamp gives near-monotonic InnoDB B-tree insertion locality, which keeps the hot end of the wide composite indexes on `channel_message` (and the `(channel_id, created_at)` lookups that the realtime fan-out depends on) cacheable under load. Hex-digest hashes (e.g. `channel_webhook.token_hash` SHA-256) are still fixed-width `CHAR(64)` because the value is always exactly 64 ASCII chars and the equality lookup wants bit-for-bit comparison. Timestamps are
 `BIGINT` epoch **milliseconds** (project-wide convention from `rebuild.md` §4 and
 M1 §Data model). Helper: `from app.core.time import now_ms` returns
 `time.time_ns() // 1_000_000`. Charset `utf8mb4`, collation
@@ -101,9 +110,9 @@ class Channel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     # ondelete=RESTRICT (not CASCADE / SET NULL) is deliberate. The creator
     # leaving the platform must not silently nuke a populated channel — the
-    # admin tooling (`make scripts/transfer-channel-owner.py`) requires the
-    # operator to reassign `user_id` to another member before the user can be
-    # hard-deleted. SET NULL is rejected because the column is non-nullable
+    # admin tooling (`backend/scripts/transfer_channel_owner.py`, listed in
+    # M3 § Deliverables) requires the operator to reassign `user_id` to
+    # another member before the user can be hard-deleted. SET NULL is rejected because the column is non-nullable
     # (every channel must have a designated owner for moderation actions and
     # for the "founded by" UI label). CASCADE is rejected because deleting a
     # user (e.g. account closure) must not silently take 1000 messages and 50
@@ -121,7 +130,7 @@ class Channel(Base):
     updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     archived_at: Mapped[int | None] = mapped_column(BigInteger)
     # Denormalised "most recent message" timestamp, written by
-    # `app.services.channels.messages.create_message` /
+    # `app.services.channels.messages.create_user_message` /
     # `create_bot_message` / `create_webhook_message` inside the same
     # transaction that inserts the row (see § Service layer). It powers the
     # sidebar's "sort by recency" ordering and the GET /api/channels feed
@@ -188,12 +197,22 @@ class ChannelMessage(Base):
 
     # Exactly one of (user_id, bot_id, webhook_id) is non-null. Enforced by
     # the CHECK constraint below and re-validated at the service layer.
+    #
+    # Both `user_id` and `webhook_id` use `ondelete="RESTRICT"` (not
+    # `SET NULL`) because the CHECK constraint requires exactly one author
+    # column to be non-null: a cascading `SET NULL` would zero the only
+    # non-null author and leave the row violating the CHECK, which MySQL
+    # would surface as an opaque 3819 against whoever ran `DELETE FROM user`
+    # / `DELETE FROM channel_webhook`. RESTRICT makes the failure mode
+    # explicit at the call site — the admin runbook (per `channel.user_id`
+    # rationale above) documents reassigning or hard-deleting messages
+    # before user/webhook deletion.
     user_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("user.id", ondelete="SET NULL")
+        String(36), ForeignKey("user.id", ondelete="RESTRICT")
     )
     bot_id: Mapped[str | None] = mapped_column(String(128))
     webhook_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("channel_webhook.id", ondelete="SET NULL")
+        String(36), ForeignKey("channel_webhook.id", ondelete="RESTRICT")
     )
 
     parent_id: Mapped[str | None] = mapped_column(
@@ -316,7 +335,14 @@ class ChannelWebhook(Base):
     channel_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("channel.id", ondelete="CASCADE"), nullable=False
     )
-    user_id: Mapped[str] = mapped_column(
+    # Nullable because of `ondelete="SET NULL"`: when the webhook creator is
+    # hard-deleted the webhook keeps working (it's a channel-scoped credential,
+    # not a user-scoped one) but the "created by" attribution is dropped. MySQL
+    # 8.x rejects `SET NULL` against a `NOT NULL` column at FK-creation time
+    # (error 1830), so the `Mapped[str | None]` type and the FK action are
+    # linked — do not make this column non-nullable without also changing the
+    # FK to `RESTRICT`.
+    user_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("user.id", ondelete="SET NULL")
     )
     name: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -369,7 +395,13 @@ class ChannelFile(Base):
     message_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("channel_message.id", ondelete="SET NULL")
     )
-    uploaded_by: Mapped[str] = mapped_column(
+    # Nullable because of `ondelete="SET NULL"`: when the uploader is hard-
+    # deleted the join row survives with `uploaded_by = NULL`. MySQL 8.x
+    # rejects `SET NULL` against a `NOT NULL` column at FK-creation time
+    # (error 1830), so the `Mapped[str | None]` type and the FK action are
+    # linked — do not make this column non-nullable without also changing the
+    # FK to `RESTRICT`.
+    uploaded_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("user.id", ondelete="SET NULL")
     )
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -389,7 +421,13 @@ class File(Base):
     __tablename__ = "file"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str] = mapped_column(
+    # Nullable because of `ondelete="SET NULL"`: when an uploader is hard-
+    # deleted the file row survives with `user_id = NULL` ("uploaded by deleted
+    # user" in the UI). MySQL 8.x rejects `SET NULL` against a `NOT NULL`
+    # column at FK-creation time (error 1830), so the `Mapped[str | None]`
+    # type and the FK action are linked — do not make this column non-nullable
+    # without also changing the FK to `RESTRICT`.
+    user_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("user.id", ondelete="SET NULL")
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -404,8 +442,9 @@ class File(Base):
     )
 ```
 
-Metadata only. `size` is bound by the 5 MiB cap (`5 * 1024 * 1024`). `sha256`
-exists for future de-duplication and is set on insert.
+Metadata only. `size` is bound by the 5 MiB cap (`settings.MAX_UPLOAD_BYTES`,
+default `5_242_880` from `m0-foundations.md` § Settings). `sha256` exists for
+future de-duplication and is set on insert.
 
 ### `file_blob`
 
@@ -498,17 +537,22 @@ class MysqlFileStore:
 ```
 
 Cap enforcement lives in the FastAPI router, **before** any bytes touch
-`FileStore`:
+`FileStore`. The cap is read from `settings.MAX_UPLOAD_BYTES` (declared in
+[m0-foundations.md § Settings](m0-foundations.md#settingsbasesettings),
+default `5_242_880`) so prod can lower the limit without a code change:
 
 ```python
-MAX_UPLOAD = 5 * 1024 * 1024
+from app.core.config import settings
 
 async def read_capped(upload: UploadFile) -> bytes:
     chunks, total = [], 0
     while chunk := await upload.read(64 * 1024):
         total += len(chunk)
-        if total > MAX_UPLOAD:
-            raise HTTPException(413, "file exceeds 5 MiB cap")
+        if total > settings.MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                413,
+                f"file exceeds {settings.MAX_UPLOAD_BYTES // (1024 * 1024)} MiB cap",
+            )
         chunks.append(chunk)
     return b"".join(chunks)
 ```
@@ -533,9 +577,15 @@ inserts succeed with headroom.
   ```python
   from app.core.constants import STREAM_HEARTBEAT_SECONDS
 
+  # `cors_allowed_origins` mirrors the FastAPI HTTP-side policy
+  # (`settings.CORS_ALLOW_ORIGINS` from M0) so the SvelteKit dev server can
+  # complete the websocket upgrade in dev (`["http://localhost:5173"]`).
+  # Prod is same-origin behind the OAuth proxy, where `CORS_ALLOW_ORIGINS`
+  # holds the proxy's external URL — same setting, same value, no drift.
   sio = socketio.AsyncServer(async_mode="asgi",
       client_manager=AsyncRedisManager(settings.REDIS_URL),
-      cors_allowed_origins=[], logger=False, engineio_logger=False,
+      cors_allowed_origins=settings.CORS_ALLOW_ORIGINS,
+      logger=False, engineio_logger=False,
       max_http_buffer_size=1_000_000,
       ping_interval=STREAM_HEARTBEAT_SECONDS,
       ping_timeout=STREAM_HEARTBEAT_SECONDS * 2)
@@ -544,9 +594,10 @@ inserts succeed with headroom.
 - Transport: `websocket` only — long-polling is disabled to reduce surface and
   because the OAuth proxy fronts everything.
 - Heartbeat cadence is the project-wide `STREAM_HEARTBEAT_SECONDS` constant
-  (M0; default 15s) so socket.io's ping interval and M1's SSE keepalive
-  comment are always the same value. The watchdog window in the FE
-  (`realtimeStore.ts`) is `2 * STREAM_HEARTBEAT_SECONDS`; do not hard-code
+  (M0; default 15s) so socket.io's ping interval and M1's SSE keep-alive
+  comment (the `: keep-alive\n\n` byte-string from `m1-conversations.md`
+  § SSE streaming) are always the same value. The watchdog window in the FE
+  (`realtime.svelte.ts`) is `2 * STREAM_HEARTBEAT_SECONDS`; do not hard-code
   either side.
 
 ### Connect-time auth
@@ -828,7 +879,7 @@ Authentication is the M0 trusted-header dependency surfaced as
   member_count, last_message_at, unread_count}]`. Field derivations:
   - `last_message_at` is the denormalised `channel.last_message_at` column —
     not a `MAX(channel_message.created_at)` subquery. Every write path
-    (`create_message`, `create_bot_message`, `create_webhook_message`)
+    (`create_user_message`, `create_bot_message`, `create_webhook_message`)
     updates it inside the same transaction that inserts the row, so the
     column is always within one commit of the truth. The
     `ix_channel_recency` index on `(is_archived, last_message_at)` makes
@@ -939,10 +990,13 @@ to invalidate. Revisit in M5+ if image-heavy usage emerges.
   Inline attachments by URL are not fetched in v1 — only `text` is required.
   Successful posts insert a `channel_message` with `webhook_id` set, fan out
   via socket.io, update `channel_webhook.last_used_at`, and respond 202.
-  Rate-limited per `webhook_id` to 60 req/min in Redis (token bucket).
+  Rate-limited per `webhook_id` to 60 req/min via the M5 Redis-backed
+  sliding-window limiter (`settings.RATELIMIT_WEBHOOK_PER_MIN`; see
+  `m5-hardening.md` § Configured buckets).
   Per-route HTTP timeout: **5 s** end-to-end, applied via the M5
-  `@route_timeout(5)` decorator (`m5-hardening.md` § Per-route HTTP timeouts) —
-  webhook senders that block past 5 s get a 504 and should retry. The 5 s
+  `timeout(5)` dependency factory (`dependencies=[timeout(5)]`; see
+  `m5-hardening.md` § Per-route HTTP timeouts) — webhook senders that block
+  past 5 s get a 504 and should retry. The 5 s
   budget covers the constant-time token comparison, the `INSERT` into
   `channel_message`, the `UPDATE` of `channel_webhook.last_used_at`, and the
   socket.io fan-out; the outgoing-webhook delivery (next subsection) is

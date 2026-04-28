@@ -62,7 +62,7 @@ class SharedChat(Base):
     )
 ```
 
-`chat.share_id` is added in this milestone as a nullable column with a FK to `shared_chat.id`. It is set when a share is created and cleared on revoke. The FK uses `ON DELETE SET NULL` so that deleting a `shared_chat` row never leaves a dangling pointer. M1 must not be retroactively changed — the column lands in M2's own Alembic revision (see next section). Conversely, deleting a `chat` cascades to delete its `shared_chat` rows via the `chat_id` FK.
+`chat.share_id` was created by M1 (the `0002_m1_chat_folder` revision adds the nullable `String(43)` column on `chat`; see `m1-conversations.md` § Dependencies on other milestones). M2 backfills the **FK** to `shared_chat.id` and the **unique index** `ix_chat_share_id` against that pre-existing column — no `op.add_column` lands in M2's revision (see § Alembic revision below for the precise decomposition). The FK uses `ON DELETE SET NULL` so that deleting a `shared_chat` row never leaves a dangling pointer. The column is set when a share is created and cleared on revoke. Conversely, deleting a `chat` cascades to delete its `shared_chat` rows via the `chat_id` FK.
 
 Notes:
 
@@ -263,7 +263,7 @@ All E2E specs run against the deterministic stack from M0 (app + MySQL + Redis +
 
 ## Acceptance criteria
 
-- [ ] `alembic upgrade head` creates the `shared_chat` table and the `chat.share_id` column with the correct types, FKs, and indexes; `alembic downgrade -1` cleanly reverses. Re-running `alembic upgrade head` immediately after `head`, and re-running `alembic downgrade base` after `base`, are both no-ops (covered by the M0 idempotency tests parametrised over the M2 revision).
+- [ ] `alembic upgrade head` creates the `shared_chat` table and adds the `fk_chat_share_id` foreign key + `ix_chat_share_id` unique index against the M1-owned `chat.share_id` column (no `op.add_column` against `chat` lands in M2; the column was created by `0002_m1_chat_folder`); `alembic downgrade -1` cleanly reverses (drops the FK, the unique index, and the `shared_chat` table — leaves `chat.share_id` intact for M1's downgrade to handle). Re-running `alembic upgrade head` immediately after `head`, and re-running `alembic downgrade base` after `base`, are both no-ops (covered by the M0 idempotency tests parametrised over the M2 revision).
 - [ ] `test_partial_upgrade_recovers` includes an M2 case: pre-create `shared_chat` only (raw DDL), then `alembic upgrade head` produces the `fk_chat_share_id` foreign key and the `ix_chat_share_id` unique index without operator intervention.
 - [ ] `POST /api/chats/{id}/share` by the owner returns a 43-char token and a relative URL; the response token equals the new `chat.share_id`.
 - [ ] `POST /api/chats/{id}/share` by a non-owner returns `404` (not `403` — we do not leak existence).

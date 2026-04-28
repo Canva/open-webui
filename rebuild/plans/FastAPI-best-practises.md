@@ -174,7 +174,7 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
   `X-Accel-Buffering: no` defeats nginx's response buffering so tokens reach the client as they're produced.
 - **Handle `asyncio.CancelledError` inside the generator** to persist any in-flight state and unwind cleanly. Starlette raises it on client disconnect; re-raise after cleanup so the framework knows the response ended on a cancel. M1's `stream_chat` is the reference implementation for this — copy the pattern when adding new SSE endpoints.
 - **Send a heartbeat comment frame every ~15 s** (`yield b": keep-alive\n\n"`) during quiet stretches. Reverse proxies often drop idle connections at 60 s; 15 s gives you 4× headroom.
-- **Bound the whole stream with `asyncio.wait_for(...)` at a project-wide cap.** `SSE_STREAM_TIMEOUT_SECONDS = 300` (M5). On exceedance, persist the partial state, emit a terminal `timeout` SSE event, and return — don't let the generator hang forever.
+- **Bound the whole stream with `async with asyncio.timeout(...)` at a project-wide cap.** `SSE_STREAM_TIMEOUT_SECONDS = 300` (declared in M1's Settings additions; the same value is the per-route HTTP timeout for `/api/chats/{id}/messages` in M5's dispatch table). The `asyncio.timeout` context manager (Python 3.11+) wraps the provider iteration *inside the streaming generator* so the persist-partial branch owns the cleanup path (a `TimeoutError` raised at the `async with` boundary is distinct from `CancelledError`, so the timeout branch can emit its own `timeout` SSE frame). On exceedance, persist the partial state, emit a terminal `timeout` SSE event, and return — don't let the generator hang forever.
 - **Persist incrementally inside the loop**, not just at the end. M1 commits the in-progress assistant content every ~1 s so a server crash doesn't lose minutes of streaming. The cost is one extra `UPDATE` per second per active stream — negligible compared to the user experience win.
 
 **DON'T**
@@ -216,7 +216,7 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
 **DO**
 
-- **Order middleware deliberately and outermost-first.** FastAPI / Starlette runs `add_middleware(...)` in reverse-add order on the request path: the *last* middleware added is the *first* to see an incoming request. The right order for the rebuild is, from outermost to innermost: (1) `TrustedIpMiddleware` (M5 — strips spoofed `X-Forwarded-Email` from non-allowlisted source IPs), (2) `CorrelationIdMiddleware` (M5 — assigns a request UUID for log correlation), (3) `CORSMiddleware` (so preflight OPTIONS succeeds before auth runs), (4) `SecurityHeadersMiddleware` (M5 — adds CSP, HSTS, etc.), (5) `TimeoutMiddleware` (M5 — per-route `asyncio.wait_for`), (6) anything else custom. To get this order in code, `add_middleware` them in the **reverse** sequence inside `create_app()`. Comment the order at the call site so the next agent doesn't reshuffle.
+- **Order middleware deliberately and outermost-first.** FastAPI / Starlette runs `add_middleware(...)` in reverse-add order on the request path: the *last* middleware added is the *first* to see an incoming request. The right order for the rebuild is, from outermost to innermost: (1) `TrustedIpMiddleware` (M5 — strips spoofed `X-Forwarded-Email` from non-allowlisted source IPs), (2) `CorrelationIdMiddleware` (M5 — assigns a request UUID for log correlation), (3) `CORSMiddleware` (so preflight OPTIONS succeeds before auth runs), (4) `SecurityHeadersMiddleware` (M5 — adds CSP, HSTS, etc.), (5) `TimeoutMiddleware` (M5 — global 15 s safety net via `anyio.fail_after`; per-route timeouts use the `timeout(seconds)` dependency factory declared at the route, see [`m5-hardening.md` § Per-route HTTP timeouts](m5-hardening.md#per-route-http-timeouts)), (6) anything else custom. To get this order in code, `add_middleware` them in the **reverse** sequence inside `create_app()`. Comment the order at the call site so the next agent doesn't reshuffle.
 - **Keep middleware bodies tiny.** Anything heavy (logging, metrics, traces) goes through OTel's instrumented hooks (M5), not custom middleware. Custom middleware is for cross-cutting *correctness* (header stripping, timeouts), not observability.
 - **Use `BaseHTTPMiddleware` only when you need the full Starlette middleware contract.** For pure request-mutating logic, an `ASGI` `__call__` is faster (no Starlette overhead) but harder to read. M5's `TrustedIpMiddleware` is `BaseHTTPMiddleware` for clarity; that's the right default.
 
@@ -319,7 +319,7 @@ Single instance per worker. No provider matrix, no LiteLLM, no second provider c
 
 The rebuild has services where the work is genuinely complex; everything else is router-direct.
 
-- **Has a service file:** `app/services/chat_stream.py` (multi-step streaming + persistence + cancellation), `app/services/chat_writer.py` (shared writer used by M1 streaming and M4 chat-target writes), `app/services/scheduler.py` + `app/services/automation_executor.py` (M4 — separable so the tick logic is unit-testable in isolation), `app/services/channels/messages.py` (M3 — `create_bot_message` etc. own the `last_message_at` denorm + realtime emit pairing that M4 also calls into), `app/services/auto_reply.py` (M3 — semaphore-bounded background tasks).
+- **Has a service file:** `app/services/chat_stream.py` (multi-step streaming + persistence + cancellation), `app/services/chat_writer.py` (shared writer used by M1 streaming and M4 chat-target writes), `app/services/scheduler.py` + `app/services/automation_executor.py` (M4 — separable so the tick logic is unit-testable in isolation), `app/services/channels/messages.py` (M3 — `create_bot_message` etc. own the `last_message_at` denorm + realtime emit pairing that M4 also calls into), `app/services/channels/auto_reply.py` (M3 — semaphore-bounded background tasks; lives under `services/channels/` because it is 100% channel-coupled and shares per-channel state with `messages.py`).
 - **Doesn't need one:** chat CRUD, folder CRUD, share endpoints, share/unshare, file upload, file download, channel CRUD, channel member operations, reactions, pins, automation CRUD. These all live in `app/routers/<x>.py` and call the session directly.
 
 Promoting a router function into a service is fine when (a) a second caller appears, (b) the function exceeds ~80 LOC of orchestration, or (c) it spans multiple tables under one transactional invariant. Otherwise leave it in the router.
@@ -409,7 +409,7 @@ Before opening a PR that adds or changes a router, dependency, schema, or servic
 - [ ] Initialises in the body before `yield`; cleans up after.
 - [ ] Stores the resource on `app.state.<name>`.
 - [ ] Has a small `def get_<name>(request) -> <Type>` accessor in the same module.
-- [ ] On shutdown, gracefully stops/closes/disposes (`await scheduler.shutdown(wait=False)`, `await redis.aclose()`, `await engine.dispose()`).
+- [ ] On shutdown, gracefully stops/closes/disposes (`scheduler.shutdown(wait=False)` — APScheduler 3.x is sync, no `await`; `await redis.aclose()`; `await engine.dispose()`).
 
 **New test**
 

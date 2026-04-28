@@ -14,9 +14,9 @@ Deliver a working single-user-per-request conversation surface: a SvelteKit chat
 - Pydantic schemas under [rebuild/backend/app/schemas/chat.py](../backend/app/schemas/chat.py) and [rebuild/backend/app/schemas/folder.py](../backend/app/schemas/folder.py).
 - HTTP routers under [rebuild/backend/app/routers/chats.py](../backend/app/routers/chats.py), [rebuild/backend/app/routers/folders.py](../backend/app/routers/folders.py), [rebuild/backend/app/routers/models.py](../backend/app/routers/models.py).
 - The streaming function at [rebuild/backend/app/services/chat_stream.py](../backend/app/services/chat_stream.py) (~300 LOC including helpers).
-- A reusable assistant-message writer at [rebuild/backend/app/services/chat_writer.py](../backend/app/services/chat_writer.py) exposing `append_assistant_message(session, *, chat_id: str, parent_message_id: str | None, model: str, content: str, status: Literal["complete","cancelled","error"]="complete") -> str` (returns the new message id, atomically updates `chat.history.messages[<id>]`, sets `chat.history.currentId`, and bumps `chat.updated_at`). Used by `chat_stream.py` (M1) and the M4 automation executor for chat-target writes.
+- A reusable assistant-message writer at [rebuild/backend/app/services/chat_writer.py](../backend/app/services/chat_writer.py) exposing `append_assistant_message(session, *, chat_id: str, parent_message_id: str | None, model: str, content: str, status: Literal["complete","cancelled","error"]="complete") -> str` (returns the new message id, atomically updates `chat.history.messages[<id>]`, sets `chat.history.currentId`, and bumps `chat.updated_at`). Enforces the `MAX_CHAT_HISTORY_BYTES` cap from [m0-foundations.md § Project constants](m0-foundations.md#project-constants) on the resulting `chat.history` JSON before write — see § History-size enforcement below for the precise behaviour. Used by `chat_stream.py` (M1) and the M4 automation executor for chat-target writes.
 - A title-derivation helper at [rebuild/backend/app/services/chat_title.py](../backend/app/services/chat_title.py) exposing `derive_title(first_user_message: str) -> str` (≤ 60 chars, single line, stripped). Called by `POST /api/chats` when the body omits `title` and by the streaming pipeline on the first assistant turn for an untitled chat. Pure function so the unit test is one fixture.
-- An in-process stream registry at [rebuild/backend/app/services/stream_registry.py](../backend/app/services/stream_registry.py) — module-level `StreamRegistry` singleton holding a `dict[str, asyncio.Event]` keyed by `assistant_message_id`. Exposes `register(message_id) -> asyncio.Event`, `cancel(message_id) -> bool`, and `cleanup(message_id)` (called from the streaming generator's `finally` block). Powers `POST /api/chats/{id}/messages/{assistant_id}/cancel` (M1) by setting the cancellation event so the in-flight generator catches `asyncio.CancelledError`, persists the partial assistant content via `chat_writer.append_assistant_message(..., status="cancelled")`, and re-raises. Single-replica scope is fine for M1 — cross-replica cancel is a Redis pub/sub follow-up tracked in `m5-hardening.md` § Out of scope.
+- A Redis-backed stream registry at [rebuild/backend/app/services/stream_registry.py](../backend/app/services/stream_registry.py) — module-level `StreamRegistry` singleton holding a per-pod `dict[str, asyncio.Event]` keyed by `assistant_message_id` and a thin pub/sub façade over Redis (`stream:cancel:{message_id}`) so cancel signals cross pod boundaries from day one. Exposes `register(message_id) -> asyncio.Event` (creates the local event and subscribes to the per-message Redis channel), `cancel(message_id) -> bool` (publishes to the channel; returns whether the publish succeeded; idempotent), and `unregister(message_id)` (cancels the subscription and drops the local entry; called from the streaming generator's `finally` block). Powers `POST /api/chats/{id}/messages/{assistant_id}/cancel` (M1): the cancel publishes to Redis, every pod with a local subscription for that `message_id` receives the message and sets its event, the in-flight generator catches `asyncio.CancelledError`, persists the partial assistant content via `chat_writer.append_assistant_message(..., status="cancelled")`, and emits the terminal `cancelled` SSE frame. The Redis connection is the same one M3 uses for the socket.io adapter and M5 uses for rate limits — no new infra.
 - SvelteKit 2 routes under [rebuild/frontend/src/routes/(app)/](../frontend/src/routes/(app)/) plus components under [rebuild/frontend/src/lib/components/chat/](../frontend/src/lib/components/chat/).
 - Ported markdown pipeline at [rebuild/frontend/src/lib/components/chat/Markdown/](../frontend/src/lib/components/chat/Markdown/) and [rebuild/frontend/src/lib/utils/marked/](../frontend/src/lib/utils/marked/) (citations/sources/embeds removed).
 - Svelte 5 runes-based stores at [rebuild/frontend/src/lib/stores/](../frontend/src/lib/stores/) — one `*.svelte.ts` file per store, each exporting a class. Constructed and provided via `setContext` in `(app)/+layout.svelte`. See [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting) for the canonical pattern; do not redeclare it here.
@@ -105,7 +105,7 @@ The other "hot" lookups (`pinned`, `archived`, `folder_id`) are plain columns, n
 ### `folder`
 
 ```python
-# rebuild/backend/app/db/models/folder.py
+# rebuild/backend/app/models/folder.py
 from __future__ import annotations
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -290,7 +290,7 @@ M1 extends the M0 `Settings` class with one new field. `MODEL_GATEWAY_BASE_URL` 
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `SSE_STREAM_TIMEOUT_SECONDS` | `int` | `300` | Whole-request cap on `POST /api/chats/{id}/messages`. Wrapped around the provider iteration via `asyncio.wait_for`. Must equal the M5 per-route timeout for `/api/chats/{id}/messages` (see `m5-hardening.md` § Per-route HTTP timeouts) — diverging the two means a request can be killed by the route timeout before the executor's persist-partial path runs. |
+| `SSE_STREAM_TIMEOUT_SECONDS` | `int` | `300` | Whole-request cap on `POST /api/chats/{id}/messages`. Wrapped around the provider iteration via `async with asyncio.timeout(...)` *inside the streaming generator* so the persist-partial branch owns the cleanup path. Must equal the M5 per-route timeout for `/api/chats/{id}/messages` (see `m5-hardening.md` § Per-route HTTP timeouts) — diverging the two means a request can be killed by the route timeout before the executor's persist-partial path runs. |
 
 The casing convention from M0 (UPPER_SNAKE_CASE attributes matching env var names) applies; `SSE_STREAM_TIMEOUT_SECONDS` is read as `settings.SSE_STREAM_TIMEOUT_SECONDS` everywhere.
 
@@ -656,7 +656,7 @@ SSE event types (each event has both `event:` and `data:` lines, separated by `\
 | `done` | `{ "assistant_message_id": str, "finish_reason": str \| null }` | On normal completion; the assistant message has been persisted with `done: true`. |
 | `error` | `{ "message": str, "status_code": int }` | On provider failure; the partial content is still persisted with `error: {...}` and `done: true`. |
 | `cancelled` | `{ "assistant_message_id": str }` | When the client disconnects; the assistant message is persisted with `cancelled: true, done: true`. |
-| `timeout` | `{ "assistant_message_id": str, "limit_seconds": int }` | When the whole-request `SSE_STREAM_TIMEOUT_SECONDS` cap (default 300) is hit by `asyncio.wait_for`; the partial assistant content is persisted with `cancelled: true, done: true` (same persistence shape as `cancelled`). The frame is distinct so the UI can render an "exceeded time limit" affordance instead of a generic cancellation. |
+| `timeout` | `{ "assistant_message_id": str, "limit_seconds": int }` | When the whole-request `SSE_STREAM_TIMEOUT_SECONDS` cap (default 300) is hit by the in-generator `async with asyncio.timeout(...)` block; the partial assistant content is persisted with `cancelled: true, done: true` (same persistence shape as `cancelled`). The frame is distinct so the UI can render an "exceeded time limit" affordance instead of a generic cancellation. |
 
 Heartbeat: a `: keep-alive\n\n` comment is sent every `STREAM_HEARTBEAT_SECONDS` (default 15s; the project-wide constant from [m0-foundations.md § Project constants](m0-foundations.md#project-constants), shared with M3 socket.io) during quiet stretches to keep proxies from timing out. Do not hard-code the cadence — import the constant.
 
@@ -727,31 +727,39 @@ async def stream_chat(
     accumulated = []
 
     try:
-        async for delta in provider.stream(
-            messages=openai_messages, model=body.model, params=body.params.model_dump(exclude_none=True),
-        ):
-            if cancel_token.is_set():
-                raise asyncio.CancelledError()
+        # Whole-request cap enforced inside the generator so the partial-persist
+        # branches below own the cleanup path. `asyncio.timeout` (Python 3.11+)
+        # cancels the inner await on deadline and surfaces as `asyncio.TimeoutError`
+        # at the `async with` boundary — distinct from `CancelledError` so the
+        # timeout branch can emit its own SSE frame. The route-layer timeout
+        # dependency from M5 is still in place as a backstop, but tripping it
+        # would skip the persist-partial logic, so the primary deadline lives here.
+        async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS):
+            async for delta in provider.stream(
+                messages=openai_messages, model=body.model, params=body.params.model_dump(exclude_none=True),
+            ):
+                if cancel_token.is_set():
+                    raise asyncio.CancelledError()
 
-            if delta.content:
-                accumulated.append(delta.content)
-                yield sse("delta", {"content": delta.content})
+                if delta.content:
+                    accumulated.append(delta.content)
+                    yield sse("delta", {"content": delta.content})
 
-            if delta.usage:
-                assistant_msg.usage = delta.usage
-                yield sse("usage", delta.usage)
+                if delta.usage:
+                    assistant_msg.usage = delta.usage
+                    yield sse("usage", delta.usage)
 
-            # Persist the in-progress assistant content periodically so a server crash
-            # doesn't lose minutes of streaming. Cheap because the row is already in scope.
-            if monotonic() - last_persist > PERSIST_EVERY_S:
-                assistant_msg.content = "".join(accumulated)
-                chat.history = history.model_dump()
-                await db.commit()
-                last_persist = monotonic()
+                # Persist the in-progress assistant content periodically so a server crash
+                # doesn't lose minutes of streaming. Cheap because the row is already in scope.
+                if monotonic() - last_persist > PERSIST_EVERY_S:
+                    assistant_msg.content = "".join(accumulated)
+                    chat.history = history.model_dump()
+                    await db.commit()
+                    last_persist = monotonic()
 
-            if delta.finish_reason:
-                # Provider says "done"; loop will exit naturally on next iteration.
-                pass
+                if delta.finish_reason:
+                    # Provider says "done"; loop will exit naturally on next iteration.
+                    pass
 
     except asyncio.CancelledError:
         assistant_msg.content = "".join(accumulated)
@@ -761,6 +769,19 @@ async def stream_chat(
         await db.commit()
         yield sse("cancelled", {"assistant_message_id": assistant_msg.id})
         # Don't re-raise: we've cleanly closed the SSE stream. Starlette is happy.
+        return
+    except asyncio.TimeoutError:
+        # SSE_STREAM_TIMEOUT_SECONDS exceeded. Same persist shape as cancellation,
+        # distinct SSE frame so the UI can render an "exceeded time limit" affordance.
+        assistant_msg.content = "".join(accumulated)
+        assistant_msg.cancelled = True
+        assistant_msg.done = True
+        chat.history = history.model_dump()
+        await db.commit()
+        yield sse("timeout", {
+            "assistant_message_id": assistant_msg.id,
+            "limit_seconds": settings.SSE_STREAM_TIMEOUT_SECONDS,
+        })
         return
     except ProviderError as e:
         assistant_msg.content = "".join(accumulated)
@@ -799,7 +820,7 @@ Subscriptions are short-lived (one per active stream) so the Redis pubsub footpr
 
 Cancellation contract (always honoured by the generator):
 
-> The streaming generator must catch `asyncio.CancelledError`, persist the partial assistant content with `cancelled=True, done=True` via the same `chat.history` write path as the success branch, emit the terminal `cancelled` SSE event, and **return** (not re-raise — the SSE stream is already closed cleanly from the client's perspective). Skipping any of these three steps leaves a `done=False` zombie row that the M5 sweeper would later have to clean up. The pseudo-code above shows this exact shape; copy it.
+> The streaming generator must catch `asyncio.CancelledError` *and* `asyncio.TimeoutError`, persist the partial assistant content with `cancelled=True, done=True` via the same `chat.history` write path as the success branch, emit the terminal `cancelled` (or `timeout`) SSE event, and **return** (not re-raise — the SSE stream is already closed cleanly from the client's perspective). Skipping any of these three steps leaves a `done=False` zombie row that the M5 sweeper would later have to clean up. The pseudo-code above shows this exact shape; copy it.
 
 Cancellation paths:
 
@@ -810,12 +831,27 @@ Cancellation paths:
 Timeouts:
 
 - Per-stream: 120 s read on each chunk (provider's `httpx.Timeout(read=120.0)`). Exceeded → `ProviderError(504)` → `error` event.
-- Whole-request: a hard 5-minute cap enforced by `asyncio.wait_for` around the provider iteration. Configurable via `SSE_STREAM_TIMEOUT_SECONDS` (default 300). On exceedance the executor catches `asyncio.TimeoutError`, persists the partial assistant content with `cancelled=True, done=True`, and emits a terminal `timeout` SSE frame (`data: {"assistant_message_id": "...", "limit_seconds": 300}`) before returning. This matches the SSE timeout cap defined in the M5 hardening plan; do not diverge.
+- Whole-request: a hard 5-minute cap enforced inside the generator via `async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS)` wrapped around the provider iteration. Configurable via `SSE_STREAM_TIMEOUT_SECONDS` (default 300). On exceedance the executor catches `asyncio.TimeoutError`, persists the partial assistant content with `cancelled=True, done=True`, and emits a terminal `timeout` SSE frame (`data: {"assistant_message_id": "...", "limit_seconds": 300}`) before returning. The cap lives inside the generator (not in the route-layer `timeout(seconds)` dependency from M5) so the persist-partial branch always owns the cleanup path; the M5 route timeout remains in place as a backstop and is set to the same 300 s value, so neither tripping nor diverging is possible. Do not diverge the two values.
 
 Partial-message persistence semantics — the loop above guarantees:
 
 - After the user lands on `/api/chats/{id}` mid-stream and reloads, they see the user message and whatever assistant content has already been persisted (≤1 s old).
 - A crashed server resumes with the last persisted content; the assistant message stays `done: false` (the UI shows a "stream interrupted" affordance). A future M5 ticket sweeps zombie `done: false` rows older than N minutes; not in scope here.
+
+### History-size enforcement
+
+Every `chat.history` write in M1 (`chat_writer.append_assistant_message`, the user-message append in `POST /api/chats/{id}/messages`, and the per-second checkpoint inside `chat_stream.py`) caps the serialised JSON at `MAX_CHAT_HISTORY_BYTES` (1 MiB, declared in [m0-foundations.md § Project constants](m0-foundations.md#project-constants)). The check sits inside `chat_writer.py` as a single helper:
+
+```python
+from app.core.constants import MAX_CHAT_HISTORY_BYTES
+
+def _enforce_history_cap(history: dict[str, Any]) -> None:
+    encoded = json.dumps(history, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > MAX_CHAT_HISTORY_BYTES:
+        raise HistoryTooLargeError(size=len(encoded), cap=MAX_CHAT_HISTORY_BYTES)
+```
+
+`HistoryTooLargeError` is mapped to `HTTPException(status_code=413, detail="chat history exceeds 1 MiB cap")` by the M0 `app/core/errors.py` exception handler for the request-side path. The streaming generator catches it inside the persist loop, emits a terminal `error` SSE frame (`data: {"assistant_message_id": "...", "code": "history_too_large"}`), persists the partial assistant content **truncated to fit** with `done=True, error={"code": "history_too_large"}`, and returns. The M4 automation executor's chat-target call site (`m4-automations.md` § Execute pipeline) catches the same exception and records it on `automation_run.error`. Covered by `tests/integration/test_streaming.py::test_history_cap_413_on_oversized_user_message` and `tests/unit/test_history_tree.py::test_enforce_cap_rejects_oversized_payload`.
 
 ## Frontend routes and components
 
@@ -1039,7 +1075,7 @@ Coverage gate: every CRUD endpoint and every SSE event type has at least one tes
 ## Dependencies on other milestones
 
 - **Depends on M0** for: trusted-header `get_user`, `Settings` (which already exposes `MODEL_GATEWAY_BASE_URL`), the SQLAlchemy `Base` and async session, the Alembic baseline that creates `user`, the docker-compose stack, the Vite + SvelteKit + Tailwind 4 + Vitest + Playwright skeleton, and the Buildkite path-filtered pipeline.
-- **Reserved for M2.** The `share_id` column (`String(43)`) is created on `chat` by M1 so M2 doesn't need an `ALTER ADD COLUMN`. M1 does not read or write it; M2 owns the FK + unique index + uniqueness constraint via its own Alembic revision (`0003_m2_sharing` adds `op.create_foreign_key("fk_chat_share", "chat", "shared_chat", ["share_id"], ["id"])` and `op.create_index("ix_chat_share_id", "chat", ["share_id"], unique=True)`).
+- **Reserved for M2.** The `share_id` column (`String(43)`) is created on `chat` by M1 so M2 doesn't need an `ALTER ADD COLUMN`. M1 does not read or write it; M2 owns the FK + unique index + uniqueness constraint via its own Alembic revision (`0003_m2_sharing` calls `create_foreign_key_if_not_exists("fk_chat_share_id", "chat", "shared_chat", ["share_id"], ["id"], ondelete="SET NULL")` and `create_index_if_not_exists("ix_chat_share_id", "chat", ["share_id"], unique=True)` — both via the M0 helper module, never bare `op.*`, per `m0-foundations.md` § Migration helpers).
 - **`append_assistant_message` exposed for M4.** The chat-target writer M4 calls (`app.services.chat_writer.append_assistant_message`) is shipped by M1; it is the same helper `chat_stream.py` uses for non-streaming finalisation. Keeping it here means M4 doesn't need a separate writer or to know the JSON history shape.
 - **Nothing in M1 hard-couples M3.** The provider abstraction is the same one M3's `@model` channel auto-reply will use; we keep the contract narrow (`stream(messages, model, params)`) so M3 can wire it in without touching M1 code.
 
@@ -1054,6 +1090,8 @@ Coverage gate: every CRUD endpoint and every SSE event type has at least one tes
 - [ ] Client disconnect mid-stream persists `cancelled: true, done: true` with whatever content was already streamed; subsequent `GET /api/chats/{id}` returns the same content the client saw.
 - [ ] `POST /api/chats/{id}/messages/{message_id}/cancel` aborts an in-flight stream and yields the same `cancelled` event.
 - [ ] Provider error mid-stream surfaces a terminal `error` SSE event and persists `error: {...}, done: true`.
+- [ ] Whole-request timeout (exceeding `SSE_STREAM_TIMEOUT_SECONDS`) surfaces a terminal `timeout` SSE event with `assistant_message_id` and `limit_seconds`, and persists `cancelled: true, done: true` with the partial content the client already saw. Covered by `tests/integration/test_streaming.py::test_timeout_persists_partial_and_emits_timeout_frame` with `SSE_STREAM_TIMEOUT_SECONDS` overridden to a small value.
+- [ ] `StreamRegistry` cancel crosses pod boundaries via Redis pub/sub: a unit test against `fakeredis` registers a stream on pod A, calls `cancel(message_id)` from pod B's registry instance, and asserts the local `asyncio.Event` on pod A is set within 100 ms (`tests/integration/test_stream_registry_cross_pod.py`).
 - [ ] Reloading `/c/{id}` after a completed exchange shows the chat exactly as it was: same branch, same content, same model footer, same usage.
 - [ ] The four Playwright E2E specs above pass on Chromium in the deterministic CI stack.
 - [ ] Branching: regenerate creates a sibling assistant message; the branch chevron switches `currentId`; reload preserves the choice.

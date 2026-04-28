@@ -45,7 +45,7 @@ flowchart LR
     Sched --> API
 ```
 
-Two external services only: **MySQL** (rows + file blobs + scheduler row-lease via `SELECT … FOR UPDATE SKIP LOCKED` per [m4-automations.md § Scheduler](rebuild/plans/m4-automations.md#scheduler)) and **Redis** (socket.io cross-replica adapter, sliding-window rate limiters, stream-cancel pub/sub, light cache — *not* scheduler locks; M4 deliberately keeps lease state in MySQL so a single transactional commit advances both `last_run_at` and the run row). No object store, no separate cache cluster. The internal model gateway is upstream infra, not ours.
+Two external services only: **MySQL** (rows + file blobs + scheduler row-lease via `SELECT … FOR UPDATE SKIP LOCKED` per [m4-automations.md § Scheduler worker (APScheduler)](rebuild/plans/m4-automations.md#scheduler-worker-apscheduler)) and **Redis** (socket.io cross-replica adapter, sliding-window rate limiters, stream-cancel pub/sub, light cache — *not* scheduler locks; M4 deliberately keeps lease state in MySQL so a single transactional commit advances both `last_run_at` and the run row). No object store, no separate cache cluster. The internal model gateway is upstream infra, not ours.
 
 **Stack:**
 
@@ -83,7 +83,7 @@ Sharing is **anyone-with-the-link, scoped to authenticated proxy users**. There 
 | `channel_message` | `id`, `channel_id`, `user_id?`, `bot_id` (`String(128)`, nullable), `webhook_id?`, `parent_id?`, `content` (JSON), `is_pinned`, `created_at`, `updated_at` | Threads via `parent_id`. CHECK constraint: exactly one of `(user_id, bot_id, webhook_id)` is non-null. `bot_id` is the model id from the gateway; not a FK (models are discovered, not stored as users). Width 128 matches `automation.model_id` (m4-automations.md § Data model). |
 | `channel_message_reaction` | `message_id`, `user_id`, `emoji`, `created_at` | Unicode codepoint or `:shortcode:` — no custom emoji uploads |
 | `channel_webhook` | `id`, `channel_id`, `name`, `token_hash` (`CHAR(64)`, hex SHA-256, unique), `last_used_at?`, `created_at` | Incoming + outgoing. Plaintext token shown only at creation time; never persisted in cleartext. |
-| `channel_file` | `channel_id`, `message_id?`, `file_id`, `created_at` | Join row only |
+| `channel_file` | `channel_id`, `message_id?`, `file_id`, `uploaded_by?`, `created_at` | Join row only; `uploaded_by` is nullable so the `ondelete="SET NULL"` FK to `user.id` survives uploader deletion |
 | `file` | `id`, `user_id`, `name`, `mime`, `size`, `sha256` (`CHAR(64)`, indexed via `ix_file_sha`), `created_at` | Metadata only; never selected with payload. 5 MiB upload cap enforced server-side. |
 | `file_blob` | `file_id` (PK + FK), `data` (`MEDIUMBLOB`) | Payload table; separated so list/metadata queries never load binary |
 | `automation` | `id`, `user_id`, `name`, `prompt`, `model_id` (`String(128)`), `rrule`, `target_chat_id?`, `target_channel_id?`, `is_active`, `last_run_at?`, `next_run_at?`, `created_at`, `updated_at` | XOR CHECK on `(target_chat_id, target_channel_id)`. Width 128 on `model_id` matches `channel_message.bot_id`. |

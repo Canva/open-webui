@@ -9,7 +9,7 @@ Stand up a parallel, fully self-contained `rebuild/` tree in this repo that comp
 ## Deliverables
 
 - `rebuild/` directory; isolated tooling; no shared lockfiles or configs with legacy.
-- FastAPI 3.12 backend skeleton at [rebuild/backend/](../backend/) with ASGI app factory mounting `/healthz`, `/readyz`, `/api/me`; `Settings(BaseSettings)` in `app/core/config.py`; `get_user` trusted-header dep in `app/core/auth.py`; async SQLAlchemy 2 engine + session factory in `app/core/db.py`; Alembic environment with a single revision creating the `user` table.
+- Python 3.12 + FastAPI backend skeleton at [rebuild/backend/](../backend/) with ASGI app factory mounting `/healthz`, `/readyz`, `/api/me`; `Settings(BaseSettings)` in `app/core/config.py`; `get_user` trusted-header dep in `app/core/auth.py`; async SQLAlchemy 2 engine + session factory in `app/core/db.py`; Alembic environment with a single revision creating the `user` table.
 - SvelteKit 2 + Svelte 5 + Tailwind 4 frontend at [rebuild/frontend/](../frontend/): root layout calling `/api/me` to verify the trusted-header path; Vitest + Playwright (E2E + Component Testing) wired with MSW.
 - Dev infrastructure at [rebuild/infra/](../infra/): `docker-compose.yml` with `mysql:8.0.39`, `redis:7.4-alpine`, and the `app` service; `mysql/my.cnf` pinning `utf8mb4` / `utf8mb4_0900_ai_ci` / `max_allowed_packet=16M`.
 - Multi-stage [rebuild/Dockerfile](../Dockerfile) producing one image with frontend assets + backend.
@@ -85,9 +85,14 @@ rebuild/
       __init__.py
       conftest.py                    # async client + MySQL fixture (testcontainers)
       test_health.py                 # /healthz returns 200, /readyz pings db+redis
-      test_auth.py                   # trusted-header auto-creates User, missing -> 401
+      test_auth.py                   # trusted-header auto-creates User, missing -> 401; covers both upsert_user_from_headers and get_user
       test_settings.py               # defaults + overrides parse correctly
       test_strict_model.py           # StrictModel rejects unknown fields (one regression case)
+      test_ids.py                    # new_id() UUIDv7 version-nibble + intra-ms monotonicity
+      test_time.py                   # now_ms() matches a frozen time.time_ns()
+      test_constants.py              # smoke imports STREAM_HEARTBEAT_SECONDS + MAX_CHAT_HISTORY_BYTES
+      test_no_bare_depends.py        # AST gate: no `Depends(get_session)` / `Depends(get_user)` in route signatures under app/routers/
+      test_migrations.py             # alembic up/down idempotency, partial-recovery, AST gate against bare op.* in versions/
   frontend/
     package.json -> ../package.json  # symlink, single JS dep set
     svelte.config.js                 # SvelteKit 2 config, adapter-node
@@ -152,7 +157,7 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `ENV` | `Literal["dev", "test", "staging", "prod"]` | `"dev"` | Switches Alembic test fixture and CORS rules. `"staging"` is required by M4's `/test/scheduler/tick` gate (`m4-automations.md` § Test hook) and by M5's smoke pack against `archive.openwebui.canva-internal.com` (`m5-hardening.md` § Smoke E2E pack). |
+| `ENV` | `Literal["dev", "test", "staging", "prod"]` | `"dev"` | Switches Alembic test fixture and CORS rules. `"staging"` is required by M4's `/test/scheduler/tick` gate (`m4-automations.md` § Test hook) and by M5's smoke pack against the staging URL (`m5-hardening.md` § Smoke E2E pack). |
 | `HOST` | `str` | `"0.0.0.0"` | Uvicorn bind. |
 | `PORT` | `int` | `8080` | Same as legacy default for proxy parity. |
 | `LOG_LEVEL` | `str` | `"INFO"` | Passed to `logging.basicConfig`. |
@@ -173,7 +178,7 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 
 Pydantic-settings 2 reads CSVs into `list[str]` automatically when annotated, and the `SecretStr` type prevents the API key from leaking into log lines.
 
-**Casing convention (locked).** Every field on `Settings` is declared with the same UPPER_SNAKE_CASE name as its env var; access from code is therefore always `settings.MODEL_GATEWAY_BASE_URL`, never `settings.model_gateway_base_url`. The convention is uniform across every milestone (M1–M5). Pydantic-settings 2 supports either casing, but mixing them causes silent attribute errors when the wrong case is used at a call site, so the project pins one. Later milestones that extend `Settings` with new fields (M1's `SSE_STREAM_TIMEOUT_SECONDS`, M4's `AUTOMATION_*` knobs, M5's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`, `LAUNCH_BANNER_UNTIL`) follow the same UPPER_SNAKE_CASE rule and are listed in their plans' "Settings additions" subsection.
+**Casing convention (locked).** Every field on `Settings` is declared with the same UPPER_SNAKE_CASE name as its env var; access from code is therefore always `settings.MODEL_GATEWAY_BASE_URL`, never `settings.model_gateway_base_url`. The convention is uniform across every milestone (M1–M5). Pydantic-settings 2 supports either casing, but mixing them causes silent attribute errors when the wrong case is used at a call site, so the project pins one. Later milestones that extend `Settings` with new fields (M1's `SSE_STREAM_TIMEOUT_SECONDS`, M4's `AUTOMATION_*` knobs, M5's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`) follow the same UPPER_SNAKE_CASE rule and are listed in their plans' "Settings additions" subsection. The launch-banner cutoff (`PUBLIC_LAUNCH_BANNER_UNTIL`) is intentionally **not** a backend `Settings` field — it lives only on the SvelteKit side as a `PUBLIC_*` static env var (see `m5-hardening.md` § In-product banner).
 
 ### Trusted-header dependency
 
@@ -292,7 +297,7 @@ Both live in `app/routers/health.py` and are mounted without auth.
 
 ### Alembic baseline
 
-The first revision `20260427_0001_baseline.py` creates exactly one table, and uses the M0 helper module so re-running a partially-applied revision is a no-op:
+The first revision `0001_baseline.py` creates exactly one table, and uses the M0 helper module so re-running a partially-applied revision is a no-op (filename convention is `<revid>.py` with no date prefix, matching the M1–M4 revisions `0002_m1_chat_folder.py`, `0003_m2_sharing.py`, `0004_m3_channels.py`, `0005_m4_automations.py`):
 
 ```python
 from app.db.migration_helpers import (
@@ -481,7 +486,7 @@ def execute_if(condition: bool, sql: str) -> None:
 
 Rules for revision authors (enforced by review and by a CI grep gate):
 
-- **No bare `op.create_table`, `op.create_index`, `op.add_column`, `op.create_foreign_key`, `op.create_check_constraint`, `op.create_unique_constraint`, `op.drop_table`, `op.drop_index`, `op.drop_column`, `op.drop_constraint`** in any file under `backend/alembic/versions/`. Use the helper variants exclusively. The Buildkite `lint-py` step adds `rg "^\s*op\.(create|drop|add)_" rebuild/backend/alembic/versions/ | (! grep -v 'if_not_exists\|if_exists')` and fails the build on a hit.
+- **No bare `op.create_table`, `op.create_index`, `op.add_column`, `op.create_foreign_key`, `op.create_check_constraint`, `op.create_unique_constraint`, `op.drop_table`, `op.drop_index`, `op.drop_column`, `op.drop_constraint`** in any file under `backend/alembic/versions/`. Use the helper variants exclusively. Enforced by the `tests/test_migrations.py::test_no_bare_op_calls` AST gate (an AST walk is strictly more reliable than a regex against the file text — multi-line calls, in-comment matches, and `op.execute(...)` raw DDL all confound a grep) which runs in the Buildkite `unit` step.
 - **`op.execute` is allowed but only via `execute_if(condition, sql)`** so the caller has to think about the precondition. The single legitimate use in M1 is the MySQL generated column on `chat.current_message_id`; the precondition is `not has_column("chat", "current_message_id")`. Any raw `ALTER TABLE` emitted via `execute_if` MUST end with `, ALGORITHM=<INSTANT|INPLACE|COPY>, LOCK=<DEFAULT|NONE|SHARED|EXCLUSIVE>` so the migration's blocking behaviour is explicit at the call site, not implicit. The `test_no_bare_op_calls` AST gate also fails any `execute_if` whose SQL string starts with `ALTER TABLE` and lacks the algorithm clause.
 - **`add_column_if_not_exists` defaults to `ALGORITHM=INSTANT, LOCK=DEFAULT`** (MySQL 8.0.12+). This is the right default for new columns: the operation is metadata-only and a 100M-row `chat` table costs the same to widen as an empty one. If a column genuinely cannot be added INSTANT (most common cause: it would push the row off-page, e.g. a wide TEXT default mid-table), pass `algorithm="INPLACE"` (or `"COPY"` as a last resort) explicitly and justify the choice in a comment block above the call. The Helm migration Job's `activeDeadlineSeconds: 300` is sized for INSTANT-class operations; INPLACE/COPY revisions must bump the override in the same PR (see `m5-hardening.md` § Database migration step).
 - **Every `upgrade()` must be a re-runnable no-op on a fully-upgraded schema.** This is verified by an integration test that runs `alembic upgrade head` twice in succession against the same MySQL container and asserts the second run is a no-op (no `CREATE`/`ALTER` in the binlog).
