@@ -1,0 +1,335 @@
+{
+	"schemaVersion": 2,
+	"generatedAt": "2026-04-27T04:20:00Z",
+	"title": "Design System: Open WebUI (Canva Fork)",
+	"extensions": {
+		"colorMeta": {
+			"paper-white": {
+				"role": "neutral",
+				"displayName": "Paper White",
+				"canonical": "oklch(0.98 0 0)",
+				"tonalRamp": [
+					"oklch(0.16 0 0)",
+					"oklch(0.2 0 0)",
+					"oklch(0.32 0 0)",
+					"oklch(0.51 0 0)",
+					"oklch(0.69 0 0)",
+					"oklch(0.85 0 0)",
+					"oklch(0.94 0 0)",
+					"oklch(0.98 0 0)"
+				]
+			},
+			"workshop-dark": {
+				"role": "primary",
+				"displayName": "Workshop Dark",
+				"canonical": "oklch(0.2 0 0)",
+				"tonalRamp": [
+					"oklch(0.16 0 0)",
+					"oklch(0.2 0 0)",
+					"oklch(0.27 0 0)",
+					"oklch(0.32 0 0)",
+					"oklch(0.42 0 0)",
+					"oklch(0.51 0 0)",
+					"oklch(0.69 0 0)",
+					"oklch(0.85 0 0)"
+				]
+			},
+			"mention-sky": {
+				"role": "secondary",
+				"displayName": "Mention Sky",
+				"canonical": "oklch(0.69 0.17 237)",
+				"tonalRamp": [
+					"oklch(0.25 0.08 237)",
+					"oklch(0.35 0.11 237)",
+					"oklch(0.45 0.14 237)",
+					"oklch(0.55 0.16 237)",
+					"oklch(0.69 0.17 237)",
+					"oklch(0.78 0.13 237)",
+					"oklch(0.88 0.08 237)",
+					"oklch(0.96 0.03 237)"
+				]
+			},
+			"signal-blue": {
+				"role": "tertiary",
+				"displayName": "Signal Blue",
+				"canonical": "oklch(0.62 0.19 259)",
+				"tonalRamp": [
+					"oklch(0.25 0.1 259)",
+					"oklch(0.35 0.14 259)",
+					"oklch(0.45 0.17 259)",
+					"oklch(0.54 0.21 262)",
+					"oklch(0.62 0.19 259)",
+					"oklch(0.75 0.14 259)",
+					"oklch(0.87 0.08 259)",
+					"oklch(0.96 0.03 259)"
+				]
+			},
+			"status-success": {
+				"role": "tertiary",
+				"displayName": "Status Success",
+				"canonical": "oklch(0.72 0.21 149)",
+				"tonalRamp": [
+					"oklch(0.28 0.1 149)",
+					"oklch(0.38 0.14 149)",
+					"oklch(0.48 0.17 149)",
+					"oklch(0.6 0.2 149)",
+					"oklch(0.72 0.21 149)",
+					"oklch(0.82 0.15 149)",
+					"oklch(0.9 0.09 149)",
+					"oklch(0.96 0.04 149)"
+				]
+			},
+			"status-warning": {
+				"role": "tertiary",
+				"displayName": "Status Warning",
+				"canonical": "oklch(0.79 0.17 70)",
+				"tonalRamp": [
+					"oklch(0.3 0.1 70)",
+					"oklch(0.42 0.13 70)",
+					"oklch(0.55 0.16 70)",
+					"oklch(0.68 0.17 70)",
+					"oklch(0.79 0.17 70)",
+					"oklch(0.86 0.12 70)",
+					"oklch(0.92 0.07 70)",
+					"oklch(0.97 0.03 70)"
+				]
+			},
+			"status-danger": {
+				"role": "tertiary",
+				"displayName": "Status Danger",
+				"canonical": "oklch(0.64 0.24 25)",
+				"tonalRamp": [
+					"oklch(0.26 0.1 25)",
+					"oklch(0.36 0.15 25)",
+					"oklch(0.47 0.19 25)",
+					"oklch(0.56 0.22 25)",
+					"oklch(0.64 0.24 25)",
+					"oklch(0.77 0.17 25)",
+					"oklch(0.88 0.1 25)",
+					"oklch(0.96 0.04 25)"
+				]
+			}
+		},
+		"typographyMeta": {
+			"display": {
+				"displayName": "Display",
+				"purpose": "Rare workspace-landing and section-hero headlines. Not used in the app shell."
+			},
+			"headline": {
+				"displayName": "Headline",
+				"purpose": "Page titles — workspace, settings, modal title row."
+			},
+			"title": {
+				"displayName": "Title",
+				"purpose": "Card and section titles inside the app."
+			},
+			"body": {
+				"displayName": "Body",
+				"purpose": "The dominant UI text size. Chat messages, list rows, form labels."
+			},
+			"label": {
+				"displayName": "Label",
+				"purpose": "Badge text, metadata, hotkey hints, timestamps. Uppercase permitted for badges only."
+			},
+			"code": {
+				"displayName": "Code",
+				"purpose": "Inline code spans and fenced code blocks."
+			},
+			"serif-accent": {
+				"displayName": "Serif Accent (Reserve)",
+				"purpose": "InstrumentSerif, held in reserve for named editorial moments only."
+			}
+		},
+		"shadows": [
+			{
+				"name": "message-input-lift",
+				"value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+				"purpose": "Lift for the composing surface — the agent message input."
+			},
+			{
+				"name": "modal-lift",
+				"value": "0 35px 60px -15px rgb(0 0 0 / 0.3)",
+				"purpose": "Modal envelope lift; always paired with backdrop-blur-sm and a hairline border."
+			},
+			{
+				"name": "popover-blur",
+				"value": "backdrop-filter: blur(40px); background: rgb(0 0 0 / 0.8)",
+				"purpose": "Dark transient popovers (drag preview, hint cards)."
+			}
+		],
+		"motion": [
+			{
+				"name": "state-fast",
+				"value": "150ms cubic-bezier(0.22, 1, 0.36, 1)",
+				"purpose": "Default for button / input state transitions. Ease-out-quart."
+			},
+			{
+				"name": "modal-enter",
+				"value": "100ms ease-out",
+				"purpose": "Modal flyAndScale + scaleUp keyframe duration."
+			},
+			{
+				"name": "fade-minimal",
+				"value": "10ms linear",
+				"purpose": "Modal backdrop fade — just enough to avoid a jarring pop-in."
+			}
+		],
+		"breakpoints": [
+			{ "name": "sm", "value": "640px" },
+			{ "name": "md", "value": "768px" },
+			{ "name": "lg", "value": "1024px" },
+			{ "name": "xl", "value": "1280px" },
+			{ "name": "2xl", "value": "1536px" }
+		]
+	},
+	"components": [
+		{
+			"name": "Primary Button (Light Mode)",
+			"kind": "button",
+			"refersTo": "button-primary",
+			"description": "Primary action in dialogs and confirmation rows. Workshop Dark fill, Page Fill text, pill radius.",
+			"html": "<button class=\"ds-btn-primary\">Confirm</button>",
+			"css": ".ds-btn-primary { background: oklch(0.2 0 0); color: oklch(0.94 0 0); font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.5; padding: 8px 16px; border: none; border-radius: 24px; cursor: pointer; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-primary:hover { background: oklch(0.27 0 0); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(0.69 0.17 237); outline-offset: 2px; }"
+		},
+		{
+			"name": "Secondary Button",
+			"kind": "button",
+			"refersTo": "button-secondary",
+			"description": "Cancel/dismiss companion to a primary action. Page Fill background, Strong Ink text.",
+			"html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+			"css": ".ds-btn-secondary { background: oklch(0.94 0 0); color: oklch(0.32 0 0); font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.5; padding: 8px 16px; border: none; border-radius: 24px; cursor: pointer; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-secondary:hover { background: oklch(0.92 0 0); } .ds-btn-secondary:focus-visible { outline: 2px solid oklch(0.69 0.17 237); outline-offset: 2px; }"
+		},
+		{
+			"name": "Sidebar Chat Item",
+			"kind": "nav",
+			"refersTo": "sidebar-item",
+			"description": "Full-width row in the chat list. Rounded-xl, tight padding, active state fills with Page Fill.",
+			"html": "<a class=\"ds-sidebar-item\" href=\"#\"><span class=\"ds-sidebar-item__title\">Draft the 24Q4 campaign brief</span><span class=\"ds-sidebar-item__dot\" aria-hidden=\"true\"></span></a>",
+			"css": ".ds-sidebar-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 6px 11px; border-radius: 12px; color: oklch(0.42 0 0); font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 400; line-height: 1.5; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1); cursor: pointer; } .ds-sidebar-item:hover { background: oklch(0.94 0 0); } .ds-sidebar-item[aria-current=\"page\"], .ds-sidebar-item.is-active { background: oklch(0.94 0 0); color: oklch(0.16 0 0); } .ds-sidebar-item__title { flex: 1; overflow: hidden; text-overflow: ellipsis; } .ds-sidebar-item__dot { width: 6px; height: 6px; border-radius: 9999px; background: oklch(0.69 0.17 237); flex-shrink: 0; }"
+		},
+		{
+			"name": "Text Input (Pill)",
+			"kind": "input",
+			"refersTo": "input-pill",
+			"description": "Standard text input. Soft rounded-lg, hairline border, focus deepens the border.",
+			"html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Name this agent\" />",
+			"css": ".ds-input { width: 100%; padding: 8px 16px; background: oklch(0.98 0 0); color: oklch(0.42 0 0); border: 1px solid oklch(0.92 0 0); border-radius: 8px; font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.5; outline: none; transition: border-color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-input::placeholder { color: oklch(0.77 0 0); } .ds-input:focus { border-color: oklch(0.85 0 0); } .ds-input:disabled { opacity: 0.5; cursor: not-allowed; }"
+		},
+		{
+			"name": "Info Badge",
+			"kind": "chip",
+			"refersTo": "badge-info",
+			"description": "Status chip at 20% hue fill with 700-weight text. Uppercase, tiny padding, label-scale.",
+			"html": "<span class=\"ds-badge ds-badge--info\">NEW</span>",
+			"css": ".ds-badge { display: inline-block; padding: 0 5px; border-radius: 8px; font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; line-height: 1.4; letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap; } .ds-badge--info { background: color-mix(in oklab, oklch(0.62 0.19 259) 20%, transparent); color: oklch(0.45 0.17 259); }",
+			"notes": "Swap `--info` for `--success` / `--warning` / `--danger` by substituting status-success / status-warning / status-danger. Always 20% fill + deep-ink text."
+		},
+		{
+			"name": "Agent Message Input",
+			"kind": "custom",
+			"refersTo": "message-input",
+			"description": "Signature composing surface. Rounded-3xl pill with translucent fill, backdrop-blur lift, hairline border that deepens on hover/focus.",
+			"html": "<div class=\"ds-message-input\"><textarea class=\"ds-message-input__field\" rows=\"1\" placeholder=\"Ask the agent\"></textarea><button class=\"ds-message-input__send\" aria-label=\"Send\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 13V3M4 7l4-4 4 4\"/></svg></button></div>",
+			"css": ".ds-message-input { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px; background: color-mix(in oklab, oklch(0.98 0 0) 5%, transparent); backdrop-filter: blur(4px); border: 1px solid color-mix(in oklab, oklch(0.92 0 0) 30%, transparent); border-radius: 24px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); transition: border-color 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-message-input:hover { border-color: oklch(0.85 0 0); } .ds-message-input:focus-within { border-color: oklch(0.85 0 0); } .ds-message-input__field { flex: 1; background: transparent; border: none; outline: none; resize: none; color: oklch(0.42 0 0); font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.5; padding: 6px 4px; max-height: 200px; } .ds-message-input__field::placeholder { color: oklch(0.77 0 0); } .ds-message-input__send { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 9999px; background: oklch(0.2 0 0); color: oklch(0.94 0 0); cursor: pointer; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-message-input__send:hover { background: oklch(0.27 0 0); } .ds-message-input__send:disabled { opacity: 0.4; cursor: not-allowed; }"
+		},
+		{
+			"name": "Modal Surface",
+			"kind": "card",
+			"refersTo": "modal-surface",
+			"description": "Primary dialog envelope. 32px radius, blurred translucent fill, hairline ghost border, soft lift.",
+			"html": "<div class=\"ds-modal\"><h2 class=\"ds-modal__title\">Delete this agent?</h2><p class=\"ds-modal__body\">This action cannot be undone. The agent's memory and connected tools will be detached.</p><div class=\"ds-modal__actions\"><button class=\"ds-btn-secondary\">Cancel</button><button class=\"ds-btn-primary\">Delete</button></div></div>",
+			"css": ".ds-modal { width: min(32rem, 100% - 1rem); padding: 24px 28px; background: color-mix(in oklab, oklch(0.98 0 0) 95%, transparent); backdrop-filter: blur(4px); border: 1px solid oklch(0.98 0 0); border-radius: 32px; box-shadow: 0 35px 60px -15px rgb(0 0 0 / 0.3); } .ds-modal__title { margin: 0 0 10px 0; font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 1.125rem; font-weight: 500; line-height: 1.3; color: oklch(0.16 0 0); } .ds-modal__body { margin: 0 0 24px 0; font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.5; color: oklch(0.51 0 0); } .ds-modal__actions { display: flex; gap: 6px; } .ds-modal__actions > button { flex: 1; } .ds-btn-primary { background: oklch(0.2 0 0); color: oklch(0.94 0 0); font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; padding: 8px 16px; border: none; border-radius: 24px; cursor: pointer; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-primary:hover { background: oklch(0.27 0 0); } .ds-btn-secondary { background: oklch(0.94 0 0); color: oklch(0.32 0 0); font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; padding: 8px 16px; border: none; border-radius: 24px; cursor: pointer; transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1); } .ds-btn-secondary:hover { background: oklch(0.92 0 0); }"
+		},
+		{
+			"name": "Agent Chip",
+			"kind": "custom",
+			"refersTo": "none",
+			"description": "Signature identity marker. Round agent avatar with a hairline ring and a named label beneath.",
+			"html": "<div class=\"ds-agent-chip\"><div class=\"ds-agent-chip__avatar\" aria-hidden=\"true\">N</div><div class=\"ds-agent-chip__meta\"><div class=\"ds-agent-chip__name\">Notion Librarian</div><div class=\"ds-agent-chip__model\">gpt-4o · tools 3</div></div></div>",
+			"css": ".ds-agent-chip { display: inline-flex; align-items: center; gap: 10px; } .ds-agent-chip__avatar { width: 2.7rem; height: 2.7rem; border-radius: 9999px; background: oklch(0.94 0 0); color: oklch(0.32 0 0); display: inline-flex; align-items: center; justify-content: center; border: 1px solid oklch(0.92 0 0); font-family: Archivo, Vazirmatn, sans-serif; font-size: 1.125rem; font-weight: 600; } .ds-agent-chip__meta { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; } .ds-agent-chip__name { font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; color: oklch(0.16 0 0); } .ds-agent-chip__model { font-family: Inter, Vazirmatn, ui-sans-serif, system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.02em; color: oklch(0.69 0 0); }"
+		}
+	],
+	"narrative": {
+		"northStar": "The Agent Workshop",
+		"overview": "This is a craftsman's bench, not a showroom. The surface is where a Canva employee sits down with their named agents — picks one up, uses it, puts it back — alongside their tools, history, and context. Nothing is on display; everything is within reach. Density and calm coexist because that's how real workshops feel: organized, instrumented, unhurried. The shell recedes so the work stays visible. The aesthetic philosophy is strict tonal minimalism. A single 12-step neutral ramp, tuned in OKLCH with zero chroma, carries almost every surface. Color enters the system only where it has a job: Mention Sky for live indicators and @-mentions, a narrow semantic palette for status badges, a near-black primary button that inverts in dark mode. The accent budget is small on purpose — the absence of color is what lets density stop feeling noisy. This system explicitly rejects ChatGPT's centered-prompt void, model-forward chrome, SaaS hero-metric dashboards, crypto-neon, consumer-social warmth, and Notion's document-flatness when it fights app density. Where other AI surfaces perform excitement, this one performs competence.",
+		"keyCharacteristics": [
+			"Zero-chroma neutral ramp with a sparse sky/semantic accent layer.",
+			"Hybrid elevation: flat at rest, blurred-and-lifted for modals and popovers only.",
+			"Inter as the working face; Archivo for chrome headlines; InstrumentSerif held in reserve.",
+			"Radius language runs from 4px utility up to 32px for modal envelopes — large radii signal 'floating,' tight radii signal 'embedded.'",
+			"Motion is under 200ms, functional, eased out. No bounce, no choreography."
+		],
+		"rules": [
+			{
+				"name": "The One-Accent Rule",
+				"body": "Mention Sky is the only decorative color permitted in the chrome. If a new feature needs a decorative accent, use weight, size, ink contrast, or white space — not a second hue.",
+				"section": "colors"
+			},
+			{
+				"name": "The Model-Name Exile Rule",
+				"body": "Raw model identifiers (gpt-4o-2024-08-06, claude-3-5-sonnet-*) must never sit in primary chrome. If a model string is surfaced at all, it is secondary metadata under the agent's name, in Muted Ink at label scale.",
+				"section": "colors"
+			},
+			{
+				"name": "The Zero-Chroma Default Rule",
+				"body": "Grayscale is literally zero chroma. Do not drift neutrals toward a warm or cool tint unless a feature explicitly requires it and documents why.",
+				"section": "colors"
+			},
+			{
+				"name": "The Serif-In-Reserve Rule",
+				"body": "InstrumentSerif exists in the app and must stay rare. It is reserved for named editorial moments — never for generic emphasis, never for body, never for labels.",
+				"section": "typography"
+			},
+			{
+				"name": "The RTL-First Rule",
+				"body": "Every font stack includes Vazirmatn. New stacks must include it. RTL parity is a latent requirement of this surface.",
+				"section": "typography"
+			},
+			{
+				"name": "The Scale-Text-Scale Rule",
+				"body": "The app supports --app-text-scale on :root. Custom line-heights and min-heights declared in pixel units must multiply through this variable. Hard-coding pixel line-heights outside the scale system is forbidden.",
+				"section": "typography"
+			},
+			{
+				"name": "The Flat-Until-Floating Rule",
+				"body": "If a surface stays on the page flow, it is flat. Shadows exist only on elements that detach from the flow (dialogs, menus, the message input, drag previews). A card that sits in a grid does not get a shadow.",
+				"section": "elevation"
+			},
+			{
+				"name": "The Blur-Is-The-Depth Rule",
+				"body": "Lift comes from backdrop-blur against a translucent fill, not from heavy drop shadows. If a surface needs to feel 'above,' increase the blur strength before increasing the shadow strength.",
+				"section": "elevation"
+			},
+			{
+				"name": "The Ghost-Border Rule",
+				"body": "Modals carry a 1px border of Paper White (light) / Panel Dark (dark). This hairline replaces what a larger shadow would otherwise do — it defines the edge against the blurred backdrop without shouting.",
+				"section": "elevation"
+			}
+		],
+		"dos": [
+			"Do use Workshop Dark as the primary button fill in light mode, inverted to Page Fill in dark mode.",
+			"Do reserve Mention Sky (oklch(0.69 0.17 237)) for @-mentions and live-state dots. Nothing else.",
+			"Do cap body prose at 65–75ch where long-form content appears.",
+			"Do use large radii (rounded-3xl, rounded-4xl) to signal 'this surface is floating' (modals, input pills), and small radii (rounded-lg) to signal 'this surface is embedded' (inputs, badges).",
+			"Do compose elevation with backdrop-blur against translucent fills, not with heavy drop shadows.",
+			"Do name agents in the chrome. The model is metadata under the agent, never the primary title.",
+			"Do include Vazirmatn in every new font stack for RTL parity.",
+			"Do respect prefers-reduced-motion — transitions should become instant, not merely slower."
+		],
+		"donts": [
+			"Don't introduce a second decorative hue. The one-accent rule (Mention Sky only) is the rule.",
+			"Don't put raw model identifiers (gpt-4o-…, claude-3-5-sonnet-…) in primary chrome.",
+			"Don't recreate the ChatGPT 'centered prompt in a void' landing. Sidebar stays. History is structured. Agents are named.",
+			"Don't reach for a hero-metric dashboard layout (big number + three stat cards + gradient CTA).",
+			"Don't use crypto-neon gradients, magenta-cyan glow cores, or black-grid floors.",
+			"Don't use gradient text (background-clip: text with a gradient). Solid ink only.",
+			"Don't use side-stripe borders (border-left greater than 1px as a colored accent).",
+			"Don't reach for a modal as the first thought. Exhaust inline and progressive disclosure before adding a dialog.",
+			"Don't apply shadows to surfaces that sit in the page flow. Flat-until-floating.",
+			"Don't drift the gray ramp toward warm or cool tints. Zero chroma is the signature.",
+			"Don't introduce confetti, emoji bursts, celebratory bounces, or any consumer-social warmth.",
+			"Don't break RTL by hard-coding left/right. Use logical properties or Tailwind's ms-/me- utilities.",
+			"Don't animate CSS layout properties. Transform and opacity only."
+		]
+	}
+}
