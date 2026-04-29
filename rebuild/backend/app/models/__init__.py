@@ -4,8 +4,8 @@ Re-exports every concrete ORM model so importing this package alone is
 sufficient to populate ``app.db.base.Base.metadata`` (which is what
 Alembic's ``env.py`` autogenerate / migration runner consumes).
 
-Each later milestone (M1 chat/folder, M2 share, M3 channel/message/file,
-M4 automation/automation_run) appends its model imports to this file.
+Each later milestone (M2 chat/folder, M3 share, M4 channel/message/file,
+M5 automation/automation_run) appends its model imports to this file.
 """
 
 from __future__ import annotations

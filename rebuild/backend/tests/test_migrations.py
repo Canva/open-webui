@@ -13,7 +13,7 @@ hold (m0 plan § Alembic helper test gate):
    only ships ``op.create_table_if_not_exists`` for the single ``user``
    table; the helper short-circuits when ``has_table('user')`` is true,
    so the table's column shape is preserved (it does NOT add the missing
-   columns). For M1+ when revisions add new columns / indexes via
+   columns). For M2+ when revisions add new columns / indexes via
    ``add_column_if_not_exists`` / ``create_index_if_not_exists``, this
    test grows to assert the missing artefacts get added. See "Deviation
    from dispatch" comment block above ``test_partial_upgrade_recovers``.
@@ -187,11 +187,11 @@ def test_downgrade_base_is_idempotent(fresh_db: str) -> None:
 #   only DDL is `create_table_if_not_exists("user", ...)`, which the
 #   helper short-circuits when `has_table("user")` is true. It does NOT
 #   reach into the existing table to add missing columns; that is the
-#   `add_column_if_not_exists` helper's job, which M1+ revisions use.
+#   `add_column_if_not_exists` helper's job, which M2+ revisions use.
 #
 #   So for M0 the verifiable contract is: "upgrade head over a partial
 #   user table completes without error and the table contents are
-#   preserved (no destructive recovery)". For M1+ this test will grow a
+#   preserved (no destructive recovery)". For M2+ this test will grow a
 #   parametrised case asserting missing columns/indexes get filled in.
 
 

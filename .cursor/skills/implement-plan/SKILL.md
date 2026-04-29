@@ -1,6 +1,6 @@
 ---
 name: implement-plan
-description: Implement a rebuild milestone plan (or a scoped sub-section of one) by breaking it into concrete actions, mapping each action to the correct specialist subagent (db-architect, fastapi-engineer, realtime-engineer, svelte-engineer, test-author, verifier, plan-keeper), and dispatching them in dependency order. Use when the user says "implement m1/m2/m3/m4/m5", "implement the <feature> plan", "build out <section> from the milestone", "execute the milestone", or any phrasing that asks to turn a written plan in `rebuild/plans/` into shipped code.
+description: Implement a rebuild milestone plan (or a scoped sub-section of one) by breaking it into concrete actions, mapping each action to the correct specialist subagent (db-architect, fastapi-engineer, realtime-engineer, svelte-engineer, test-author, verifier, plan-keeper), and dispatching them in dependency order. Use when the user says "implement m1/m2/m3/m4/m5", "implement the <feature> plan", "build out <section> from the milestone", "execute the milestone", or any phrasing that asks to turn a written plan in `rebuild/docs/plans/` into shipped code.
 ---
 
 # Implement a Rebuild Milestone Plan
@@ -9,15 +9,27 @@ You are the orchestrator. Your job is to turn a written milestone plan (or a sco
 
 ## Available subagents (anchor these names exactly)
 
-| Subagent | Owns | Read order |
-|---|---|---|
-| `plan-keeper` | `rebuild.md`, milestone plans, best-practises files (read-only) | First (scope check), last (drift sweep) |
-| `db-architect` | SQLAlchemy models, Alembic revisions, indexes, constraints | Phase 1 |
-| `fastapi-engineer` | Routers, schemas, services, dependencies | Phase 2 |
-| `realtime-engineer` | SSE, `StreamRegistry`, socket.io + Redis adapter, webhooks | Phase 2 (parallel with fastapi when independent) |
-| `svelte-engineer` | SvelteKit routes, runes stores, Tailwind 4 components, **design quality (impeccable)** | Phase 3 |
-| `test-author` | Vitest unit, Playwright CT/E2E, visual baselines, MSW, LLM cassettes | Phase 4 (and proactively per layer) |
-| `verifier` | Runs lint/typecheck/test gates and grep checks | Final phase (read-only, fast model) |
+| Subagent | Owns | Read order | Best-practises file(s) it loads |
+|---|---|---|---|
+| `plan-keeper` | `rebuild.md`, milestone plans, best-practises files (read-only) | First (scope check), last (drift sweep) | All four (curator of the canonical files) |
+| `db-architect` | SQLAlchemy models, Alembic revisions, indexes, constraints | Phase 1 | `rebuild/docs/best-practises/database-best-practises.md` (+ `rebuild/docs/plans/MYSQL_FEATURE_AUDIT.md`) |
+| `fastapi-engineer` | Routers, schemas, services, dependencies | Phase 2 | `rebuild/docs/best-practises/FastAPI-best-practises.md` |
+| `realtime-engineer` | SSE, `StreamRegistry`, socket.io + Redis adapter, webhooks | Phase 2 (parallel with fastapi when independent) | `rebuild/docs/best-practises/FastAPI-best-practises.md` (sections A.2, A.7, A.8, B.6) |
+| `svelte-engineer` | SvelteKit routes, runes stores, Tailwind 4 components, **design quality (impeccable)** | Phase 3 | `rebuild/docs/best-practises/svelte-best-practises.md`, `rebuild/docs/best-practises/sveltekit-best-practises.md`, **plus** the `impeccable` skill |
+| `test-author` | Vitest unit, Playwright CT/E2E, visual baselines, MSW, LLM cassettes | Phase 4 (and proactively per layer) | The same best-practises file(s) as the layer being tested |
+| `verifier` | Runs lint/typecheck/test gates and grep checks | Final phase (read-only, fast model) | The same best-practises file(s) as the layer being verified |
+
+The four best-practises files plus the impeccable skill:
+
+| Source | Path |
+|---|---|
+| FastAPI best practises | `rebuild/docs/best-practises/FastAPI-best-practises.md` |
+| Database best practises | `rebuild/docs/best-practises/database-best-practises.md` |
+| Svelte 5 best practises | `rebuild/docs/best-practises/svelte-best-practises.md` |
+| SvelteKit best practises | `rebuild/docs/best-practises/sveltekit-best-practises.md` |
+| Impeccable (design craft) | `.cursor/skills/impeccable/SKILL.md` (+ `PROJECT.md`, `project/`, `reference/`) |
+
+Always name the relevant source(s) in every subagent dispatch (see Phase 3, step 4).
 
 ## Workflow
 
@@ -25,13 +37,13 @@ Run these phases in order. Do not skip.
 
 ### Phase 0 — Scope and read
 
-1. Identify the target plan from the user's request. If they said "m3" or "channels", that's `rebuild/plans/m3-channels.md`. If they named a sub-section ("the SSE streaming pipeline", "the file upload bits"), keep that scope front-of-mind for every later phase.
+1. Identify the target plan from the user's request. The current numbering is M0 = Foundations, M1 = Theming, M2 = Conversations, M3 = Sharing, M4 = Channels, M5 = Automations, M6 = Hardening — so "m4" or "channels" maps to `rebuild/docs/plans/m4-channels.md`, "m1" or "theming" to `rebuild/docs/plans/m1-theming.md`, and so on. If they named a sub-section ("the SSE streaming pipeline", "the file upload bits"), keep that scope front-of-mind for every later phase.
 2. Read the plan in full. Specifically locate these sections (names may vary slightly per milestone):
    - **Goal** — one paragraph framing.
    - **Deliverables** — the bullet list of files to create.
    - **Data model** — tables, columns, indexes, constraints.
    - **API surface** — routes, payloads, status codes.
-   - **Realtime / Streaming-pipeline / Socket.io** sections (M1 and M3).
+   - **Realtime / Streaming-pipeline / Socket.io** sections (M2 and M4).
    - **Frontend deliverables** — routes, components, stores.
    - **Tests** / **Acceptance criteria** / **Definition of done**.
 3. Re-read `rebuild.md` §9 (locked decisions) so you don't accidentally invite a subagent to violate one.
@@ -68,7 +80,7 @@ For every `svelte-engineer` row in the dispatch plan, name the **impeccable comm
 
 A port is **never** `craft`. If the user asked for what looks like a `craft` on a port, surface the conflict before dispatching — that is scope creep into redesign and the user must confirm.
 
-Now create a TodoWrite list with one todo per subagent dispatch. Keep todo descriptions specific (not "do db work" — say "create `0004_m3_channels.py` with all tables in m3-channels.md § Data model"). For `svelte-engineer` todos, include the impeccable command in the description (e.g. "polish + harden the ported `(app)/c/[id]/+page.svelte`, strip dead RAG/MCP imports"). Mark the first phase-1 todo as `in_progress` and present the full list to the user before launching anything.
+Now create a TodoWrite list with one todo per subagent dispatch. Keep todo descriptions specific (not "do db work" — say "create `0004_m4_channels.py` with all tables in m4-channels.md § Data model"). For `svelte-engineer` todos, include the impeccable command in the description (e.g. "polish + harden the ported `(app)/c/[id]/+page.svelte`, strip dead RAG/MCP imports"). Mark the first phase-1 todo as `in_progress` and present the full list to the user before launching anything.
 
 ### Phase 2 — Confirm with the user
 
@@ -98,8 +110,14 @@ For each Task call:
 1. Pass the milestone plan path and the specific section(s) the subagent should re-read.
 2. Pass the exact deliverables the subagent owns from your dispatch plan — quote bullets or table rows from the plan rather than paraphrasing.
 3. Tell the subagent which other subagents have already run, so it knows what files it can assume exist.
-4. **For `svelte-engineer` calls only:** also pass the impeccable command from the routing table, and explicitly point at `.cursor/skills/impeccable/SKILL.md`, `.cursor/skills/impeccable/PROJECT.md`, and the project context under `.cursor/skills/impeccable/project/`. The subagent's workflow already requires loading these, but naming them in the dispatch removes any chance of it skipping the design loop.
-5. Specify what to return: list of files created/changed, any tests added, anything it deferred or refused. For `svelte-engineer`, also require the eight-line design self-critique result described in `.cursor/agents/svelte-engineer.md` § Handoff message contract.
+4. **Name the best-practises file(s) it must load into context** from the table above. Each subagent's own prompt already requires loading them, but naming them in the dispatch removes any chance of it skipping. Specifically:
+   - `db-architect` — `rebuild/docs/best-practises/database-best-practises.md` and `rebuild/docs/plans/MYSQL_FEATURE_AUDIT.md`.
+   - `fastapi-engineer` — `rebuild/docs/best-practises/FastAPI-best-practises.md`.
+   - `realtime-engineer` — `rebuild/docs/best-practises/FastAPI-best-practises.md` (call out sections A.2 / A.7 / A.8 / B.6).
+   - `svelte-engineer` — `rebuild/docs/best-practises/svelte-best-practises.md`, `rebuild/docs/best-practises/sveltekit-best-practises.md`, **plus** the impeccable command from the routing table, `.cursor/skills/impeccable/SKILL.md`, `.cursor/skills/impeccable/PROJECT.md`, and the project context under `.cursor/skills/impeccable/project/`.
+   - `test-author` — the same best-practises file(s) as the layer it is testing.
+   - `verifier` — the same best-practises file(s) as the layer it is verifying.
+5. Specify what to return: list of files created/changed, any tests added, anything it deferred or refused, **and the list of best-practises files (and impeccable refs, where relevant) it actually loaded vs already had cached**. For `svelte-engineer`, also require the eight-line design self-critique result described in `.cursor/agents/svelte-engineer.md` § Handoff message contract.
 
 Mark each TodoWrite item `completed` as soon as its subagent returns, and update the next one to `in_progress`.
 
@@ -125,17 +143,17 @@ Summarise in this shape:
 
 Do not commit changes unless the user explicitly asks. The repo's `AGENTS.md` requires `make format` before commit; if the user does ask to commit, dispatch `verifier` once more after running it.
 
-## Worked example (M2 sharing)
+## Worked example (M3 sharing)
 
 User says: `implement m2`.
 
-Phase 0: read `rebuild/plans/m2-sharing.md` and `rebuild.md` §9.
+Phase 0: read `rebuild/docs/plans/m3-sharing.md` and `rebuild.md` §9.
 
 Phase 1 dispatch plan:
 
-- `db-architect`: create `0003_m2_sharing.py` with the `shared_chat` table (token-only, snapshot history JSON, no access table per `rebuild.md` §3); add `share_id?` column to `chat`.
-- `fastapi-engineer`: add `POST /api/chats/{id}/share`, `DELETE /api/chats/{id}/share`, `GET /s/{token}` per the m2-sharing.md API surface section. Token generation uses `secrets.token_urlsafe(32)`.
-- `svelte-engineer` (impeccable: `craft` for the new public route, `polish` for the chat-header share button): add `(public)/s/[token]/+page.svelte` route reusing the M1 message renderer in read-only mode; add a Share button on the chat header that calls the new endpoints and copies the URL to clipboard. The public read-only view is a net-new surface so it gets `craft` and `shape`; the header button is a small additive change so it gets `polish`.
+- `db-architect`: create `0003_m3_sharing.py` with the `shared_chat` table (token-only, snapshot history JSON, no access table per `rebuild.md` §3); add `share_id?` column to `chat`.
+- `fastapi-engineer`: add `POST /api/chats/{id}/share`, `DELETE /api/chats/{id}/share`, `GET /s/{token}` per the m3-sharing.md API surface section. Token generation uses `secrets.token_urlsafe(32)`.
+- `svelte-engineer` (impeccable: `craft` for the new public route, `polish` for the chat-header share button): add `(public)/s/[token]/+page.svelte` route reusing the M2 message renderer in read-only mode; add a Share button on the chat header that calls the new endpoints and copies the URL to clipboard. The public read-only view is a net-new surface so it gets `craft` and `shape`; the header button is a small additive change so it gets `polish`.
 - `test-author`: unit test for token generation collision rate; component test for the read-only message renderer; E2E for "share chat → second context (different `X-Forwarded-Email`) opens `/s/:token` → reads → revoke → 404".
 - `verifier`: lint, typecheck, test-unit, test-component, test-e2e-smoke; grep for bare `Depends`, `uuid.uuid4`, `datetime.utcnow`.
 
@@ -153,7 +171,7 @@ Phase 5: report.
 - **Do not skip `plan-keeper` when scope contradicts a locked decision.** Locked decisions are locked for a reason; surface the contradiction and let the user pick.
 - **Do not skip `verifier`.** Even on a "tiny" change. The whole point of the regression-first strategy is that nothing ships without the gate.
 - **Do not parallelise across dependency edges.** Schema before code-that-queries-it, API before UI. Parallelism only inside a phase.
-- **Do not let an implementation subagent edit `rebuild/plans/`.** Only `plan-keeper` touches plans.
+- **Do not let an implementation subagent edit `rebuild/docs/plans/`.** Only `plan-keeper` touches plans.
 - **Do not silently rescope.** If you implemented less than the user asked, the final report's *Deferred* section names every gap.
 - **Do not strip the impeccable command from a `svelte-engineer` dispatch.** Even on a "tiny port", it still gets `polish`. The whole point of layering impeccable into `svelte-engineer` is that no visual change escapes the design loop. The only legal value for "no impeccable" is `none`, reserved for bug fixes with zero visual delta.
 - **Do not let `verifier` substitute for design self-critique.** `verifier` checks lint, types, and tests. It does not check whether a surface looks like AI slop, whether tokens were used, or whether copy has em dashes. The design self-critique from `svelte-engineer` is the orthogonal gate; both must pass.

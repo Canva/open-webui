@@ -6,7 +6,7 @@ const BACKEND_URL = env.BACKEND_URL ?? 'http://app:8080';
 
 /**
  * Auth populate runs on every server request (including form-action POSTs and
- * `+server.ts` calls), per sveltekit-best-practises.md § 6.2 / § 6.3 and the
+ * `+server.ts` calls), per rebuild/docs/best-practises/sveltekit-best-practises.md § 6.2 / § 6.3 and the
  * m0 plan § Auth populate via `hooks.server.ts handle`. Doing it in a layout
  * `load` alone leaks across navigations because layout `load` results are
  * cached.

@@ -1,6 +1,6 @@
 """Project-wide Pydantic base. Every request/response schema in
 ``app/schemas/`` inherits from :class:`StrictModel`, never from ``BaseModel``
-directly. See ``rebuild/plans/m0-foundations.md`` § Pydantic conventions.
+directly. See ``rebuild/docs/plans/m0-foundations.md`` § Pydantic conventions.
 """
 
 from __future__ import annotations

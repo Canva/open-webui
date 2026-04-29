@@ -9,7 +9,7 @@ endpoint.
 When ``settings.DATABASE_IAM_AUTH`` is on (production Aurora MySQL), a
 ``do_connect`` listener on the engine's sync core mints a fresh RDS IAM
 auth token per physical connection — see :mod:`app.core.iam_auth` and
-``rebuild/plans/m0-foundations.md`` § IAM database authentication.
+``rebuild/docs/plans/m0-foundations.md`` § IAM database authentication.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ if is_iam_auth_enabled():
     # The runtime engine authenticates as DATABASE_IAM_AUTH_USER (a
     # separate setting from DATABASE_IAM_AUTH_MIGRATE_USER so the
     # migration Job can later move to a higher-privilege IAM user
-    # without touching code — see database-best-practises.md § B.9).
+    # without touching code — see rebuild/docs/best-practises/database-best-practises.md § B.9).
     attach_iam_auth_to_engine(engine, dialect="mysql", user=settings.DATABASE_IAM_AUTH_USER)
 
 AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(

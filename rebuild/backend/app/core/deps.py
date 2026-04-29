@@ -6,7 +6,7 @@ becomes a query-parameter declaration if the ``Depends()`` wrapper is
 forgotten; the alias form is impossible to typo. Enforced by the AST gate in
 ``backend/tests/test_no_bare_depends.py`` (scoped to ``app/routers/``).
 
-M1 adds ``Provider``; M0 ships ``CurrentUser`` + ``DbSession`` only.
+M2 adds ``Provider``; M0 ships ``CurrentUser`` + ``DbSession`` only.
 """
 
 from __future__ import annotations

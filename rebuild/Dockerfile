@@ -6,7 +6,7 @@
 #                     non-root, slim runtime image.
 #
 # Notes / deviations from the plan's quoted Dockerfile (see
-# rebuild/plans/m0-foundations.md § Dockerfile):
+# rebuild/docs/plans/m0-foundations.md § Dockerfile):
 #   * Stage 1: build is invoked from /work (where vite.config.ts and svelte.config.js
 #     live) rather than /work/frontend. SvelteKit's `kit.files` overrides in
 #     svelte.config.js point at frontend/src/... so the build picks up the

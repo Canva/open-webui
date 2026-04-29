@@ -39,17 +39,17 @@ const restrictedImports = {
       name: 'svelte',
       importNames: ['createEventDispatcher'],
       message:
-        'createEventDispatcher is banned in Svelte 5. Use callback props (onfoo / onclick). See rebuild/plans/m0-foundations.md § Frontend conventions.',
+        'createEventDispatcher is banned in Svelte 5. Use callback props (onfoo / onclick). See rebuild/docs/plans/m0-foundations.md § Frontend conventions.',
     },
     {
       name: '$app/stores',
       message:
-        '$app/stores is deprecated since SvelteKit 2.12. Import from $app/state instead. See rebuild/plans/m0-foundations.md § Frontend conventions.',
+        '$app/stores is deprecated since SvelteKit 2.12. Import from $app/state instead. See rebuild/docs/plans/m0-foundations.md § Frontend conventions.',
     },
     {
       name: 'uuid',
       message:
-        'UUIDs are minted server-side via app.core.ids.new_id() (UUIDv7). The frontend never generates IDs. See rebuild/plans/m0-foundations.md § ID and time helpers.',
+        'UUIDs are minted server-side via app.core.ids.new_id() (UUIDv7). The frontend never generates IDs. See rebuild/docs/plans/m0-foundations.md § ID and time helpers.',
     },
   ],
   patterns: [

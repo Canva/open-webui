@@ -6,7 +6,7 @@ Create Date: 2026-04-29
 
 The M0 baseline ships exactly one table — ``user`` — populated by the
 trusted-header auth path in ``app.core.auth.upsert_user_from_headers``.
-Subsequent milestones (M1 chat/folder, M2 share, M3 channel/file, M4
+Subsequent milestones (M2 chat/folder, M3 share, M4 channel/file, M5
 automation) chain onto this revision via ``down_revision``.
 
 ON DELETE policy: N/A. This revision creates no foreign keys; later

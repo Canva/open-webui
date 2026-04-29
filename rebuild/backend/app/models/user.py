@@ -1,7 +1,7 @@
 """``user`` table — the only ORM model created in M0.
 
 Columns match the M0 baseline DDL exactly (see
-``rebuild/plans/m0-foundations.md`` § Alembic baseline). Locked decisions
+``rebuild/docs/plans/m0-foundations.md`` § Alembic baseline). Locked decisions
 worth restating at the model level:
 
 * ``id`` is a UUIDv7 string stored as ``VARCHAR(36)`` per

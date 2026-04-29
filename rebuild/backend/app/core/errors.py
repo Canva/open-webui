@@ -1,6 +1,6 @@
 """Application-level error type + FastAPI exception handler registration.
 
-Kept intentionally tiny in M0; M1+ raise ``AppError`` subclasses for domain
+Kept intentionally tiny in M0; M2+ raise ``AppError`` subclasses for domain
 errors that should not be exposed as raw stack traces.
 """
 

@@ -64,7 +64,7 @@
 /*
  * App-wide text-scale knob. Pixel line-heights and min-heights declared in
  * later milestones must multiply through this variable (Scale-Text-Scale
- * Rule, DESIGN.md § 3). Default 1 for M0; settings UI later in M5 lets the
+ * Rule, DESIGN.md § 3). Default 1 for M0; settings UI later in M6 lets the
  * user adjust.
  */
 :root {
@@ -85,7 +85,7 @@
 
   /*
    * Honour the user's reduced-motion preference globally, before any
-   * component-level transitions opt back in. M0 ships no motion; M1+ should
+   * component-level transitions opt back in. M0 ships no motion; M2+ should
    * still gate any added transition/animation behind their own
    * `@media (prefers-reduced-motion)` check.
    */

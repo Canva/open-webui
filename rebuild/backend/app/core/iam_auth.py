@@ -102,7 +102,7 @@ def resolve_iam_endpoint(
     override is ``None``. The two-setting split is what lets
     ``values-prod.yaml`` flip the migration credential to a separate
     least-privilege IAM user (``rebuild_migrate``) without a code change
-    — see ``rebuild/plans/database-best-practises.md`` § B.9.
+    — see ``rebuild/docs/best-practises/database-best-practises.md`` § B.9.
 
     Raises ``RuntimeError`` if either host or user is missing — IAM auth
     cannot proceed without both.

@@ -1,7 +1,7 @@
 """Smoke imports for ``app.core.constants``.
 
-Both constants are referenced by name from M1 (``chat_stream.py``,
-``chat_service.py``) and M3 (``realtime/sio.py``). Pinning the values
+Both constants are referenced by name from M2 (``chat_stream.py``,
+``chat_service.py``) and M4 (``realtime/sio.py``). Pinning the values
 here means a typo in either later milestone fails fast in M0's unit
 suite.
 """

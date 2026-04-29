@@ -4,7 +4,7 @@ type BrowserWorker = { start: (options?: unknown) => Promise<unknown>; stop: () 
 
 /**
  * No-op default export so SSR imports never resolve `msw/browser`. M0
- * never starts the worker; M1+ that wants client-side mocking calls
+ * never starts the worker; M2+ that wants client-side mocking calls
  * `startMockWorker()` from a top-level layout effect, gated on
  * `import.meta.env.DEV && PUBLIC_USE_MSW === '1'`.
  */

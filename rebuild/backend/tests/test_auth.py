@@ -6,7 +6,7 @@ dependency:
 * :func:`app.core.auth.get_user` — invoked via the FastAPI ``GET /api/me``
   route under ``client``.
 * :func:`app.core.auth.upsert_user_from_headers` — invoked directly with
-  an ``AsyncSession`` (the same call shape M3's socket.io ``connect``
+  an ``AsyncSession`` (the same call shape M4's socket.io ``connect``
   handler uses).
 """
 
@@ -115,7 +115,7 @@ async def test_url_decoded_email_normalised(client: Any, db_session: Any) -> Non
 async def test_upsert_user_from_headers_direct_call(
     db_session: Any,
 ) -> None:
-    """Direct call shape: same shape M3's socket.io connect handler uses."""
+    """Direct call shape: same shape M4's socket.io connect handler uses."""
     from app.core.auth import upsert_user_from_headers
     from app.models.user import User
 

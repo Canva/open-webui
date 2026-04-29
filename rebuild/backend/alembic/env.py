@@ -80,7 +80,7 @@ async def run_async_migrations() -> None:
     ``settings.DATABASE_IAM_AUTH_MIGRATE_USER`` (a separate setting from
     ``DATABASE_IAM_AUTH_USER`` so the future least-privilege split lands
     as a values-file change, not a code change — see
-    ``database-best-practises.md`` § B.9). Today both env vars hold the
+    ``rebuild/docs/best-practises/database-best-practises.md`` § B.9). Today both env vars hold the
     same single IAM user with ``ALL PRIVILEGES``; the helper picks AWS
     credentials up from the standard boto3 chain so no Job-side
     branching is needed.

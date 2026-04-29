@@ -1,6 +1,6 @@
 """Idempotent wrappers around the ``alembic.op`` DDL surface.
 
-Every Alembic revision in the rebuild — from the M0 baseline through the M4
+Every Alembic revision in the rebuild — from the M0 baseline through the M5
 automations — calls ONLY the helpers in this module. Bare ``op.create_*``,
 ``op.drop_*``, ``op.add_column``, etc. are forbidden in
 ``backend/alembic/versions/`` and gated by the ``test_no_bare_op_calls``
@@ -78,7 +78,7 @@ def create_table_if_not_exists(name: str, *columns: Any, **kw: Any) -> None:
     MySQL dialect does NOT have a ``mysql_create_if_not_exists`` table-arg
     (despite some third-party docs suggesting otherwise); attempting to set
     one renders bogus DDL and raises a ``TypeError`` inside the dialect's
-    table-options compiler. The serial M5 migration Job
+    table-options compiler. The serial M6 migration Job
     (``backoffLimit: 0``) means concurrent racing migrators are functionally
     impossible, so the Python guard alone is sufficient.
     """

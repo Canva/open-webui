@@ -1,6 +1,6 @@
 """Standard-library logging bootstrap.
 
-Structlog / OTel shipping arrives in M5; for M0 we just need a single entry
+Structlog / OTel shipping arrives in M6; for M0 we just need a single entry
 point the FastAPI ``lifespan`` can call once at startup.
 """
 

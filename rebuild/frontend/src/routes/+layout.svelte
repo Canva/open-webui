@@ -15,8 +15,9 @@
       The workshop is wired.
     </h1>
     <p class="text-secondary-ink max-w-prose text-sm/[1.5]">
-      Trusted-header authentication round-trips against the FastAPI backend. The chat shell,
-      channels, and automations arrive with M1 through M4.
+      Trusted-header authentication round-trips against the FastAPI backend. Theming arrives with
+      M1; the chat shell, channels, and automations arrive with M2 through M5; observability and
+      deploy land in M6.
     </p>
   </header>
 

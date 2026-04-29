@@ -1,7 +1,7 @@
 # Database Best Practises
 
 > **Audience:** every agent (and every human) writing code, migrations, or queries against the rebuild's database. This is the canonical "do / don't" list for the rebuild project.
-> **Authoritative parents:** [`rebuild.md`](../../rebuild.md), [`rebuild/plans/m0-foundations.md`](m0-foundations.md), [`rebuild/plans/MYSQL_FEATURE_AUDIT.md`](MYSQL_FEATURE_AUDIT.md). Where this file conflicts with those, those win and this file should be patched.
+> **Authoritative parents:** [`rebuild.md`](../../../rebuild.md) and [`rebuild/docs/plans/m0-foundations.md`](../plans/m0-foundations.md). Where this file conflicts with those, those win and this file should be patched.
 > **Scope:** general database hygiene (Section A), then MySQL 8.0 specifics (Section B), then MySQL features we have explicitly *declined* with reasons (Section C), then a checklist agents should mentally run through before opening a PR (Section D).
 
 ---
@@ -73,7 +73,7 @@ These apply to **any** SQL database; if you're tempted to break one of them, esc
 
 **DO**
 
-- **Make every migration idempotent and re-runnable.** A retry on a half-applied migration must be a no-op for the parts that already landed and complete the rest. The rebuild enforces this via the M0 helpers (`*_if_not_exists` / `*_if_exists`); see [`m0-foundations.md` § Migration helpers](m0-foundations.md).
+- **Make every migration idempotent and re-runnable.** A retry on a half-applied migration must be a no-op for the parts that already landed and complete the rest. The rebuild enforces this via the M0 helpers (`*_if_not_exists` / `*_if_exists`); see [`m0-foundations.md` § Migration helpers](../plans/m0-foundations.md).
 - **Make every migration reversible.** Every `upgrade()` has a `downgrade()`. Even if you never plan to run it, the existence of the function forces you to think about whether you can.
 - **Land schema and data changes in separate revisions.** "Add column" then "backfill it" then "tighten constraints" — three revisions, three rollback points, three independent retries. Big-bang revisions are a foot-gun.
 - **Prefer additive over breaking.** Add the new column nullable, dual-write from app, backfill, switch reads, drop the old column. Each step is reversible; the all-at-once isn't.
@@ -126,12 +126,12 @@ These apply to **any** SQL database; if you're tempted to break one of them, esc
 - **Always parameterise.** (Restated because it's the single highest-leverage rule.)
 - **Validate input shapes (Pydantic / equivalent) before they hit the DB.** Length limits, type constraints, regex where appropriate.
 - **Rate-limit at the application layer, not the DB.** Per-user quotas in Redis / sliding-window — not via DB triggers.
-- **Hash secrets at rest.** Webhook tokens and share tokens are stored as SHA-256 (M3); plaintext never persists. Same rule for any future credential.
+- **Hash secrets at rest.** Webhook tokens and share tokens are stored as SHA-256 (M4); plaintext never persists. Same rule for any future credential.
 - **Redact logs.** Tokens, emails, anything PII gets a redaction filter before it leaves the process.
 
 **DON'T**
 
-- **Don't trust the client about identity.** The trusted-header pattern (`X-Forwarded-Email`) is gated by a trusted-IP allowlist (see [`m5-hardening.md` § Trusted-header verification](m5-hardening.md)). Outside that allowlist the header is stripped before the auth dependency runs.
+- **Don't trust the client about identity.** The trusted-header pattern (`X-Forwarded-Email`) is gated by a trusted-IP allowlist (see [`m6-hardening.md` § Trusted-header verification](../plans/m6-hardening.md)). Outside that allowlist the header is stripped before the auth dependency runs.
 - **Don't echo user-supplied data back into a query without escaping.** `LIKE '%' || userInput || '%'` is fine via parameter binding; concatenated into SQL it isn't.
 - **Don't enable user-controllable SQL fragments.** No "advanced search" backdoor that takes a raw `WHERE` clause from the UI.
 
@@ -182,10 +182,10 @@ The rebuild targets **MySQL 8.0** specifically (8.0.39 in compose; whatever the 
 
 **DO**
 
-- **`SELECT ... FOR UPDATE SKIP LOCKED` for every queue-style claim.** The APScheduler tick (`m4-automations.md`) is the canonical example. Multiple workers polling the same `automation` rows each get a disjoint subset; nobody waits.
+- **`SELECT ... FOR UPDATE SKIP LOCKED` for every queue-style claim.** The APScheduler tick (`m5-automations.md`) is the canonical example. Multiple workers polling the same `automation` rows each get a disjoint subset; nobody waits.
 - **`INSERT ... ON DUPLICATE KEY UPDATE` for upsert.** First-login user creation in `get_user` (M0) uses this against the `email` unique index. Race-safe at the index level.
 - **Short transactions, scoped to one logical unit of work.** Open `BEGIN`, do the work, `COMMIT` — within milliseconds, not seconds.
-- **`MAX_EXECUTION_TIME(<ms>)` optimizer hint on any query that must not stall.** The scheduler tick is bounded to 2000 ms (`m5-hardening.md`). Same hint can wrap any read-only path that has a hard SLO.
+- **`MAX_EXECUTION_TIME(<ms>)` optimizer hint on any query that must not stall.** The scheduler tick is bounded to 2000 ms (`m6-hardening.md`). Same hint can wrap any read-only path that has a hard SLO.
 
 **DON'T**
 
@@ -198,7 +198,7 @@ The rebuild targets **MySQL 8.0** specifically (8.0.39 in compose; whatever the 
 
 **DO**
 
-- **Use the M0 `*_if_not_exists` / `*_if_exists` helpers, never bare `op.*`.** Enforced by AST grep gate (`tests/test_migrations.py::test_no_bare_op_calls`). See [`m0-foundations.md` § Migration helpers](m0-foundations.md).
+- **Use the M0 `*_if_not_exists` / `*_if_exists` helpers, never bare `op.*`.** Enforced by AST grep gate (`tests/test_migrations.py::test_no_bare_op_calls`). See [`m0-foundations.md` § Migration helpers](../plans/m0-foundations.md).
 - **`ALGORITHM=INSTANT, LOCK=DEFAULT` for `ADD COLUMN`** unless the column type forces INPLACE/COPY. INSTANT is metadata-only; runtime independent of table size. The helper `add_column_if_not_exists` defaults to INSTANT and fails-fast if MySQL can't honour it (rather than silently downgrading to a multi-hour COPY).
 - **Pin `mysql_engine`, `mysql_charset`, `mysql_collate` table args** (the helper does this for you). Tables that drift to default charset are a future migration headache.
 - **Use a separate Alembic revision for each schema concern.** "Add column", "backfill", "tighten constraint", "drop old column" — four revisions, four retry points.
@@ -246,7 +246,7 @@ The rebuild targets **MySQL 8.0** specifically (8.0.39 in compose; whatever the 
 
 - **`SET PERSIST <var> = <value>`** for live tuning of dynamic variables (e.g. `max_connections`, `slow_query_log`). Writes to `mysqld-auto.cnf` with `SET_USER` / `SET_TIME` audit metadata; survives restart.
 - **`SET PERSIST_ONLY <var> = <value>`** for read-only variables that need a restart. Writes-but-defers.
-- **Mirror every persisted change back into the Helm values file (`rebuild/infra/k8s/values-prod.yaml`) in the next deploy.** `mysqld-auto.cnf` must not drift from version control. (See [`m5-hardening.md` § Configuration changes](m5-hardening.md).)
+- **Mirror every persisted change back into the Helm values file (`rebuild/infra/k8s/values-prod.yaml`) in the next deploy.** `mysqld-auto.cnf` must not drift from version control. (See [`m6-hardening.md` § Configuration changes](../plans/m6-hardening.md).)
 - **Inspect via `performance_schema.variables_info WHERE VARIABLE_SOURCE = 'PERSISTED'`** to audit what's been changed when.
 - **`RESET PERSIST <var>;`** to remove a persisted setting. The running value is unchanged; use `SET GLOBAL` to revert.
 
@@ -269,7 +269,7 @@ The rebuild targets **MySQL 8.0** specifically (8.0.39 in compose; whatever the 
 
 ### B.9 Connection authentication (Aurora IAM vs. static password)
 
-The dev compose stack uses a static `MYSQL_USER=rebuild` / `MYSQL_PASSWORD=rebuild` pair baked into the container — fine, throwaway, never leaves your laptop. **Production deployments connect to Aurora MySQL behind RDS IAM database authentication** (`rds:GenerateDBAuthToken`), so the password slot is empty and a short-lived token is minted per physical connection. The pattern is the project default; everything below is the contract a code-author or reviewer needs to keep in mind. Implementation lives in `app/core/iam_auth.py` and is wired into both the runtime engine (`app/core/db.py`) and the migration engine (`backend/alembic/env.py`); the M0 plan has the full file-and-function inventory under [`m0-foundations.md` § IAM database authentication](m0-foundations.md#iam-database-authentication).
+The dev compose stack uses a static `MYSQL_USER=rebuild` / `MYSQL_PASSWORD=rebuild` pair baked into the container — fine, throwaway, never leaves your laptop. **Production deployments connect to Aurora MySQL behind RDS IAM database authentication** (`rds:GenerateDBAuthToken`), so the password slot is empty and a short-lived token is minted per physical connection. The pattern is the project default; everything below is the contract a code-author or reviewer needs to keep in mind. Implementation lives in `app/core/iam_auth.py` and is wired into both the runtime engine (`app/core/db.py`) and the migration engine (`backend/alembic/env.py`); the M0 plan has the full file-and-function inventory under [`m0-foundations.md` § IAM database authentication](../plans/m0-foundations.md#iam-database-authentication).
 
 **DO**
 
@@ -302,7 +302,7 @@ When something below comes up in code review, point at this section. Each item c
 | `BINARY(16)` UUID PKs | Declined | UUIDv7 strings already give insertion locality; the 55% storage win doesn't justify the SQLAlchemy `TypeDecorator` complexity. | `rebuild.md` §9; `MYSQL_FEATURE_AUDIT.md` §2 |
 | InnoDB Cluster / Group Replication / MySQL Router | Declined | Single managed MySQL is sufficient for internal scale; HA is platform-team-owned. | `rebuild.md` §9 |
 | Object store (S3) for files | Declined | `MEDIUMBLOB` + 5 MiB cap suffices; `FileStore` interface lets us swap if we ever outgrow it. | `rebuild.md` §9 |
-| `FULLTEXT` + `MATCH AGAINST` (with or without `ngram` parser) | Out of scope for M1+ | `LIKE %q%` + `JSON_SEARCH` is good enough at our scale; benchmarks show `ngram` actually loses to `LIKE` on chat-style queries. | M5 if `?q=` becomes a complaint vector |
+| `FULLTEXT` + `MATCH AGAINST` (with or without `ngram` parser) | Out of scope for M2+ | `LIKE %q%` + `JSON_SEARCH` is good enough at our scale; benchmarks show `ngram` actually loses to `LIKE` on chat-style queries. | M6 if `?q=` becomes a complaint vector |
 | Multi-valued indexes (`MEMBER OF`, `JSON_CONTAINS`) | N/A | Reactions are in their own row table, not collapsed into JSON. The MVI question doesn't arise. | If ever schema collapses reactions into JSON (don't) |
 | `JSON_TABLE` | Declined | Chat history is a tree, not a relational shape; flattening defeats the design. | Never |
 | Window functions / hash-join hints / `LATERAL` derived tables | Not used | No current workload needs them; trust the optimiser. The 8.0 planner picks hash join automatically. | If a real query plan demonstrates a need |
@@ -376,14 +376,12 @@ Before opening a PR that touches the database (schema, query, or DAO), run throu
 
 ## E. References
 
-- [`rebuild.md`](../../rebuild.md) — top-level locked decisions (especially §9).
-- [`rebuild/plans/m0-foundations.md`](m0-foundations.md) — Alembic helpers, `app.core.ids`, `app.core.time`, `app.core.iam_auth` (Aurora IAM database authentication), charset/collation defaults, ruff `uuid4` ban.
-- [`rebuild/plans/m1-conversations.md`](m1-conversations.md) — `chat.history` JSON shape, `chat.current_message_id` STORED generated column, recursive CTE for folders.
-- [`rebuild/plans/m3-channels.md`](m3-channels.md) — `channel_message.content` JSON shape, `MEDIUMBLOB` files, webhook tokens hashed at rest.
-- [`rebuild/plans/m4-automations.md`](m4-automations.md) — `SELECT ... FOR UPDATE SKIP LOCKED` scheduler tick.
-- [`rebuild/plans/m5-hardening.md`](m5-hardening.md) — MySQL diagnostics runbook, index lifecycle, `SET PERSIST` rules, `MAX_EXECUTION_TIME` hint.
-- [`rebuild/plans/MYSQL_FEATURE_AUDIT.md`](MYSQL_FEATURE_AUDIT.md) — feature-by-feature accept/decline rationale.
-- [`rebuild/plans/CONSISTENCY_REPORT.md`](CONSISTENCY_REPORT.md) — last cross-plan drift audit.
+- [`rebuild.md`](../../../rebuild.md) — top-level locked decisions (especially §9).
+- [`rebuild/docs/plans/m0-foundations.md`](../plans/m0-foundations.md) — Alembic helpers, `app.core.ids`, `app.core.time`, `app.core.iam_auth` (Aurora IAM database authentication), charset/collation defaults, ruff `uuid4` ban.
+- [`rebuild/docs/plans/m2-conversations.md`](../plans/m2-conversations.md) — `chat.history` JSON shape, `chat.current_message_id` STORED generated column, recursive CTE for folders.
+- [`rebuild/docs/plans/m4-channels.md`](../plans/m4-channels.md) — `channel_message.content` JSON shape, `MEDIUMBLOB` files, webhook tokens hashed at rest.
+- [`rebuild/docs/plans/m5-automations.md`](../plans/m5-automations.md) — `SELECT ... FOR UPDATE SKIP LOCKED` scheduler tick.
+- [`rebuild/docs/plans/m6-hardening.md`](../plans/m6-hardening.md) — MySQL diagnostics runbook, index lifecycle, `SET PERSIST` rules, `MAX_EXECUTION_TIME` hint.
 
 External:
 

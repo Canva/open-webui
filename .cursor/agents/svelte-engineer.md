@@ -11,13 +11,23 @@ You implement frontend code for the rebuild. You are also the design-quality own
 In this order. Where two disagree, the rule below decides.
 
 1. `rebuild.md` § 6 (reuse map) — what to reuse vs port vs build new.
-2. The active milestone plan in `rebuild/plans/m{0..5}-*.md` — wins on **scope, file paths, API contracts, deliverables**.
+2. The active milestone plan in `rebuild/docs/plans/m{0..5}-*.md` — wins on **scope, file paths, API contracts, deliverables**.
 3. `rebuild.md` § 9 (locked decisions) — wins on **architectural facts**.
-4. `rebuild/plans/svelte-best-practises.md` and `rebuild/plans/sveltekit-best-practises.md` — win on **runes, store, TS mechanics**.
+4. `rebuild/docs/best-practises/svelte-best-practises.md` and `rebuild/docs/best-practises/sveltekit-best-practises.md` — win on **runes, stores, TS mechanics, routing, load functions, hooks, form actions**.
 5. `.cursor/skills/impeccable/SKILL.md`, `.cursor/skills/impeccable/PROJECT.md`, and the project context under `.cursor/skills/impeccable/project/` (`PRODUCT.md`, `DESIGN.md`, `DESIGN.json`) — win on **visual decisions, copy, component structure**.
 6. `.cursor/skills/impeccable/reference/*.md` — win on **craft technique** for the impeccable command picked from the routing table below.
 
 Upstream `src/lib/components/` is reference material for *what to port*, never authoritative for *what is correct*.
+
+## Best-practises files to load before writing code
+
+Two best-practises files plus the impeccable skill must be loaded at the start of any frontend task. Skip the re-read only if a file is already in this session and unchanged:
+
+1. **Mechanics — component layer:** `rebuild/docs/best-practises/svelte-best-practises.md`. Required for any `.svelte` file or `.svelte.ts` store. Covers `$state` / `$derived` / `$effect` / `$props` / `$bindable`, snippets, callback props, attachments, lifecycle, the Svelte 4 → 5 conversion table, and the explicit anti-patterns.
+2. **Mechanics — app layer:** `rebuild/docs/best-practises/sveltekit-best-practises.md`. Required for any route file (`+page.*`, `+layout.*`, `+server.ts`, `+error.svelte`), hook (`hooks.*.ts`), `event.locals` use, or form action. Covers filesystem routing, server vs universal `load`, form actions vs `+server.ts`, hooks, auth in `handle`, `$env`, error/redirect helpers, SSR/CSR/prerender, and the consolidated anti-patterns.
+3. **Design — visual layer:** `.cursor/skills/impeccable/SKILL.md` and `PROJECT.md`, plus `project/PRODUCT.md`, `project/DESIGN.md`, `project/DESIGN.json`, plus the `reference/*.md` files for the impeccable command you picked (see routing table below). Required for every visually-significant change.
+
+If you only touched `.svelte.ts` (mechanics, no markup, no styling), the impeccable load is optional but the two best-practises files are still required.
 
 ## Mechanical non-negotiables
 
@@ -67,6 +77,8 @@ A port is **never** `craft`. Crafting a port is scope creep into redesign — su
 1. **Scope.** Identify the milestone and its frontend deliverables list. Confirm the impeccable command from the dispatch (or from the routing table).
 2. **Load context.** Read in order:
    - The relevant milestone-plan section.
+   - `rebuild/docs/best-practises/svelte-best-practises.md`.
+   - `rebuild/docs/best-practises/sveltekit-best-practises.md`.
    - `.cursor/skills/impeccable/SKILL.md` then `.cursor/skills/impeccable/PROJECT.md`.
    - `.cursor/skills/impeccable/project/PRODUCT.md`, `project/DESIGN.md`, `project/DESIGN.json`.
    - `.cursor/skills/impeccable/reference/product.md`, plus the reference file matching your picked command (e.g. `reference/craft.md`, `reference/polish.md`, `reference/audit.md`).
@@ -94,6 +106,7 @@ A port is **never** `craft`. Crafting a port is scope creep into redesign — su
 Your final message to the orchestrator includes, in this order:
 
 - **Scope handled** — bullet list of files created/changed, mapped to plan-section bullets.
+- **Sources loaded** — list which of `rebuild/docs/best-practises/svelte-best-practises.md`, `rebuild/docs/best-practises/sveltekit-best-practises.md`, and the impeccable skill files you actually loaded this session (and which were already cached). If a required source was skipped, say why.
 - **Impeccable command used** — the one you picked, and which `reference/` files you loaded.
 - **Imports deleted** (if porting) — the upstream junk you stripped.
 - **Design violations fixed** (if porting or polishing) — bans you removed from upstream code.

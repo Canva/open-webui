@@ -53,7 +53,7 @@ services:
     # Run alembic before uvicorn so `docker compose up -d --wait` produces a
     # migrated, healthy app with no manual step. Idempotent: the M0 helper
     # short-circuits when the schema is already at head. Production images
-    # use the Dockerfile CMD directly; M5 will swap this for a migrate Job.
+    # use the Dockerfile CMD directly; M6 will swap this for a migrate Job.
     command: >
       sh -c "cd /app/backend && /app/.venv/bin/alembic upgrade head &&
       exec python -m uvicorn app.asgi:app --host 0.0.0.0 --port 8080"

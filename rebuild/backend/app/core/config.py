@@ -3,15 +3,15 @@
 Single source of truth for every deployment knob in the rebuild. Loaded once
 at import time (``settings = Settings()``); values are immutable after
 construction. Field naming is locked to UPPER_SNAKE_CASE matching the env-var
-name verbatim — see ``rebuild/plans/m0-foundations.md`` § Settings(BaseSettings)
+name verbatim — see ``rebuild/docs/plans/m0-foundations.md`` § Settings(BaseSettings)
 "Casing convention (locked)" — so every call site reads
 ``settings.MODEL_GATEWAY_BASE_URL``, never the lower-case form.
 
-Later milestones extend this class in-place with new fields (M1's
-``SSE_STREAM_TIMEOUT_SECONDS``, M4's ``AUTOMATION_*`` knobs, M5's ``OTEL_*``,
+Later milestones extend this class in-place with new fields (M2's
+``SSE_STREAM_TIMEOUT_SECONDS``, M5's ``AUTOMATION_*`` knobs, M6's ``OTEL_*``,
 ``LOG_FORMAT``, ``TRUSTED_PROXY_CIDRS``, ``RATELIMIT_*``,
 ``ALLOWED_FILE_TYPES``). No per-domain ``BaseSettings`` subclasses (locked
-in ``rebuild/plans/FastAPI-best-practises.md`` § A.1).
+in ``rebuild/docs/best-practises/FastAPI-best-practises.md`` § A.1).
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class Settings(BaseSettings):
 
     # AWS RDS / Aurora MySQL IAM database authentication. Off in dev
     # compose; on in staging + prod against Aurora behind IRSA. See
-    # ``app.core.iam_auth`` and ``rebuild/plans/m0-foundations.md``
+    # ``app.core.iam_auth`` and ``rebuild/docs/plans/m0-foundations.md``
     # § IAM database authentication for the full surface.
     DATABASE_IAM_AUTH: bool = False
     DATABASE_IAM_AUTH_REGION: str | None = None
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # holds the same value as ``DATABASE_IAM_AUTH_USER`` (we operate one
     # IAM user with ALL PRIVILEGES); future least-privilege split flips
     # this to ``rebuild_migrate`` without a code change. See
-    # ``rebuild/plans/database-best-practises.md`` § B.9.
+    # ``rebuild/docs/best-practises/database-best-practises.md`` § B.9.
     DATABASE_IAM_AUTH_MIGRATE_USER: str | None = None
 
     REDIS_URL: str = "redis://redis:6379/0"

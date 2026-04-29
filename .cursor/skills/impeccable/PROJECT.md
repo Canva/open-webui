@@ -56,7 +56,7 @@ The svelte-engineer subagent picks one impeccable command per task, based on the
 | Net-new component that is a small variation of an existing one | `polish` | Build to spec, then run polish. Don't `craft` minor variants. |
 | Legacy port from `src/lib/components/{chat,channel,automations}/` | `polish` then `harden` | Strip dead imports + violate-bans first; then handle empty/loading/error/edge states. **Do not** `craft` a port — that is scope creep into redesign. |
 | Style refresh on existing rebuild surface | `polish` (or `bolder` / `quieter` / `distill` if explicitly briefed) | Targeted, no rewrite. |
-| Bug fix with no visual delta | none | Skip the design loop. Mechanical rules from `svelte-best-practises.md` still apply. |
+| Bug fix with no visual delta | none | Skip the design loop. Mechanical rules from `rebuild/docs/best-practises/svelte-best-practises.md` still apply. |
 | Pre-milestone sweep across multiple surfaces | `audit` then `polish` per finding | Generate the checklist first, then fix. |
 | Adding empty states, error states, first-run flows | `onboard` then `harden` | Production-readiness pass. |
 | Adapting a component for new viewports | `adapt` | Don't just shrink — redesign for the new context. |
@@ -78,11 +78,11 @@ Skip step 3 if the same set of files was already loaded earlier in the session a
 
 When you have to pick between sources, this is the order of authority for `svelte-engineer`:
 
-1. **Milestone plan** in `rebuild/plans/` — wins on **scope, file paths, API contracts, deliverables**.
+1. **Milestone plan** in `rebuild/docs/plans/` — wins on **scope, file paths, API contracts, deliverables**.
 2. **`rebuild.md` § 9 (locked decisions)** — wins on **architectural facts** (UUID source, datetime helper, no access tables for share, etc.).
 3. **`PRODUCT.md` + `DESIGN.md` + this file** — win on **visual decisions, copy, component structure**.
 4. **`SKILL.md` + `reference/`** — win on **craft technique** (color theory, type scale, motion curves, AI-slop test).
-5. **`svelte-best-practises.md` + `sveltekit-best-practises.md`** — win on **runes, store, TS mechanics**.
+5. **`rebuild/docs/best-practises/svelte-best-practises.md` + `rebuild/docs/best-practises/sveltekit-best-practises.md`** — win on **runes, store, TS mechanics**.
 6. **Upstream `src/` patterns** — never authoritative. They are reference for what to *port*, never for what is *correct*.
 
 If two of (3) (4) (5) conflict, pick the answer that scores highest on the AI-slop test and the category-reflex check from `SKILL.md`. If that doesn't break the tie, surface the conflict in the handoff message and let the orchestrator decide.

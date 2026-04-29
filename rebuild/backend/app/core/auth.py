@@ -1,11 +1,11 @@
 """Trusted-header auth — the only auth surface in the rebuild.
 
-Two symbols, by design (see ``rebuild/plans/m0-foundations.md`` § Trusted-
+Two symbols, by design (see ``rebuild/docs/plans/m0-foundations.md`` § Trusted-
 header dependency):
 
 * :func:`upsert_user_from_headers` — pure async helper that owns the entire
   "trusted header → ``User`` row" contract. Called from the FastAPI
-  dependency below and (in M3) from the socket.io ``connect`` handler, which
+  dependency below and (in M4) from the socket.io ``connect`` handler, which
   is outside the FastAPI request lifecycle.
 * :func:`get_user` — FastAPI ``Depends`` dependency. Reads the headers and
   delegates to the helper.

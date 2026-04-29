@@ -1,4 +1,4 @@
-# M3 — Channels (full Slack-shape)
+# M4 — Channels (full Slack-shape)
 
 ## Goal
 
@@ -8,10 +8,10 @@ threaded messages, reactions, pinned messages, typing presence, read receipts,
 incoming + outgoing webhooks, multipart file uploads stored as MySQL
 `MEDIUMBLOB` (5 MiB cap), and `@model` auto-reply that streams an assistant
 answer back into the same thread via the shared `OpenAICompatibleProvider`
-introduced in M1. Realtime is `python-socketio` with the Redis async manager so
+introduced in M2. Realtime is `python-socketio` with the Redis async manager so
 the FastAPI process can scale horizontally without sticky sessions, and the
 ported frontend reuses the legacy `src/lib/components/channel/*` shell with
-every tools/skills/notes/RAG import deleted. M3 is the largest milestone; this
+every tools/skills/notes/RAG import deleted. M4 is the largest milestone; this
 plan is biased toward precision over brevity.
 
 ## Deliverables
@@ -19,9 +19,9 @@ plan is biased toward precision over brevity.
 - `rebuild/backend/app/models/channels.py` — SQLAlchemy 2 async ORM models for
   every channel-related table listed in section 3.
 - `rebuild/backend/app/models/files.py` — `file` + `file_blob` ORM models.
-- `rebuild/backend/alembic/versions/0004_m3_channels.py` — single revision
-  (`revision = "0004_m3_channels"`, `down_revision = "0003_m2_sharing"`)
-  creating all M3 tables, charset/collation inherited from the M0 baseline.
+- `rebuild/backend/alembic/versions/0004_m4_channels.py` — single revision
+  (`revision = "0004_m4_channels"`, `down_revision = "0003_m3_sharing"`)
+  creating all M4 tables, charset/collation inherited from the M0 baseline.
 - `rebuild/backend/app/storage/file_store.py` — `FileStore` Protocol +
   `MysqlFileStore` implementation.
 - `rebuild/backend/app/realtime/sio.py` — socket.io server with Redis manager,
@@ -38,7 +38,7 @@ plan is biased toward precision over brevity.
     `create_webhook_message`. Owns the multi-table invariant
     (`channel_message` insert + `channel.last_message_at` denorm + realtime
     `message:create` emit + auto-reply trigger). Three callers: REST POST,
-    M4 automation executor, webhook ingress.
+    M5 automation executor, webhook ingress.
   - `mentions.py` — `MENTION_RE` + `classify_mentions(text, *, member_lookup,
     model_lookup) -> list[Mention]`. Pure functions; reused by the FE
     `mention-parser` test fixtures so BE and FE stay in lockstep.
@@ -50,7 +50,7 @@ plan is biased toward precision over brevity.
   Channel/member/reaction/pin/webhook/file CRUD does **not** get its own
   service file — those endpoints are 5–15 LOC each and live directly in the
   routers (see § Routers and dependencies). The promotion test is in
-  [FastAPI-best-practises.md §A.1](FastAPI-best-practises.md): a service file
+  [FastAPI-best-practises.md §A.1](../best-practises/FastAPI-best-practises.md): a service file
   is justified only at ≥3 callers, ≥80 LOC of orchestration, OR a multi-table
   transactional invariant. CRUD endpoints fail all three; the service file
   would be a wrapper around a single SELECT/INSERT/UPDATE.
@@ -62,7 +62,7 @@ plan is biased toward precision over brevity.
 - `rebuild/backend/app/routers/{channels,channel_messages,channel_members,channel_webhooks,files}.py`
   — REST surface from section 7. CRUD bodies are inlined; service helpers from
   `services/channels/messages.py` are imported only by the message-creation
-  endpoints (and by the M4 automation executor).
+  endpoints (and by the M5 automation executor).
 - `rebuild/frontend/src/routes/(app)/channels/{+layout.svelte, +page.svelte,
   [id]/+page.svelte, [id]/threads/[mid]/+page.svelte}`.
 - `rebuild/frontend/src/lib/components/channel/*` — ported components listed in
@@ -76,7 +76,7 @@ plan is biased toward precision over brevity.
   banned (per-user data → SSR leak), and reactive collections use `SvelteMap` /
   `SvelteSet` from `svelte/reactivity` rather than native `Map` / `Set`
   (mutations on the latter don't notify subscribers — see
-  [svelte-best-practises.md § 9](svelte-best-practises.md)).
+  [svelte-best-practises.md § 9](../best-practises/svelte-best-practises.md)).
 - `rebuild/backend/tests/{unit,integration,e2e}/channels/*` — pytest + Playwright
   suites covering the regression paths in section 11.
 - `rebuild/backend/scripts/bench_channels.py` — async load generator used to
@@ -95,7 +95,7 @@ plan is biased toward precision over brevity.
 
 All identifiers are 36-char **UUIDv7** (RFC 9562) strings stored as `String(36)` (= `VARCHAR(36)`) — locked project-wide by `rebuild.md` §9 and `database-best-practises.md` §B.2 — generated app-side via `from app.core.ids import new_id` (the M0 helper), never `uuid.uuid4()`. UUIDv7's leading 48-bit ms timestamp gives near-monotonic InnoDB B-tree insertion locality, which keeps the hot end of the wide composite indexes on `channel_message` (and the `(channel_id, created_at)` lookups that the realtime fan-out depends on) cacheable under load. Hex-digest hashes (e.g. `channel_webhook.token_hash` SHA-256) are still fixed-width `CHAR(64)` because the value is always exactly 64 ASCII chars and the equality lookup wants bit-for-bit comparison. Timestamps are
 `BIGINT` epoch **milliseconds** (project-wide convention from `rebuild.md` §4 and
-M1 §Data model). Helper: `from app.core.time import now_ms` returns
+M2 §Data model). Helper: `from app.core.time import now_ms` returns
 `time.time_ns() // 1_000_000`. Charset `utf8mb4`, collation
 `utf8mb4_0900_ai_ci`, engine `InnoDB`. Foreign keys are declared on every join
 so MySQL enforces referential integrity. JSON columns are MySQL 8.0 native
@@ -111,7 +111,7 @@ class Channel(Base):
     # ondelete=RESTRICT (not CASCADE / SET NULL) is deliberate. The creator
     # leaving the platform must not silently nuke a populated channel — the
     # admin tooling (`backend/scripts/transfer_channel_owner.py`, listed in
-    # M3 § Deliverables) requires the operator to reassign `user_id` to
+    # M4 § Deliverables) requires the operator to reassign `user_id` to
     # another member before the user can be hard-deleted. SET NULL is rejected because the column is non-nullable
     # (every channel must have a designated owner for moderation actions and
     # for the "founded by" UI label). CASCADE is rejected because deleting a
@@ -294,7 +294,7 @@ Notes:
 - `edited`: `true` whenever `updated_at != created_at`. Single boolean —
   per-edit history is explicitly out of scope.
 - `automation_id` (optional, default `null`): set only when the message is
-  authored by the M4 automation executor against a channel target. Holds the
+  authored by the M5 automation executor against a channel target. Holds the
   triggering `automation.id`. Used by the FE to render an "automation" pill on
   the message and by audit queries.
 - `automation_owner_name` (optional, default `null`): denormalised display name
@@ -466,9 +466,9 @@ client.
 
 ## Alembic revision
 
-Single revision file `rebuild/backend/alembic/versions/0004_m3_channels.py` (`revision = "0004_m3_channels"`, `down_revision = "0003_m2_sharing"`) creating every M3 table in dependency order: `file → file_blob → channel → channel_webhook → channel_member → channel_message → channel_message_reaction → channel_file`.
+Single revision file `rebuild/backend/alembic/versions/0004_m4_channels.py` (`revision = "0004_m4_channels"`, `down_revision = "0003_m3_sharing"`) creating every M4 table in dependency order: `file → file_blob → channel → channel_webhook → channel_member → channel_message → channel_message_reaction → channel_file`.
 
-The revision is fully idempotent, per [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../rebuild.md#9-decisions-locked) and the M0 helper module ([m0-foundations.md § Migration helpers](m0-foundations.md#migration-helpers)). Eight tables and ten indexes is the largest surface in the rebuild and the most likely place for a partial-apply crash to occur (lock contention on InnoDB, transient DBA-side process kill, etc.); the helper pattern means the Helm Job retry just rolls forward.
+The revision is fully idempotent, per [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../../rebuild.md#9-decisions-locked) and the M0 helper module ([m0-foundations.md § Migration helpers](m0-foundations.md#migration-helpers)). Eight tables and ten indexes is the largest surface in the rebuild and the most likely place for a partial-apply crash to occur (lock contention on InnoDB, transient DBA-side process kill, etc.); the helper pattern means the Helm Job retry just rolls forward.
 
 ```python
 from app.db.migration_helpers import (
@@ -489,7 +489,7 @@ Key operational points:
 - `downgrade()` mirrors with `drop_table_if_exists(...)` in reverse FK order: `channel_file → channel_message_reaction → channel_message → channel_member → channel_webhook → channel → file_blob → file`. Inline FKs and indexes drop with their owning tables; no separate `drop_index_if_exists` calls are needed.
 - The Alembic `env.py` extends the baseline registry with `from app.models import channels, files` so `--autogenerate` works on the next revision.
 
-`alembic upgrade head`, `alembic downgrade -1`, **and a second `alembic upgrade head` immediately afterwards** must all succeed cleanly. M0's `test_upgrade_head_is_idempotent` and `test_downgrade_base_is_idempotent` cover the standard round-trip parametrised over `0004_m3_channels`. The high-stakes case lives in `test_partial_upgrade_recovers`: pre-create `file` + `file_blob` + `channel` (raw DDL, no indexes), then `alembic upgrade head` and assert all eight tables, every named index, the `ck_channel_message_one_author` check constraint, and the `ROW_FORMAT=DYNAMIC` setting on `channel_message` are all present.
+`alembic upgrade head`, `alembic downgrade -1`, **and a second `alembic upgrade head` immediately afterwards** must all succeed cleanly. M0's `test_upgrade_head_is_idempotent` and `test_downgrade_base_is_idempotent` cover the standard round-trip parametrised over `0004_m4_channels`. The high-stakes case lives in `test_partial_upgrade_recovers`: pre-create `file` + `file_blob` + `channel` (raw DDL, no indexes), then `alembic upgrade head` and assert all eight tables, every named index, the `ck_channel_message_one_author` check constraint, and the `ROW_FORMAT=DYNAMIC` setting on `channel_message` are all present.
 
 ## File storage abstraction
 
@@ -594,8 +594,8 @@ inserts succeed with headroom.
 - Transport: `websocket` only — long-polling is disabled to reduce surface and
   because the OAuth proxy fronts everything.
 - Heartbeat cadence is the project-wide `STREAM_HEARTBEAT_SECONDS` constant
-  (M0; default 15s) so socket.io's ping interval and M1's SSE keep-alive
-  comment (the `: keep-alive\n\n` byte-string from `m1-conversations.md`
+  (M0; default 15s) so socket.io's ping interval and M2's SSE keep-alive
+  comment (the `: keep-alive\n\n` byte-string from `m2-conversations.md`
   § SSE streaming) are always the same value. The watchdog window in the FE
   (`realtime.svelte.ts`) is `2 * STREAM_HEARTBEAT_SECONDS`; do not hard-code
   either side.
@@ -724,7 +724,7 @@ authoritative server row (see section 9).
 ## Routers and dependencies
 
 Channel routers follow the project's "skinny router, fat dep, service only when
-justified" pattern (see [FastAPI-best-practises.md §A.1](FastAPI-best-practises.md)
+justified" pattern (see [FastAPI-best-practises.md §A.1](../best-practises/FastAPI-best-practises.md)
 and [m0-foundations.md § Dependency type aliases](m0-foundations.md#dependency-type-aliases)).
 The cross-cutting concerns — load the channel, check membership, check role —
 live as FastAPI dependencies, **not** as private helpers inside every service
@@ -851,7 +851,7 @@ async def archive_channel(ch: ChannelDep, _: RequireOwner, db: DbSession) -> Non
 
 Members, reactions, pins, and webhook CRUD follow the same shape. Only the
 **message** routers (top-level posts, thread replies, webhook ingress) reach
-into `services/channels/messages.py` — that is the helper M4 also calls, the
+into `services/channels/messages.py` — that is the helper M5 also calls, the
 one with the multi-table invariant, the one with three callers.
 
 Pydantic request bodies (`ChannelCreate`, `ChannelPatch`, `AddMembersBody`,
@@ -970,12 +970,12 @@ Authentication is the M0 trusted-header dependency surfaced as
 - `GET  /api/files/{file_id}/meta` — metadata only, no payload load.
 - `DELETE /api/files/{file_id}` — uploader or owner/admin of the bound channel.
 
-**Thumbnails**: explicitly out of scope for M3. At the 5 MiB cap, browsers
+**Thumbnails**: explicitly out of scope for M4. At the 5 MiB cap, browsers
 render images directly from the download endpoint in `<img loading="lazy">`;
-combined with the `content-visibility: auto` virtualization ported from M1,
+combined with the `content-visibility: auto` virtualization ported from M2,
 perf is fine for the channel feed. Adding Pillow + thumbnail blobs doubles
 upload latency and storage and introduces a derivation cache that is not free
-to invalidate. Revisit in M5+ if image-heavy usage emerges.
+to invalidate. Revisit in M6+ if image-heavy usage emerges.
 
 ### Webhooks (incoming, public)
 
@@ -990,19 +990,19 @@ to invalidate. Revisit in M5+ if image-heavy usage emerges.
   Inline attachments by URL are not fetched in v1 — only `text` is required.
   Successful posts insert a `channel_message` with `webhook_id` set, fan out
   via socket.io, update `channel_webhook.last_used_at`, and respond 202.
-  Rate-limited per `webhook_id` to 60 req/min via the M5 Redis-backed
+  Rate-limited per `webhook_id` to 60 req/min via the M6 Redis-backed
   sliding-window limiter (`settings.RATELIMIT_WEBHOOK_PER_MIN`; see
-  `m5-hardening.md` § Configured buckets).
-  Per-route HTTP timeout: **5 s** end-to-end, applied via the M5
+  `m6-hardening.md` § Configured buckets).
+  Per-route HTTP timeout: **5 s** end-to-end, applied via the M6
   `timeout(5)` dependency factory (`dependencies=[timeout(5)]`; see
-  `m5-hardening.md` § Per-route HTTP timeouts) — webhook senders that block
+  `m6-hardening.md` § Per-route HTTP timeouts) — webhook senders that block
   past 5 s get a 504 and should retry. The 5 s
   budget covers the constant-time token comparison, the `INSERT` into
   `channel_message`, the `UPDATE` of `channel_webhook.last_used_at`, and the
   socket.io fan-out; the outgoing-webhook delivery (next subsection) is
   fire-and-forget and runs *after* the 202 has been returned, so it does not
   count against the 5 s. The rate-limit value (60 req/min) is the
-  `RATELIMIT_WEBHOOK_PER_MIN` setting introduced in M5 § Settings additions.
+  `RATELIMIT_WEBHOOK_PER_MIN` setting introduced in M6 § Settings additions.
   Not exposed to the public internet; the OAuth proxy fronts everything.
 
 ### Webhooks (outgoing)
@@ -1039,7 +1039,7 @@ list, `kind:"model"`; if it matches a `channel_member` username/email-prefix,
 `content.mentions`. No other mention syntaxes (`<#channel>`, `<@uuid>`, etc.)
 are recognised in v1. The model list comes from the cached output of
 `provider.list_models()` (TTL 5 minutes, refreshed in the background). The
-same cache instance backs the M1 `/api/models` router; both share a single
+same cache instance backs the M2 `/api/models` router; both share a single
 TTL.
 
 ### Background task lifecycle
@@ -1052,7 +1052,7 @@ TTL.
      `{ role: 'assistant' if bot_id else 'user', content: text }`. The original
      mention is stripped from the user turn.
   3. Calls `provider.stream(messages=..., model=model_id, params={})` —
-     the same `OpenAICompatibleProvider` instance from M1. No multi-provider
+     the same `OpenAICompatibleProvider` instance from M2. No multi-provider
      routing; rails forbid it.
   4. As tokens arrive, accumulates them in a single in-progress
      `channel_message` row created with `bot_id=model_id`,
@@ -1212,7 +1212,7 @@ The 5-second pending-message watchdog (used by the optimistic posting
 reconciliation in `MessagesStore`) is also owned by a per-message `$effect`
 inside `MessageItem.svelte` for messages whose `status === 'pending'` — same
 shape: register the `setTimeout` on mount, return a `clearTimeout` cleanup.
-Module-scope timers are not used anywhere in M3.
+Module-scope timers are not used anywhere in M4.
 
 ### Optimistic posting & reconciliation
 
@@ -1241,7 +1241,7 @@ M0 long-lived-side-effect rule (see [m0-foundations.md § Frontend conventions
 
 ### Virtualization
 
-`MessageList` reuses the `content-visibility: auto` strategy ported from M1
+`MessageList` reuses the `content-visibility: auto` strategy ported from M2
 (landed legacy-side in v0.9.2). Each `MessageItem` is wrapped in a sentinel div
 with `style="content-visibility:auto; contain-intrinsic-size:auto 80px"`. No
 `react-virtual`-style windowing — the strategy gives us 90%+ of the perf at
@@ -1288,7 +1288,7 @@ blocks, images all differ wildly in size).
   upgrades, broadcast `server:draining` to existing connections (FE swaps to
   reconnect-with-backoff), then close.
 
-### Benchmark plan (end of M3)
+### Benchmark plan (end of M4)
 
 - Tool: `rebuild/backend/scripts/bench_channels.py` — async harness that
   spawns N socket.io clients (`python-socketio.AsyncClient`) across M
@@ -1304,7 +1304,7 @@ blocks, images all differ wildly in size).
 - Run on the same Docker compose used in CI (single FastAPI replica + MySQL +
   Redis), then again with **2 replicas** behind nginx round-robin to verify
   the cross-replica fan-out path.
-- Results land in `rebuild/plans/m3-bench-results.md` and gate sign-off.
+- Results land in `rebuild/docs/plans/m3-bench-results.md` and gate sign-off.
 
 ## Tests
 
@@ -1320,7 +1320,7 @@ blocks, images all differ wildly in size).
     (`text`, `mentions?`, `attachments?`, `embeds?`, `edited`,
     `automation_id?`, `automation_owner_name?`). Tests cover:
     rejects oversized arrays, rejects unsupported attachment mimes, rejects
-    unknown keys, accepts the M4 channel-target shape with both
+    unknown keys, accepts the M5 channel-target shape with both
     `automation_id` and `automation_owner_name` set, and accepts user-authored
     messages that omit both automation fields.
   - `auto_reply.dispatcher` — only real-model mentions trigger; cap and
@@ -1409,23 +1409,23 @@ quarantine + investigation, never a green tick.
 - **M0 — Foundations.** Required: `rebuild/` skeleton, MySQL+Redis compose,
   Alembic baseline, trusted-header `get_user` dep, `/healthz`+`/readyz`,
   Docker image, Buildkite path-filtered pipeline, Vitest + Playwright wiring.
-- **M1 — Conversations.** Required: `OpenAICompatibleProvider.stream`,
+- **M2 — Conversations.** Required: `OpenAICompatibleProvider.stream`,
   `OpenAICompatibleProvider.list_models`, the markdown render port (reused in
   `MessageItem`), the SSE schema (loosely informs the bot `message:update`
   cadence). The provider is shared, never re-implemented for channels.
-- **Independent of M2** (sharing). Channels never share to public links.
-- **Independent of M4** (automations). M4's APScheduler runs after M3 lands;
-  if `target_channel_id` is set, M4 calls the M3 service helper
+- **Independent of M3** (sharing). Channels never share to public links.
+- **Independent of M5** (automations). M5's APScheduler runs after M4 lands;
+  if `target_channel_id` is set, M5 calls the M4 service helper
   `app.services.channels.messages.create_bot_message(session, *, channel_id,
   bot_id, content, parent_id=None) -> ChannelMessage` (declared in
   `rebuild/backend/app/services/channels/messages.py`). The helper performs
   the DB insert (honouring the author CHECK constraint), updates
   `channel.last_message_at`, and dispatches the realtime `message:create`
-  emit via `app.realtime.events.emit_message_create`. **M4 must not bypass
+  emit via `app.realtime.events.emit_message_create`. **M5 must not bypass
   this helper or call `sio.emit` directly** — the realtime/persistence
   pairing only stays consistent if every channel write path goes through it.
 
-No milestone depends on M3 reciprocally except M5 hardening, which adds OTel
+No milestone depends on M4 reciprocally except M6 hardening, which adds OTel
 spans around the realtime emit path and the upload-bytes counter.
 
 ## Acceptance criteria
@@ -1434,8 +1434,8 @@ spans around the realtime emit path and the upload-bytes counter.
   upgrade head` from empty DB succeeds; `alembic downgrade base` reverses
   cleanly. Re-running `alembic upgrade head` immediately after `head` and
   re-running `alembic downgrade base` after `base` are both no-ops (covered by
-  the M0 idempotency tests parametrised over the `0004_m3_channels` revision).
-- [ ] `test_partial_upgrade_recovers` includes an M3 case: pre-create
+  the M0 idempotency tests parametrised over the `0004_m4_channels` revision).
+- [ ] `test_partial_upgrade_recovers` includes an M4 case: pre-create
   `file` + `file_blob` + `channel` only (raw DDL, no indexes), then
   `alembic upgrade head` produces all eight tables, every named index, the
   `ck_channel_message_one_author` check constraint, and the
@@ -1488,7 +1488,7 @@ spans around the realtime emit path and the upload-bytes counter.
 - [ ] Frontend ports every component listed in section 9; no
   references remain to `tools`, `skills`, `notes`, `knowledge`, `mcp`,
   `code-interpreter`, `image-gen` modules. (Ripgrep gate in CI.)
-- [ ] Every M3 store lives at `lib/stores/<name>.svelte.ts` (not `.ts`),
+- [ ] Every M4 store lives at `lib/stores/<name>.svelte.ts` (not `.ts`),
   exports a class instantiated via `setContext` in
   `(app)/channels/+layout.svelte`, and uses `SvelteMap` / `SvelteSet` from
   `svelte/reactivity` (never native `Map` / `Set`) for any reactive
@@ -1509,7 +1509,7 @@ spans around the realtime emit path and the upload-bytes counter.
 - [ ] Two-replica compose configuration passes the same multi-context test —
   proves Redis-backed fan-out, no sticky sessions.
 - [ ] Benchmark in section 10 hits 200ms p95 / 500ms p99 / <60% CPU at the
-  declared load; results committed to `rebuild/plans/m3-bench-results.md`.
+  declared load; results committed to `rebuild/docs/plans/m3-bench-results.md`.
 - [ ] Unit + component suites complete in <3 min wall-clock; E2E suite in <8
   min sharded across 4 workers.
 - [ ] No new linter errors; mypy passes in strict mode; ruff passes.
@@ -1519,7 +1519,7 @@ spans around the realtime emit path and the upload-bytes counter.
 
 ## Out of scope
 
-The following are **not** part of M3 and must be rejected in code review even
+The following are **not** part of M4 and must be rejected in code review even
 when convenient to add:
 
 - DMs and group DMs. The legacy fork's `Channel.type in {'dm','group'}`
@@ -1539,14 +1539,14 @@ when convenient to add:
   codepoints and `:shortcode:`-style strings only — there is no admin UI for
   uploading PNG emoji.
 - Rich-text composer (Notion/Quill-style). The composer is markdown source +
-  a few keyboard shortcuts; rendering uses the M1 markdown pipeline.
+  a few keyboard shortcuts; rendering uses the M2 markdown pipeline.
 - Signed URLs and any object store. Files live in `MEDIUMBLOB`; the
   `FileStore` facade is the only seam for an eventual S3 swap.
 - Multi-provider routing. `@model` always targets the single
-  `OpenAICompatibleProvider` from M1.
+  `OpenAICompatibleProvider` from M2.
 - Per-user permission grants on channels (`access_grant` table from legacy).
   Channel access is binary: member or not, role is owner/admin/member only.
-- Thumbnails. Documented in section 7; revisit post-M5 if image use grows.
+- Thumbnails. Documented in section 7; revisit post-M6 if image use grows.
 - Link unfurling / `embeds` population. The schema field is reserved but no
   worker is shipped.
 

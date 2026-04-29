@@ -1,21 +1,21 @@
 # M0 — Foundations Implementation Plan
 
-> Authoritative parent: [rebuild.md](../../rebuild.md). Section 5 (Phased delivery) and section 10 (Repository layout) are the binding scope for this milestone.
+> Authoritative parent: [rebuild.md](../../../rebuild.md). Section 5 (Phased delivery) and section 10 (Repository layout) are the binding scope for this milestone.
 
 ## Goal
 
-Stand up a parallel, fully self-contained `rebuild/` tree in this repo that compiles, lints, type-checks, tests, builds a Docker image, and runs in Buildkite without disturbing any legacy code path. By the end of M0 the tree contains a runnable FastAPI skeleton with trusted-header auth and `/healthz` + `/readyz`, a SvelteKit 2 + Svelte 5 + Tailwind 4 frontend that round-trips a `/api/me` call against the proxy header, MySQL 8.0 + Redis 7 dev compose, an Alembic baseline that creates only the `user` table, and a path-filtered Buildkite pipeline that runs in parallel to the legacy one. No product features ship in M0; the deliverable is the foundation that M1–M5 build on.
+Stand up a parallel, fully self-contained `rebuild/` tree in this repo that compiles, lints, type-checks, tests, builds a Docker image, and runs in Buildkite without disturbing any legacy code path. By the end of M0 the tree contains a runnable FastAPI skeleton with trusted-header auth and `/healthz` + `/readyz`, a SvelteKit 2 + Svelte 5 + Tailwind 4 frontend that round-trips a `/api/me` call against the proxy header, MySQL 8.0 + Redis 7 dev compose, an Alembic baseline that creates only the `user` table, and a path-filtered Buildkite pipeline that runs in parallel to the legacy one. No product features ship in M0; the deliverable is the foundation that M2–M6 build on.
 
 ## Deliverables
 
 - `rebuild/` directory; isolated tooling; no shared lockfiles or configs with legacy.
-- Python 3.12 + FastAPI backend skeleton at [rebuild/backend/](../backend/) with ASGI app factory mounting `/healthz`, `/readyz`, `/api/me`; `Settings(BaseSettings)` in `app/core/config.py`; `get_user` trusted-header dep in `app/core/auth.py`; async SQLAlchemy 2 engine + session factory in `app/core/db.py`; Alembic environment with a single revision creating the `user` table.
-- SvelteKit 2 + Svelte 5 + Tailwind 4 frontend at [rebuild/frontend/](../frontend/): root layout calling `/api/me` to verify the trusted-header path; Vitest + Playwright (E2E + Component Testing) wired with MSW.
-- Dev infrastructure at [rebuild/infra/](../infra/): `docker-compose.yml` with `mysql:8.0.39`, `redis:7.4-alpine`, and the `app` service; `mysql/my.cnf` pinning `utf8mb4` / `utf8mb4_0900_ai_ci` / `max_allowed_packet=16M`.
-- Multi-stage [rebuild/Dockerfile](../Dockerfile) producing one image with frontend assets + backend.
-- Self-contained Python config in [rebuild/pyproject.toml](../pyproject.toml) (ruff, mypy strict, pytest); self-contained JS config in [rebuild/package.json](../package.json), `tsconfig.json`, `playwright.config.ts`, `playwright-ct.config.ts`, `vitest.config.ts`.
-- [rebuild/Makefile](../Makefile) with rebuild-only targets: `setup`, `dev`, `migrate`, `lint`, `typecheck`, `test-unit`, `test-component`, `test-e2e-smoke`, `build`.
-- Buildkite pipeline at [rebuild/.buildkite/rebuild.yml](../.buildkite/rebuild.yml) gated by `if: build.changed_files =~ /^rebuild\//`; top-level `README.md` updated to document the dual-tree state.
+- Python 3.12 + FastAPI backend skeleton at [rebuild/backend/](../../backend/) with ASGI app factory mounting `/healthz`, `/readyz`, `/api/me`; `Settings(BaseSettings)` in `app/core/config.py`; `get_user` trusted-header dep in `app/core/auth.py`; async SQLAlchemy 2 engine + session factory in `app/core/db.py`; Alembic environment with a single revision creating the `user` table.
+- SvelteKit 2 + Svelte 5 + Tailwind 4 frontend at [rebuild/frontend/](../../frontend/): root layout calling `/api/me` to verify the trusted-header path; Vitest + Playwright (E2E + Component Testing) wired with MSW.
+- Dev infrastructure at [rebuild/infra/](../../infra/): `docker-compose.yml` with `mysql:8.0.39`, `redis:7.4-alpine`, and the `app` service; `mysql/my.cnf` pinning `utf8mb4` / `utf8mb4_0900_ai_ci` / `max_allowed_packet=16M`.
+- Multi-stage [rebuild/Dockerfile](../../Dockerfile) producing one image with frontend assets + backend.
+- Self-contained Python config in [rebuild/pyproject.toml](../../pyproject.toml) (ruff, mypy strict, pytest); self-contained JS config in [rebuild/package.json](../../package.json), `tsconfig.json`, `playwright.config.ts`, `playwright-ct.config.ts`, `vitest.config.ts`.
+- [rebuild/Makefile](../../Makefile) with rebuild-only targets: `setup`, `dev`, `migrate`, `lint`, `typecheck`, `test-unit`, `test-component`, `test-e2e-smoke`, `build`.
+- Buildkite pipeline at [rebuild/.buildkite/rebuild.yml](../../.buildkite/rebuild.yml) gated by `if: build.changed_files =~ /^rebuild\//`; top-level `README.md` updated to document the dual-tree state.
 
 ## File and directory layout
 
@@ -63,7 +63,7 @@ rebuild/
         db.py                        # async engine, session factory, get_session
         iam_auth.py                  # AWS RDS IAM database authentication (boto3 token mint)
         auth.py                      # get_user trusted-header dep + upsert_user_from_headers helper
-        deps.py                      # Annotated type aliases: CurrentUser, DbSession (Provider added in M1)
+        deps.py                      # Annotated type aliases: CurrentUser, DbSession (Provider added in M2)
         errors.py                    # AppError + FastAPI exception handlers
         ids.py                       # new_id() -> str — project-wide UUIDv7 helper
         time.py                      # now_ms() -> int — project-wide epoch-ms helper
@@ -128,7 +128,7 @@ rebuild/
         layout.spec.ts               # +layout renders email when load yields user
       e2e/
         smoke.spec.ts                # GET / round-trip with X-Forwarded-Email
-      smoke/                         # M5 cutover smoke specs (added later)
+      smoke/                         # M6 cutover smoke specs (added later)
         .gitkeep
       visual-baselines/              # git-lfs tracked, empty in M0
         .gitkeep
@@ -140,7 +140,7 @@ The two symlinks (`backend/pyproject.toml`, `frontend/package.json`) keep tool-d
 
 ### Package layout
 
-The backend is a single Python package called `app`, installed in editable mode from [rebuild/pyproject.toml](../pyproject.toml). All imports are absolute (`from app.core.config import settings`). Only the modules and tests listed under `backend/app/` in the layout above exist in M0.
+The backend is a single Python package called `app`, installed in editable mode from [rebuild/pyproject.toml](../../pyproject.toml). All imports are absolute (`from app.core.config import settings`). Only the modules and tests listed under `backend/app/` in the layout above exist in M0.
 
 ### ID and time helpers
 
@@ -158,7 +158,7 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `ENV` | `Literal["dev", "test", "staging", "prod"]` | `"dev"` | Switches Alembic test fixture and CORS rules. `"staging"` is required by M4's `/test/scheduler/tick` gate (`m4-automations.md` § Test hook) and by M5's smoke pack against the staging URL (`m5-hardening.md` § Smoke E2E pack). |
+| `ENV` | `Literal["dev", "test", "staging", "prod"]` | `"dev"` | Switches Alembic test fixture and CORS rules. `"staging"` is required by M5's `/test/scheduler/tick` gate (`m5-automations.md` § Test hook) and by M6's smoke pack against the staging URL (`m6-hardening.md` § Smoke E2E pack). |
 | `HOST` | `str` | `"0.0.0.0"` | Uvicorn bind. |
 | `PORT` | `int` | `8080` | Same as legacy default for proxy parity. |
 | `LOG_LEVEL` | `str` | `"INFO"` | Passed to `logging.basicConfig`. |
@@ -171,9 +171,9 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 | `DATABASE_IAM_AUTH_HOST` | `str \| None` | `None` | Override for the cluster/instance endpoint that signs the token. Use when `DATABASE_URL`'s host is a CNAME / Route 53 alias rather than the canonical Aurora endpoint AWS knows about (RDS rejects tokens minted against an alias). |
 | `DATABASE_IAM_AUTH_PORT` | `int \| None` | `None` | Override for the port the token is signed for. Defaults to the port in `DATABASE_URL`, then 3306. |
 | `DATABASE_IAM_AUTH_USER` | `str \| None` | `None` | IAM database user the **runtime** engine (`app/core/db.py`) authenticates as. Falls back to the username in `DATABASE_URL` when unset. Production sets this explicitly so the runtime credential is decoupled from the URL string. |
-| `DATABASE_IAM_AUTH_MIGRATE_USER` | `str \| None` | `None` | IAM database user the **Alembic migration Job** (`backend/alembic/env.py`) authenticates as. Falls back to the username in `DATABASE_URL` when unset. Today this points at the same single IAM user as `DATABASE_IAM_AUTH_USER` (one IAM user with `ALL PRIVILEGES`); the future least-privilege split flips this to `rebuild_migrate` without a code change — see [`database-best-practises.md` § B.9](database-best-practises.md). |
+| `DATABASE_IAM_AUTH_MIGRATE_USER` | `str \| None` | `None` | IAM database user the **Alembic migration Job** (`backend/alembic/env.py`) authenticates as. Falls back to the username in `DATABASE_URL` when unset. Today this points at the same single IAM user as `DATABASE_IAM_AUTH_USER` (one IAM user with `ALL PRIVILEGES`); the future least-privilege split flips this to `rebuild_migrate` without a code change — see [`database-best-practises.md` § B.9](../best-practises/database-best-practises.md). |
 | `REDIS_URL` | `str` | `"redis://redis:6379/0"` | Used by `/readyz` only in M0. |
-| `MODEL_GATEWAY_BASE_URL` | `str \| None` | `None` | Wired in M1; loaded in M0 to fail fast on misconfig. |
+| `MODEL_GATEWAY_BASE_URL` | `str \| None` | `None` | Wired in M2; loaded in M0 to fail fast on misconfig. |
 | `MODEL_GATEWAY_API_KEY` | `SecretStr \| None` | `None` | Same. |
 | `TRUSTED_EMAIL_HEADER` | `str` | `"X-Forwarded-Email"` | Header read by `get_user`. |
 | `TRUSTED_NAME_HEADER` | `str` | `"X-Forwarded-Name"` | Optional display name source. |
@@ -185,7 +185,7 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 
 Pydantic-settings 2 only auto-decodes list-typed fields as JSON, so `TRUSTED_EMAIL_DOMAIN_ALLOWLIST` and `CORS_ALLOW_ORIGINS` are declared as `Annotated[list[str], NoDecode]` and paired with a `field_validator(mode="before")` that splits on commas (treating `""` and `None` as `[]`). The `SecretStr` type prevents `MODEL_GATEWAY_API_KEY` from leaking into `repr(settings)` or log lines.
 
-**Casing convention (locked).** Every field on `Settings` is declared with the same UPPER_SNAKE_CASE name as its env var; access from code is therefore always `settings.MODEL_GATEWAY_BASE_URL`, never `settings.model_gateway_base_url`. The convention is uniform across every milestone (M1–M5). Pydantic-settings 2 supports either casing, but mixing them causes silent attribute errors when the wrong case is used at a call site, so the project pins one. Later milestones that extend `Settings` with new fields (M1's `SSE_STREAM_TIMEOUT_SECONDS`, M4's `AUTOMATION_*` knobs, M5's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`) follow the same UPPER_SNAKE_CASE rule and are listed in their plans' "Settings additions" subsection. The launch-banner cutoff (`PUBLIC_LAUNCH_BANNER_UNTIL`) is intentionally **not** a backend `Settings` field — it lives only on the SvelteKit side as a `PUBLIC_*` static env var (see `m5-hardening.md` § In-product banner).
+**Casing convention (locked).** Every field on `Settings` is declared with the same UPPER_SNAKE_CASE name as its env var; access from code is therefore always `settings.MODEL_GATEWAY_BASE_URL`, never `settings.model_gateway_base_url`. The convention is uniform across every milestone (M2–M6). Pydantic-settings 2 supports either casing, but mixing them causes silent attribute errors when the wrong case is used at a call site, so the project pins one. Later milestones that extend `Settings` with new fields (M2's `SSE_STREAM_TIMEOUT_SECONDS`, M5's `AUTOMATION_*` knobs, M6's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`) follow the same UPPER_SNAKE_CASE rule and are listed in their plans' "Settings additions" subsection. The launch-banner cutoff (`PUBLIC_LAUNCH_BANNER_UNTIL`) is intentionally **not** a backend `Settings` field — it lives only on the SvelteKit side as a `PUBLIC_*` static env var (see `m6-hardening.md` § In-product banner).
 
 ### IAM database authentication
 
@@ -224,11 +224,11 @@ if is_iam_auth_enabled():
     )
 ```
 
-Today both env vars resolve to the same single IAM user with `ALL PRIVILEGES`, so runtime and migration share one identity. The two-setting split exists so the future least-privilege migration (runtime user → `SELECT, INSERT, UPDATE, DELETE`; migrate user → `ALL PRIVILEGES`) lands as a values-file change, not a code change. See [`database-best-practises.md` § B.9](database-best-practises.md) for the operational do/don't list and the Aurora-side `CREATE USER` recipe.
+Today both env vars resolve to the same single IAM user with `ALL PRIVILEGES`, so runtime and migration share one identity. The two-setting split exists so the future least-privilege migration (runtime user → `SELECT, INSERT, UPDATE, DELETE`; migrate user → `ALL PRIVILEGES`) lands as a values-file change, not a code change. See [`database-best-practises.md` § B.9](../best-practises/database-best-practises.md) for the operational do/don't list and the Aurora-side `CREATE USER` recipe.
 
 **Local dev.** `DATABASE_IAM_AUTH=False` (the default) means `attach_iam_auth_to_engine` is never called, boto3 is never imported, and `aiobotocore`/`botocore` startup overhead is paid only by the prod image. The MySQL container's `MYSQL_USER=rebuild` / `MYSQL_PASSWORD=rebuild` pair from `infra/docker-compose.yml` works unchanged.
 
-**Production opt-in.** Aurora-backed deploys (staging + prod) set `DATABASE_IAM_AUTH=True`, switch the URL from `rebuild:rebuild@mysql:3306/rebuild` to `<iam_user>@<aurora_cluster_endpoint>:3306/<dbname>?ssl=true`, set `DATABASE_IAM_AUTH_USER=rebuild_app` and `DATABASE_IAM_AUTH_MIGRATE_USER=rebuild_app` (same value today, on purpose — the credential mapping is auditable from `values-prod.yaml` even before the future split), and rely on the pod's IRSA / Pod Identity for the AWS credentials boto3 picks up. The TLS query-string flip is required by RDS — IAM auth is rejected over an unencrypted connection. Helm values (`m5-hardening.md` § Helm chart) carry the env-var bundle (`DATABASE_URL`, `DATABASE_IAM_AUTH`, `DATABASE_IAM_AUTH_REGION`, `DATABASE_IAM_AUTH_HOST`, `DATABASE_IAM_AUTH_USER`, `DATABASE_IAM_AUTH_MIGRATE_USER`) so flipping a single value file rotates which Aurora cluster the app talks to without a code change.
+**Production opt-in.** Aurora-backed deploys (staging + prod) set `DATABASE_IAM_AUTH=True`, switch the URL from `rebuild:rebuild@mysql:3306/rebuild` to `<iam_user>@<aurora_cluster_endpoint>:3306/<dbname>?ssl=true`, set `DATABASE_IAM_AUTH_USER=rebuild_app` and `DATABASE_IAM_AUTH_MIGRATE_USER=rebuild_app` (same value today, on purpose — the credential mapping is auditable from `values-prod.yaml` even before the future split), and rely on the pod's IRSA / Pod Identity for the AWS credentials boto3 picks up. The TLS query-string flip is required by RDS — IAM auth is rejected over an unencrypted connection. Helm values (`m6-hardening.md` § Helm chart) carry the env-var bundle (`DATABASE_URL`, `DATABASE_IAM_AUTH`, `DATABASE_IAM_AUTH_REGION`, `DATABASE_IAM_AUTH_HOST`, `DATABASE_IAM_AUTH_USER`, `DATABASE_IAM_AUTH_MIGRATE_USER`) so flipping a single value file rotates which Aurora cluster the app talks to without a code change.
 
 **Validation.** `Settings` cross-checks at construction time: when `DATABASE_IAM_AUTH=True`, the URL's password slot must be empty (a populated password with IAM auth on is a hard `ValueError("DATABASE_IAM_AUTH=True but DATABASE_URL still carries a static password")` rather than a silent surprise where the static password wins by string position) and at least one of `DATABASE_URL`'s username, `DATABASE_IAM_AUTH_USER`, or `DATABASE_IAM_AUTH_MIGRATE_USER` must resolve to a non-empty string for both engines (otherwise `resolve_iam_endpoint` would raise on the first connection attempt; failing at construction surfaces the misconfiguration in startup logs instead). Same gate forbids an absent region: when IAM auth is on and none of `DATABASE_IAM_AUTH_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` is set, the app refuses to start with a clear message.
 
@@ -248,13 +248,13 @@ Today both env vars resolve to the same single IAM user with `ALL PRIVILEGES`, s
 
 **`get_user(request, db) -> User`** is the FastAPI dependency. It reads the header named by `settings.TRUSTED_EMAIL_HEADER` (default `X-Forwarded-Email`), raises `HTTPException(status_code=401, detail="missing trusted header")` if missing or empty, then delegates to `upsert_user_from_headers(db, email=email, name=request.headers.get(settings.TRUSTED_NAME_HEADER))`.
 
-The two-symbol split is deliberate: M3's socket.io `connect` handler authenticates from the same trusted headers but lives outside the FastAPI request lifecycle, so it cannot use `Depends(get_user)`. Instead it opens its own `AsyncSessionLocal()` and calls `upsert_user_from_headers` directly. Keeping the upsert in a pure helper means the auth contract has exactly one implementation; if the day ever comes when "first login" needs to also write a `last_seen_at` or an audit row, it's one line in one file.
+The two-symbol split is deliberate: M4's socket.io `connect` handler authenticates from the same trusted headers but lives outside the FastAPI request lifecycle, so it cannot use `Depends(get_user)`. Instead it opens its own `AsyncSessionLocal()` and calls `upsert_user_from_headers` directly. Keeping the upsert in a pure helper means the auth contract has exactly one implementation; if the day ever comes when "first login" needs to also write a `last_seen_at` or an audit row, it's one line in one file.
 
 There is no `get_optional_user` in M0; `/healthz` and `/readyz` are the only unauthenticated routes.
 
 ### Dependency type aliases
 
-`app/core/deps.py` defines reusable `Annotated[T, Depends(...)]` aliases so route signatures stay short and the project-wide convention is "always `Annotated`, never bare `Depends()` in a parameter default." M0 ships two; M1 adds `Provider`.
+`app/core/deps.py` defines reusable `Annotated[T, Depends(...)]` aliases so route signatures stay short and the project-wide convention is "always `Annotated`, never bare `Depends()` in a parameter default." M0 ships two; M2 adds `Provider`.
 
 ```python
 # rebuild/backend/app/core/deps.py
@@ -306,7 +306,7 @@ class StrictModel(BaseModel):
 
 Conventions enforced by review:
 
-- Request and response bodies inherit from `StrictModel`. M0's `UserRead` is the first example; M1–M5 follow.
+- Request and response bodies inherit from `StrictModel`. M0's `UserRead` is the first example; M2–M6 follow.
 - Use `from __future__ import annotations` at the top of every schema module so forward refs and `T | None` work uniformly under mypy strict.
 - Prefer `T | None` over `Optional[T]`.
 - Prefer the curated Pydantic types (`EmailStr`, `AnyUrl`, `SecretStr`, `Annotated[int, Field(ge=…, le=…)]`) over hand-rolled validators.
@@ -323,7 +323,7 @@ If you ever need to override `extra="forbid"` (e.g. an opaque webhook envelope),
 """Project-wide constants. Not tunable per environment."""
 
 STREAM_HEARTBEAT_SECONDS: int = 15
-"""Heartbeat cadence for SSE (M1 chat streaming) and socket.io (M3 channels).
+"""Heartbeat cadence for SSE (M2 chat streaming) and socket.io (M4 channels).
 
 Single source of truth so the FE timeout-watchdog window stays consistent
 across both transports. 15s is short enough that a stalled upstream is
@@ -331,12 +331,12 @@ detected before LB idle-cutoff, long enough that idle connections don't
 generate measurable load.
 """
 
-MAX_CHAT_HISTORY_BYTES: int = 1_048_576  # 1 MiB; enforced in M1 chat service
+MAX_CHAT_HISTORY_BYTES: int = 1_048_576  # 1 MiB; enforced in M2 chat service
 """Cap on `chat.history` JSON payload. Larger and writes start contending on
 the row lock; almost always a sign of a bug rather than a real conversation."""
 ```
 
-M1 (`chat_stream.py`) and M3 (`realtime/sio.py`) both import `STREAM_HEARTBEAT_SECONDS` from here; neither hard-codes the value. Ditto `MAX_CHAT_HISTORY_BYTES` from M1's chat service.
+M2 (`chat_stream.py`) and M4 (`realtime/sio.py`) both import `STREAM_HEARTBEAT_SECONDS` from here; neither hard-codes the value. Ditto `MAX_CHAT_HISTORY_BYTES` from M2's chat service.
 
 ### `/healthz` and `/readyz` semantics
 
@@ -351,7 +351,7 @@ Both live in `app/routers/health.py` and are mounted without auth.
 
 ### Alembic baseline
 
-The first revision `0001_baseline.py` creates exactly one table, and uses the M0 helper module so re-running a partially-applied revision is a no-op (filename convention is `<revid>.py` with no date prefix, matching the M1–M4 revisions `0002_m1_chat_folder.py`, `0003_m2_sharing.py`, `0004_m3_channels.py`, `0005_m4_automations.py`):
+The first revision `0001_baseline.py` creates exactly one table, and uses the M0 helper module so re-running a partially-applied revision is a no-op (filename convention is `<revid>.py` with no date prefix, matching the M2–M5 revisions `0002_m2_chat_folder.py`, `0003_m3_sharing.py`, `0004_m4_channels.py`, `0005_m5_automations.py`):
 
 ```python
 from app.db.migration_helpers import (
@@ -366,7 +366,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(320), nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("timezone", sa.String(64), nullable=False, server_default="UTC"),
-        sa.Column("created_at", sa.BigInteger(), nullable=False),  # epoch ms via app.core.time.now_ms() — matches every other timestamp in the project (rebuild.md §4, database-best-practises.md §A.1)
+        sa.Column("created_at", sa.BigInteger(), nullable=False),  # epoch ms via app.core.time.now_ms() — matches every other timestamp in the project (rebuild.md §4, rebuild/docs/best-practises/database-best-practises.md §A.1)
         sa.UniqueConstraint("email", name="uq_user_email"),
         mysql_engine="InnoDB",
         mysql_charset="utf8mb4",
@@ -381,7 +381,7 @@ No other tables. Alembic's `env.py` wires `target_metadata = app.db.base.Base.me
 
 ### Migration helpers
 
-Every Alembic revision in the rebuild — M0 baseline plus M1–M4 — calls only the wrappers defined in `app/db/migration_helpers.py`. The wrappers fall into two camps: those that map to a MySQL-native `IF EXISTS` clause (DROP TABLE, DROP INDEX on MySQL 8.0.29+), and those that introspect the live schema with SQLAlchemy `inspect()` and skip the underlying `op.*` call when the object already exists or has already been removed. `CREATE TABLE` belongs to the second camp: SQLAlchemy's MySQL dialect does not expose an `IF NOT EXISTS` table-arg, so `create_table_if_not_exists` relies on the Python `has_table` guard alone (the serial M5 migration Job with `backoffLimit: 0` means there is no concurrent racing migrator to defend against). MySQL 8.0 does not support `IF NOT EXISTS` on `CREATE INDEX`, `ALTER TABLE ADD COLUMN`, `ADD CONSTRAINT`, or `ADD FOREIGN KEY`, so the inspect-then-emit pattern is mandatory for those — confirmed against the MySQL 8.0 Reference Manual at the time of writing (see [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../rebuild.md#9-decisions-locked)). The full surface, in one file:
+Every Alembic revision in the rebuild — M0 baseline plus M2–M5 — calls only the wrappers defined in `app/db/migration_helpers.py`. The wrappers fall into two camps: those that map to a MySQL-native `IF EXISTS` clause (DROP TABLE, DROP INDEX on MySQL 8.0.29+), and those that introspect the live schema with SQLAlchemy `inspect()` and skip the underlying `op.*` call when the object already exists or has already been removed. `CREATE TABLE` belongs to the second camp: SQLAlchemy's MySQL dialect does not expose an `IF NOT EXISTS` table-arg, so `create_table_if_not_exists` relies on the Python `has_table` guard alone (the serial M6 migration Job with `backoffLimit: 0` means there is no concurrent racing migrator to defend against). MySQL 8.0 does not support `IF NOT EXISTS` on `CREATE INDEX`, `ALTER TABLE ADD COLUMN`, `ADD CONSTRAINT`, or `ADD FOREIGN KEY`, so the inspect-then-emit pattern is mandatory for those — confirmed against the MySQL 8.0 Reference Manual at the time of writing (see [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../../rebuild.md#9-decisions-locked)). The full surface, in one file:
 
 ```python
 # rebuild/backend/app/db/migration_helpers.py
@@ -438,7 +438,7 @@ def create_table_if_not_exists(name: str, *columns: Any, **kw: Any) -> None:
     MySQL dialect does NOT have a ``mysql_create_if_not_exists`` table-arg
     (despite some third-party docs suggesting otherwise); attempting to set
     one renders bogus DDL and raises a TypeError inside the dialect's
-    table-options compiler. The serial M5 migration Job (``backoffLimit: 0``)
+    table-options compiler. The serial M6 migration Job (``backoffLimit: 0``)
     means concurrent racing migrators are functionally impossible, so the
     Python guard alone is sufficient.
     """
@@ -544,8 +544,8 @@ def execute_if(condition: bool, sql: str) -> None:
 Rules for revision authors (enforced by review and by a CI grep gate):
 
 - **No bare `op.create_table`, `op.create_index`, `op.add_column`, `op.create_foreign_key`, `op.create_check_constraint`, `op.create_unique_constraint`, `op.drop_table`, `op.drop_index`, `op.drop_column`, `op.drop_constraint`** in any file under `backend/alembic/versions/`. Use the helper variants exclusively. Enforced by the `tests/test_migrations.py::test_no_bare_op_calls` AST gate (an AST walk is strictly more reliable than a regex against the file text — multi-line calls, in-comment matches, and `op.execute(...)` raw DDL all confound a grep) which runs in the Buildkite `unit` step.
-- **`op.execute` is allowed but only via `execute_if(condition, sql)`** so the caller has to think about the precondition. The single legitimate use in M1 is the MySQL generated column on `chat.current_message_id`; the precondition is `not has_column("chat", "current_message_id")`. Any raw `ALTER TABLE` emitted via `execute_if` MUST end with `, ALGORITHM=<INSTANT|INPLACE|COPY>, LOCK=<DEFAULT|NONE|SHARED|EXCLUSIVE>` so the migration's blocking behaviour is explicit at the call site, not implicit. The `test_no_bare_op_calls` AST gate also fails any `execute_if` whose SQL string starts with `ALTER TABLE` and lacks the algorithm clause.
-- **`add_column_if_not_exists` defaults to `ALGORITHM=INSTANT, LOCK=DEFAULT`** (MySQL 8.0.12+). This is the right default for new columns: the operation is metadata-only and a 100M-row `chat` table costs the same to widen as an empty one. If a column genuinely cannot be added INSTANT (most common cause: it would push the row off-page, e.g. a wide TEXT default mid-table), pass `algorithm="INPLACE"` (or `"COPY"` as a last resort) explicitly and justify the choice in a comment block above the call. The Helm migration Job's `activeDeadlineSeconds: 300` is sized for INSTANT-class operations; INPLACE/COPY revisions must bump the override in the same PR (see `m5-hardening.md` § Database migration step).
+- **`op.execute` is allowed but only via `execute_if(condition, sql)`** so the caller has to think about the precondition. The single legitimate use in M2 is the MySQL generated column on `chat.current_message_id`; the precondition is `not has_column("chat", "current_message_id")`. Any raw `ALTER TABLE` emitted via `execute_if` MUST end with `, ALGORITHM=<INSTANT|INPLACE|COPY>, LOCK=<DEFAULT|NONE|SHARED|EXCLUSIVE>` so the migration's blocking behaviour is explicit at the call site, not implicit. The `test_no_bare_op_calls` AST gate also fails any `execute_if` whose SQL string starts with `ALTER TABLE` and lacks the algorithm clause.
+- **`add_column_if_not_exists` defaults to `ALGORITHM=INSTANT, LOCK=DEFAULT`** (MySQL 8.0.12+). This is the right default for new columns: the operation is metadata-only and a 100M-row `chat` table costs the same to widen as an empty one. If a column genuinely cannot be added INSTANT (most common cause: it would push the row off-page, e.g. a wide TEXT default mid-table), pass `algorithm="INPLACE"` (or `"COPY"` as a last resort) explicitly and justify the choice in a comment block above the call. The Helm migration Job's `activeDeadlineSeconds: 300` is sized for INSTANT-class operations; INPLACE/COPY revisions must bump the override in the same PR (see `m6-hardening.md` § Database migration step).
 - **Every `upgrade()` must be a re-runnable no-op on a fully-upgraded schema.** This is verified by an integration test that runs `alembic upgrade head` twice in succession against the same MySQL container and asserts the second run is a no-op (no `CREATE`/`ALTER` in the binlog).
 - **Every `downgrade()` must be a re-runnable no-op on a fully-downgraded schema.** Same pattern: `alembic downgrade base` twice, second run is a no-op.
 
@@ -555,7 +555,7 @@ Rules for revision authors (enforced by review and by a CI grep gate):
 
 - `test_upgrade_head_is_idempotent`: `alembic upgrade head` from empty DB succeeds; second run is a no-op (asserted by counting rows in `INFORMATION_SCHEMA.TABLES` before and after).
 - `test_downgrade_base_is_idempotent`: `alembic upgrade head` then `alembic downgrade base` then `alembic downgrade base` — second downgrade is a no-op.
-- `test_partial_upgrade_recovers`: simulate a crash mid-migration by manually applying the first half of M1's revision via raw DDL (`CREATE TABLE folder` only), then run `alembic upgrade head` and assert the migration completes and `chat`, `folder`, all indexes, and the generated column exist. This is the test that proves the helper pattern actually does what it promises.
+- `test_partial_upgrade_recovers`: simulate a crash mid-migration by manually applying the first half of M2's revision via raw DDL (`CREATE TABLE folder` only), then run `alembic upgrade head` and assert the migration completes and `chat`, `folder`, all indexes, and the generated column exist. This is the test that proves the helper pattern actually does what it promises.
 - `test_no_bare_op_calls`: walks every `.py` under `backend/alembic/versions/`, parses the AST, and asserts no `Attribute` node matches `op.create_*`/`op.drop_*`/`op.add_column` outside of the helper module. Same test also asserts that any `execute_if(..., sql=...)` whose SQL string begins with `ALTER TABLE` ends with `ALGORITHM=` and `LOCK=` clauses (case-insensitive), so the blocking behaviour of every raw DDL is explicit.
 
 These four tests live next to the helper module and run in the M0 unit-test step. Every later milestone adds at most a parametrised case to `test_partial_upgrade_recovers` for the new revision; no other change.
@@ -564,22 +564,22 @@ These four tests live next to the helper module and run in the M0 unit-test step
 
 ### Frontend conventions (cross-cutting)
 
-These conventions are pinned in M0 once and inherited by every later milestone (M1–M5). They are enforced by review and the linked CI gates; do not redeclare them in the per-milestone plans. M1/M3/M4 should reference this section by link instead of re-stating the rules.
+These conventions are pinned in M0 once and inherited by every later milestone (M2–M6). They are enforced by review and the linked CI gates; do not redeclare them in the per-milestone plans. M2/M4/M5 should reference this section by link instead of re-stating the rules.
 
-**Source-of-truth references.** [`rebuild/plans/svelte-best-practises.md`](svelte-best-practises.md) and [`rebuild/plans/sveltekit-best-practises.md`](sveltekit-best-practises.md) are the project's canonical Svelte 5 / SvelteKit 2 references. When this plan or any milestone plan disagrees with them, the best-practices docs win and the plan is patched.
+**Source-of-truth references.** [`rebuild/docs/best-practises/svelte-best-practises.md`](../best-practises/svelte-best-practises.md) and [`rebuild/docs/best-practises/sveltekit-best-practises.md`](../best-practises/sveltekit-best-practises.md) are the project's canonical Svelte 5 / SvelteKit 2 references. When this plan or any milestone plan disagrees with them, the best-practices docs win and the plan is patched.
 
 1. **Module naming: `*.svelte.ts` for runes, `*.ts` for everything else.** The Svelte compiler only enables runes inside `.svelte` and `*.svelte.ts` / `*.svelte.js` files. Any module that uses `$state`, `$derived`, `$effect`, `$props`, `$bindable`, or `$inspect` lives at `src/lib/.../<name>.svelte.ts`; pure utilities (the typed fetch client, MSW handlers, ID helpers, format helpers) stay `*.ts`. The frontend ESLint config pins this — `$state(` / `$derived(` / `$effect(` referenced from a non-`*.svelte.ts` file is a lint error.
 
-2. **Shared client state pattern: class + `setContext`, never module-level `$state` for user data.** A SvelteKit server is a long-running process shared across every request. Top-level `let foo = $state(...)` in a module imported during SSR is shared across all concurrent users — a per-user data leak (see [sveltekit-best-practises.md § 8.1](sveltekit-best-practises.md)). The convention for the rebuild is therefore:
+2. **Shared client state pattern: class + `setContext`, never module-level `$state` for user data.** A SvelteKit server is a long-running process shared across every request. Top-level `let foo = $state(...)` in a module imported during SSR is shared across all concurrent users — a per-user data leak (see [sveltekit-best-practises.md § 8.1](../best-practises/sveltekit-best-practises.md)). The convention for the rebuild is therefore:
    - Wrap shared state as a small class with `$state` fields (and methods that mutate them) in a `*.svelte.ts` file.
    - In the nearest layout that owns the state (typically `(app)/+layout.svelte`), call `setContext(KEY, new FooStore(initialData))`.
    - Downstream components call `getContext(KEY)` to read/write. Per-render, per-request, SSR-safe by construction.
    - Module-level `$state` is **only** acceptable for genuinely client-only, non-user-scoped values (e.g. an in-memory toast queue used after hydration, theme preference). It is banned for chats, channels, messages, automations, the active user, the current model, or anything else derived from the request.
-   The pattern is shown end-to-end in [sveltekit-best-practises.md § 8.2](sveltekit-best-practises.md). M1's `chats` / `folders` / `activeChat` / `models`, M3's `channels` / `messages` / `typing` / `presence` / `reads`, and M4's `automations` all follow this shape; the `(app)/+layout.svelte` is the singular construction site.
+   The pattern is shown end-to-end in [sveltekit-best-practises.md § 8.2](../best-practises/sveltekit-best-practises.md). M2's `chats` / `folders` / `activeChat` / `models`, M4's `channels` / `messages` / `typing` / `presence` / `reads`, and M5's `automations` all follow this shape; the `(app)/+layout.svelte` is the singular construction site.
 
-3. **Long-lived browser side-effects live in `$effect` with a cleanup return.** Every SSE reader, socket subscription, `setInterval`, `setTimeout` race-watchdog, and polling loop is owned by a `$effect(() => { ... return () => cleanup(); })` inside the component (or store class) that needs it. `$effect` no-ops on the server, runs once on mount, and auto-cleans on teardown — which makes it the only correct primitive for these. **Module-scope `setInterval` / `setTimeout` is banned**: it runs on every SSR import, never cleans up, and accumulates one timer per worker boot. Concrete owners: M1's SSE reader lives in `ConversationView.svelte`, M3's socket subscription and typing-prune interval live in `(app)/channels/+layout.svelte`, M4's run-now polling lives in `<AutomationEditor>`.
+3. **Long-lived browser side-effects live in `$effect` with a cleanup return.** Every SSE reader, socket subscription, `setInterval`, `setTimeout` race-watchdog, and polling loop is owned by a `$effect(() => { ... return () => cleanup(); })` inside the component (or store class) that needs it. `$effect` no-ops on the server, runs once on mount, and auto-cleans on teardown — which makes it the only correct primitive for these. **Module-scope `setInterval` / `setTimeout` is banned**: it runs on every SSR import, never cleans up, and accumulates one timer per worker boot. Concrete owners: M2's SSE reader lives in `ConversationView.svelte`, M4's socket subscription and typing-prune interval live in `(app)/channels/+layout.svelte`, M5's run-now polling lives in `<AutomationEditor>`.
 
-4. **Svelte 5 idioms — what to use, what is banned.** Every component (new or ported from the legacy fork) follows these without exception; M3's component port list inherits this without restating it per-component:
+4. **Svelte 5 idioms — what to use, what is banned.** Every component (new or ported from the legacy fork) follows these without exception; M4's component port list inherits this without restating it per-component:
 
    | Use | Don't |
    |---|---|
@@ -594,9 +594,9 @@ These conventions are pinned in M0 once and inherited by every later milestone (
    | `$app/state` (the `page` / `navigating` / `updated` reactive objects) | `$app/stores` (deprecated since SvelteKit 2.12) |
    | `error()` / `redirect()` (called) | `throw error(...)` / `throw redirect(...)` (SvelteKit 1 idiom) |
 
-   A grep gate in the lint step rejects any of `createEventDispatcher`, `<slot`, `on:click` / `on:input` / `on:change` / `on:submit`, `use:`, or `$app/stores` under `frontend/src/`. The gate is implemented as the `lint:grep` npm script (`! grep -RInE '<slot|on:(click|input|change|submit)|use:|\$app/stores|createEventDispatcher' frontend/src/`) and chained off the main `lint` script, not as an `eslint-plugin-svelte` rule — there is no published `svelte/no-deprecated-slot-element` rule, so a script is the only reliable way to fail CI on these idioms today. The conversion table is duplicated for convenience in [svelte-best-practises.md § 17](svelte-best-practises.md).
+   A grep gate in the lint step rejects any of `createEventDispatcher`, `<slot`, `on:click` / `on:input` / `on:change` / `on:submit`, `use:`, or `$app/stores` under `frontend/src/`. The gate is implemented as the `lint:grep` npm script (`! grep -RInE '<slot|on:(click|input|change|submit)|use:|\$app/stores|createEventDispatcher' frontend/src/`) and chained off the main `lint` script, not as an `eslint-plugin-svelte` rule — there is no published `svelte/no-deprecated-slot-element` rule, so a script is the only reliable way to fail CI on these idioms today. The conversion table is duplicated for convenience in [svelte-best-practises.md § 17](../best-practises/svelte-best-practises.md).
 
-5. **Mutations: direct REST calls to FastAPI, not SvelteKit form actions — by deliberate decision.** The SvelteKit layer in the rebuild is a thin SSR shell in front of a FastAPI backend. SvelteKit form actions and `use:enhance` would have to proxy every mutation through `event.fetch` to FastAPI anyway, doubling the surface area without delivering progressive-enhancement value (every user is behind the OAuth proxy with JS enabled). **Every mutation in M1–M4 (chat CRUD, folder CRUD, message send, share/unshare, channel CRUD, message post, reaction toggle, pin, automation CRUD, run-now) is therefore a typed `fetch` from a store action against the FastAPI `/api/...` route, with the optimistic update applied locally and rolled back on error.** This is a conscious trade-off — we forgo `use:enhance` in exchange for a single mutation pattern that matches the realtime (socket.io) and streaming (SSE) paths, both of which already bypass form actions. SvelteKit's built-in CSRF check (`kit.csrf.checkOrigin`, on by default) stays on as a backstop; it never fires in steady state because no first-party form actions exist to protect. If a future feature genuinely benefits from progressive enhancement (e.g. a public marketing page form), it gets a `+page.server.ts` action at that point — not before. Reviewers should reject "convert this to a form action" suggestions on M1–M4 routes; cite this paragraph.
+5. **Mutations: direct REST calls to FastAPI, not SvelteKit form actions — by deliberate decision.** The SvelteKit layer in the rebuild is a thin SSR shell in front of a FastAPI backend. SvelteKit form actions and `use:enhance` would have to proxy every mutation through `event.fetch` to FastAPI anyway, doubling the surface area without delivering progressive-enhancement value (every user is behind the OAuth proxy with JS enabled). **Every mutation in M2–M5 (chat CRUD, folder CRUD, message send, share/unshare, channel CRUD, message post, reaction toggle, pin, automation CRUD, run-now) is therefore a typed `fetch` from a store action against the FastAPI `/api/...` route, with the optimistic update applied locally and rolled back on error.** This is a conscious trade-off — we forgo `use:enhance` in exchange for a single mutation pattern that matches the realtime (socket.io) and streaming (SSE) paths, both of which already bypass form actions. SvelteKit's built-in CSRF check (`kit.csrf.checkOrigin`, on by default) stays on as a backstop; it never fires in steady state because no first-party form actions exist to protect. If a future feature genuinely benefits from progressive enhancement (e.g. a public marketing page form), it gets a `+page.server.ts` action at that point — not before. Reviewers should reject "convert this to a form action" suggestions on M2–M5 routes; cite this paragraph.
 
 ### Stack and packaging
 
@@ -605,7 +605,7 @@ These conventions are pinned in M0 once and inherited by every later milestone (
 - Tailwind 4 via `@tailwindcss/vite` (the v4-native Vite plugin; no `tailwind.config.cjs` content globs needed but a `tailwind.config.ts` is kept for future plugin registration).
 - TypeScript 5 with `strict: true`, `noUncheckedIndexedAccess: true`.
 
-**`svelte.config.js` — `adapter-node` `out: 'frontend/build'`.** The adapter is configured with `adapter({ out: 'frontend/build' })` (not the default `out: 'build'`) so the production bundle lands inside the `frontend/` subtree and Stage 1 of [`Dockerfile`](../Dockerfile) can `COPY --from=frontend /work/frontend/build /app/frontend` without juggling paths. The full config also overrides `kit.files.appTemplate` / `routes` / `lib` / `hooks` / `assets` to the `frontend/src/...` and `frontend/static/` paths because the SvelteKit project root is `rebuild/`, not `rebuild/frontend/`.
+**`svelte.config.js` — `adapter-node` `out: 'frontend/build'`.** The adapter is configured with `adapter({ out: 'frontend/build' })` (not the default `out: 'build'`) so the production bundle lands inside the `frontend/` subtree and Stage 1 of [`Dockerfile`](../../Dockerfile) can `COPY --from=frontend /work/frontend/build /app/frontend` without juggling paths. The full config also overrides `kit.files.appTemplate` / `routes` / `lib` / `hooks` / `assets` to the `frontend/src/...` and `frontend/static/` paths because the SvelteKit project root is `rebuild/`, not `rebuild/frontend/`.
 
 **`vite.config.ts` — dev `/api` proxy.** The dev server runs `tailwindcss()` and `sveltekit()` plugins and adds a `server.proxy` block:
 
@@ -632,7 +632,7 @@ Standard SvelteKit shell with `%sveltekit.head%`/`%sveltekit.body%`. The body ha
 
 ### Auth populate via `hooks.server.ts handle` (not layout-only)
 
-The `/api/me` round-trip happens once per server request, in `src/hooks.server.ts`'s `handle`, and the result is parked on `event.locals.user`. The root `+layout.server.ts` then just returns `{ user: locals.user }`. Doing it in the layout alone would be subtly wrong: layout `load` results are cached across sibling navigations, so a stale `null` from the first request would leak into the next one (see [sveltekit-best-practises.md § 6.2 / § 6.3](sveltekit-best-practises.md) and the anti-pattern in § 15 — "Auth in `+layout.server.ts` only"). `hooks.server.ts handle` runs on every server request, including form-action POSTs and `+server.ts` endpoints, and is the single right place to materialise the request-scoped user.
+The `/api/me` round-trip happens once per server request, in `src/hooks.server.ts`'s `handle`, and the result is parked on `event.locals.user`. The root `+layout.server.ts` then just returns `{ user: locals.user }`. Doing it in the layout alone would be subtly wrong: layout `load` results are cached across sibling navigations, so a stale `null` from the first request would leak into the next one (see [sveltekit-best-practises.md § 6.2 / § 6.3](../best-practises/sveltekit-best-practises.md) and the anti-pattern in § 15 — "Auth in `+layout.server.ts` only"). `hooks.server.ts handle` runs on every server request, including form-action POSTs and `+server.ts` endpoints, and is the single right place to materialise the request-scoped user.
 
 ```ts
 // src/hooks.server.ts (sketch)
@@ -728,7 +728,7 @@ services:
     # Run alembic before uvicorn so `docker compose up -d --wait` produces a
     # migrated, healthy app with no manual step. Idempotent: the M0 helper
     # short-circuits when the schema is already at head. Production images
-    # use the Dockerfile CMD directly; M5 will swap this for a migrate Job.
+    # use the Dockerfile CMD directly; M6 will swap this for a migrate Job.
     command: >
       sh -c "cd /app/backend && /app/.venv/bin/alembic upgrade head &&
       exec python -m uvicorn app.asgi:app --host 0.0.0.0 --port 8080"
@@ -779,7 +779,7 @@ The compose ports are intentionally non-default (`13306`, `16379`) so the engine
 
 ## Dockerfile
 
-[rebuild/Dockerfile](../Dockerfile) is three stages, distinct from the legacy [Dockerfile](../../Dockerfile). It installs no ML deps (no torch, sentence-transformers, faster-whisper, ollama).
+[rebuild/Dockerfile](../../Dockerfile) is three stages, distinct from the legacy [Dockerfile](../../../Dockerfile). It installs no ML deps (no torch, sentence-transformers, faster-whisper, ollama).
 
 ```dockerfile
 # Build & runtime notes (apply across all three stages):
@@ -837,13 +837,13 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=10 \
 CMD ["python", "-m", "uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-Notes: non-root `app` user fixed at UID 10001 for predictable volume permissions; final image targets < 250 MB on `python:3.12.7-slim-bookworm`. The image is single-purpose (FastAPI). Frontend assets are colocated at `/app/frontend` but routing them is M1+.
+Notes: non-root `app` user fixed at UID 10001 for predictable volume permissions; final image targets < 250 MB on `python:3.12.7-slim-bookworm`. The image is single-purpose (FastAPI). Frontend assets are colocated at `/app/frontend` but routing them is M2+.
 
 ## Tooling (linting, types, tests)
 
 ### Ruff
 
-Configured in [rebuild/pyproject.toml](../pyproject.toml) under `[tool.ruff]`:
+Configured in [rebuild/pyproject.toml](../../pyproject.toml) under `[tool.ruff]`:
 
 ```toml
 [tool.ruff]
@@ -931,7 +931,7 @@ Initialised via `npm init playwright@latest -- --ct` against the Svelte template
 
 ### Prettier ignores
 
-[rebuild/.prettierignore](../.prettierignore) excludes generated and vendored content so `prettier --check .` (and the `lint:grep` chained off it) can run with zero noise:
+[rebuild/.prettierignore](../../.prettierignore) excludes generated and vendored content so `prettier --check .` (and the `lint:grep` chained off it) can run with zero noise:
 
 - `node_modules/`, `**/.venv/`, `.svelte-kit/` — package manager and tool caches; nothing to format.
 - `frontend/build/` — `adapter-node` output; regenerated on every build.
@@ -942,7 +942,7 @@ Initialised via `npm init playwright@latest -- --ct` against the Svelte template
 
 ## CI: Buildkite pipeline
 
-[rebuild/.buildkite/rebuild.yml](../.buildkite/rebuild.yml) is the new pipeline. The legacy [.buildkite/pipeline.yaml](../../.buildkite/pipeline.yaml) is unchanged. Both pipelines are wired into the same Buildkite project so PRs can trigger both, but the path filter ensures only the relevant pipeline runs work.
+[rebuild/.buildkite/rebuild.yml](../../.buildkite/rebuild.yml) is the new pipeline. The legacy [.buildkite/pipeline.yaml](../../../.buildkite/pipeline.yaml) is unchanged. Both pipelines are wired into the same Buildkite project so PRs can trigger both, but the path filter ensures only the relevant pipeline runs work.
 
 ```yaml
 env:
@@ -1024,11 +1024,11 @@ steps:
       - Canva/universal-fetch#stable: ~
 ```
 
-Wall-clock budgets per job (alerting target, not hard timeout): `lint-py` 2 min, `typecheck` 2 min, `lint-fe` 2 min, `unit` (backend) 4 min, `unit-fe` 2 min, `component` 5 min, `e2e-smoke` 8 min, `build-image` 10 min. The legacy pipeline's `branches: "main"` push step is mirrored later in M5 (deploy pipeline); M0 does not push images.
+Wall-clock budgets per job (alerting target, not hard timeout): `lint-py` 2 min, `typecheck` 2 min, `lint-fe` 2 min, `unit` (backend) 4 min, `unit-fe` 2 min, `component` 5 min, `e2e-smoke` 8 min, `build-image` 10 min. The legacy pipeline's `branches: "main"` push step is mirrored later in M6 (deploy pipeline); M0 does not push images.
 
 ## Dependencies (with versions)
 
-Pin to ranges that match the major/minor specified in [rebuild.md](../../rebuild.md) §2. Exact patch versions are floating; verify at install time.
+Pin to ranges that match the major/minor specified in [rebuild.md](../../../rebuild.md) §2. Exact patch versions are floating; verify at install time.
 
 ### Python (`rebuild/pyproject.toml`)
 
@@ -1046,9 +1046,9 @@ dependencies = [
   "alembic >=1.13,<1.14",
   "pydantic >=2.9,<3",
   "pydantic-settings >=2.6,<3",
-  "python-socketio >=5.11,<6",     # installed for M3, unused in M0
-  "apscheduler >=3.10,<4",          # installed for M4, unused in M0
-  "openai >=1.55,<2",               # installed for M1, unused in M0
+  "python-socketio >=5.11,<6",     # installed for M4, unused in M0
+  "apscheduler >=3.10,<4",          # installed for M5, unused in M0
+  "openai >=1.55,<2",               # installed for M2, unused in M0
   "httpx >=0.27,<0.29",
   "redis >=5.1,<6",
   "uuid7-standard >=1.1,<2",        # RFC 9562 UUIDv7 backport (Python 3.12); see app/core/ids.py
@@ -1150,9 +1150,9 @@ The following must run green in CI before the milestone is closed.
 - [ ] `app/core/auth.py` exposes both `upsert_user_from_headers(db, *, email, name)` and the `get_user` dep; `get_user` calls the helper. `tests/test_auth.py` covers both call shapes.
 - [ ] `app/core/deps.py` exports `CurrentUser` and `DbSession`; `app/routers/me.py` uses `user: CurrentUser` (not `user: User = Depends(get_user)`).
 - [ ] `app/schemas/_base.py` exports `StrictModel`; `UserRead` inherits from it; `tests/test_strict_model.py` asserts that posting `{"id": "...", "email": "...", "extra": 1}` to a stub endpoint returns 422.
-- [ ] `app/core/constants.py` exports `STREAM_HEARTBEAT_SECONDS = 15` and `MAX_CHAT_HISTORY_BYTES = 1_048_576`. M1 and M3 plans reference these by import path (verified by a `tests/test_constants.py` smoke import).
+- [ ] `app/core/constants.py` exports `STREAM_HEARTBEAT_SECONDS = 15` and `MAX_CHAT_HISTORY_BYTES = 1_048_576`. M2 and M4 plans reference these by import path (verified by a `tests/test_constants.py` smoke import).
 - [ ] `src/hooks.server.ts` populates `event.locals.user` from `GET /api/me` on every server request; `src/routes/+layout.server.ts` is a one-liner returning `{ user: locals.user }`. `App.Locals.user` is typed as `User | null` in `app.d.ts`. A regression test (`frontend/tests/e2e/auth-locals.spec.ts`, `@smoke`) asserts that the value the client receives in `data.user` matches `event.locals.user` after `hooks.server.ts handle` runs; placement is E2E rather than Playwright Component Testing because CT mounts the component in isolation and does not exercise `hooks.server.ts`, so an E2E test against the running SvelteKit server is the only way to assert the locals-vs-data invariant end-to-end.
-- [ ] The "Frontend conventions (cross-cutting)" section is referenced (not redeclared) by every store / state declaration in M1, M3, and M4. A grep gate fails any `frontend/src/lib/stores/*.ts` (without the `.svelte.ts` infix) that contains `$state(`, `$derived(`, or `$effect(`.
+- [ ] The "Frontend conventions (cross-cutting)" section is referenced (not redeclared) by every store / state declaration in M2, M4, and M5. A grep gate fails any `frontend/src/lib/stores/*.ts` (without the `.svelte.ts` infix) that contains `$state(`, `$derived(`, or `$effect(`.
 - [ ] `cd rebuild && make lint` runs ruff + ESLint + Prettier check with zero errors.
 - [ ] `cd rebuild && make typecheck` runs mypy strict and `svelte-check` with zero errors.
 - [ ] `cd rebuild && make test-unit` runs both backend pytest and frontend Vitest, all green.
@@ -1161,32 +1161,32 @@ The following must run green in CI before the milestone is closed.
 - [ ] `cd rebuild && make build` produces a runnable Docker image; `docker run --rm <image> python -c "import app.main"` exits 0.
 - [ ] Buildkite pipeline file `rebuild/.buildkite/rebuild.yml` exists with the path filter `if: build.changed_files =~ /^rebuild\//` on every step.
 - [ ] A test PR touching only `README.md` does not trigger any rebuild step in Buildkite. A test PR touching `rebuild/backend/app/main.py` triggers the rebuild pipeline and not the legacy one.
-- [ ] Legacy [Makefile](../../Makefile) still works (no shared targets touched, no shared lockfiles modified).
-- [ ] `rebuild.md` link `[rebuild/plans/m0-foundations.md](rebuild/plans/m0-foundations.md)` resolves to this document.
+- [ ] Legacy [Makefile](../../../Makefile) still works (no shared targets touched, no shared lockfiles modified).
+- [ ] `rebuild.md` link `[rebuild/docs/plans/m0-foundations.md](rebuild/docs/plans/m0-foundations.md)` resolves to this document.
 
 ## Out of scope
 
 The following are explicitly NOT delivered in M0. Each belongs to a later milestone or is a non-goal of the rebuild.
 
-- Any chat / conversation / message tables or endpoints (M1).
-- SSE streaming endpoint or any provider call (`OpenAICompatibleProvider` is referenced only as a placeholder import in M1).
-- Sharing tables, share endpoints, public `/s/:token` route (M2).
-- Any channel tables, socket.io handlers, Redis adapter wiring, threads/reactions/pins/webhooks (M3).
-- Any automation tables, APScheduler worker, RRULE editor (M4).
-- File upload endpoints, `file` / `file_blob` tables (M3).
-- OpenTelemetry, structured-log shipping, rate limits, request timeouts beyond uvicorn defaults, deploy pipeline, runbooks (M5).
-- Visual regression baselines (the directory is created and Git LFS configured, but no baselines are captured in M0). Baseline ownership: M1 captures `chat-empty`, `chat-streamed-reply`, `chat-sidebar` under `frontend/tests/visual-baselines/m1/`; M2 captures `share-view` under `…/m2/`; M3 captures `channel-feed`, `channel-thread` under `…/m3/`; M4 captures `automation-list`, `automation-editor` under `…/m4/`; M5 wires the visual-regression CI gate that fails on diffs above tolerance.
+- Any chat / conversation / message tables or endpoints (M2).
+- SSE streaming endpoint or any provider call (`OpenAICompatibleProvider` is referenced only as a placeholder import in M2).
+- Sharing tables, share endpoints, public `/s/:token` route (M3).
+- Any channel tables, socket.io handlers, Redis adapter wiring, threads/reactions/pins/webhooks (M4).
+- Any automation tables, APScheduler worker, RRULE editor (M5).
+- File upload endpoints, `file` / `file_blob` tables (M4).
+- OpenTelemetry, structured-log shipping, rate limits, request timeouts beyond uvicorn defaults, deploy pipeline, runbooks (M6).
+- Visual regression baselines (the directory is created and Git LFS configured, but no baselines are captured in M0). Baseline ownership: M2 captures `chat-empty`, `chat-streamed-reply`, `chat-sidebar` under `frontend/tests/visual-baselines/m1/`; M3 captures `share-view` under `…/m2/`; M4 captures `channel-feed`, `channel-thread` under `…/m3/`; M5 captures `automation-list`, `automation-editor` under `…/m4/`; M6 wires the visual-regression CI gate that fails on diffs above tolerance.
 - Any UI beyond the hello-world layout. No login page, no settings, no sidebar, no markdown renderer.
-- Migration tool from legacy data. Per [rebuild.md §9](../../rebuild.md), the cutover is empty-slate.
+- Migration tool from legacy data. Per [rebuild.md §9](../../../rebuild.md), the cutover is empty-slate.
 - Provider matrix, LiteLLM, Anthropic/Gemini SDKs, Ollama integration.
-- Object storage; files (when added in M3) live in `MEDIUMBLOB`.
+- Object storage; files (when added in M4) live in `MEDIUMBLOB`.
 - Any modification to legacy `backend/`, `src/`, `pyproject.toml`, `package.json`, or `.buildkite/pipeline.yaml`.
 
 ## Open questions
 
 The following are minor and do not block starting M0; flag them at the M0 review.
 
-1. **ECR repo name for the rebuild image.** The pipeline assumes `container-build/data-platform/open-webui-rebuild` to keep the rebuild image distinct from legacy. If org policy prefers a single repo with separate tags (e.g. `open-webui:rebuild-<sha>`), update [rebuild/.buildkite/rebuild.yml](../.buildkite/rebuild.yml) accordingly.
-2. **Trusted-name header URL-decoding semantics.** The legacy pattern silently swallows decode errors (lines 573–576 of [backend/open_webui/routers/auths.py](../../backend/open_webui/routers/auths.py)). We mirror that behaviour in M0; confirm at review whether a malformed name should instead 400.
+1. **ECR repo name for the rebuild image.** The pipeline assumes `container-build/data-platform/open-webui-rebuild` to keep the rebuild image distinct from legacy. If org policy prefers a single repo with separate tags (e.g. `open-webui:rebuild-<sha>`), update [rebuild/.buildkite/rebuild.yml](../../.buildkite/rebuild.yml) accordingly.
+2. **Trusted-name header URL-decoding semantics.** The legacy pattern silently swallows decode errors (lines 573–576 of [backend/open_webui/routers/auths.py](../../../backend/open_webui/routers/auths.py)). We mirror that behaviour in M0; confirm at review whether a malformed name should instead 400.
 3. **`@playwright/experimental-ct-svelte` Svelte 5 readiness.** As of writing, CT-Svelte's runes-mode support is experimental. If CT cannot render Svelte 5 components reliably during M0, the fallback is to keep CT on a placeholder Svelte 4-style component for the milestone and revisit when the package GA-releases Svelte 5 support. This does not affect E2E or unit coverage.
-4. **Email-domain allowlist default.** [rebuild.md §3](../../rebuild.md) does not specify whether the proxy is expected to deliver only Canva emails or whether the app should still enforce a domain check. M0 ships an empty-list default (accept anything the proxy forwards) and exposes `TRUSTED_EMAIL_DOMAIN_ALLOWLIST` so the deploy pipeline can pin `canva.com` later. Confirm at the M0 review.
+4. **Email-domain allowlist default.** [rebuild.md §3](../../../rebuild.md) does not specify whether the proxy is expected to deliver only Canva emails or whether the app should still enforce a domain check. M0 ships an empty-list default (accept anything the proxy forwards) and exposes `TRUSTED_EMAIL_DOMAIN_ALLOWLIST` so the deploy pipeline can pin `canva.com` later. Confirm at the M0 review.

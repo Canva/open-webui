@@ -26,7 +26,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.LOG_LEVEL)
     yield
     # No teardown needed in M0; the engine is process-scoped and uvicorn
-    # tears the worker down. M1+ add SSE registry / socket.io shutdown here.
+    # tears the worker down. M2+ add SSE registry / socket.io shutdown here.
 
 
 def create_app() -> FastAPI:

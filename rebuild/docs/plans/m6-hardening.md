@@ -1,4 +1,4 @@
-# M5 — Hardening + deploy
+# M6 — Hardening + deploy
 
 ## Goal
 
@@ -7,23 +7,23 @@ Take the rebuild from "feature complete on a developer laptop" to "running in pr
 ## Deliverables
 
 - `rebuild/backend/app/observability/` package: OTel bootstrap (`otel.py`), structured JSON logger (`logging.py`), correlation-id middleware (`middleware.py`), and ASGI/SQLAlchemy/socket.io instrumentation glue.
-- New env vars wired through `Settings` for observability: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, and `LOG_FORMAT` (`json` in prod, `text` in dev). `LOG_LEVEL` already exists from M0 (`m0-foundations.md` §Settings) and is not redeclared. The full list of M5-introduced backend settings (the rate-limit, trusted-proxy, and file-upload knobs added in later sections) is collected in [§ Settings additions](#settings-additions) below so M0's settings table stays the canonical reference. The launch banner is owned by SvelteKit as a `PUBLIC_LAUNCH_BANNER_UNTIL` env var (frontend-only, not part of `Settings`); per-route HTTP timeouts are not env-driven (constants on the route declarations).
+- New env vars wired through `Settings` for observability: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, and `LOG_FORMAT` (`json` in prod, `text` in dev). `LOG_LEVEL` already exists from M0 (`m0-foundations.md` §Settings) and is not redeclared. The full list of M6-introduced backend settings (the rate-limit, trusted-proxy, and file-upload knobs added in later sections) is collected in [§ Settings additions](#settings-additions) below so M0's settings table stays the canonical reference. The launch banner is owned by SvelteKit as a `PUBLIC_LAUNCH_BANNER_UNTIL` env var (frontend-only, not part of `Settings`); per-route HTTP timeouts are not env-driven (constants on the route declarations).
 - `rebuild/backend/app/security/` package: trusted-IP allowlist middleware (`trusted_ip.py`), security-headers middleware (`headers.py`), CORS configuration helper, MIME/extension sniffer used by the file upload endpoint.
 - `rebuild/backend/app/ratelimit/` package: Redis-backed sliding-window limiter, FastAPI dependency, and three configured buckets (chat completions, file uploads, webhook ingress).
 - `rebuild/.buildkite/rebuild.yml` build/test/push/deploy pipeline (path-filtered to `rebuild/**`), with stages `lint → test → build → push → deploy-staging → smoke → deploy-prod`.
-- `rebuild/infra/k8s/` Helm chart skeleton: `Chart.yaml`, `values.yaml`, `values-staging.yaml`, `values-prod.yaml`, templates for `Deployment`, `Service`, `Ingress`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, `NetworkPolicy`, `ConfigMap`, `Secret` (sealed-secret refs), two `ServiceAccount` objects (`openwebui-rebuild` runtime / `openwebui-rebuild-migrate` Job), and a one-shot `Job` for `alembic upgrade head`. Both `ServiceAccount`s carry the `eks.amazonaws.com/role-arn` annotation that binds them to the matching Aurora IAM database user via IRSA. Today both annotations point at the same IAM role (the single IAM user with `ALL PRIVILEGES`); the future least-privilege split flips the migration `ServiceAccount`'s role-arn — and the `DATABASE_IAM_AUTH_MIGRATE_USER` env var on the Job — without touching application code. See [m0-foundations.md § IAM database authentication](m0-foundations.md#iam-database-authentication) and [database-best-practises.md § B.9](database-best-practises.md). The only DB credential the cluster ever sees is a short-lived `rds:GenerateDBAuthToken` minted at connect time (M0 helper).
+- `rebuild/infra/k8s/` Helm chart skeleton: `Chart.yaml`, `values.yaml`, `values-staging.yaml`, `values-prod.yaml`, templates for `Deployment`, `Service`, `Ingress`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, `NetworkPolicy`, `ConfigMap`, `Secret` (sealed-secret refs), two `ServiceAccount` objects (`openwebui-rebuild` runtime / `openwebui-rebuild-migrate` Job), and a one-shot `Job` for `alembic upgrade head`. Both `ServiceAccount`s carry the `eks.amazonaws.com/role-arn` annotation that binds them to the matching Aurora IAM database user via IRSA. Today both annotations point at the same IAM role (the single IAM user with `ALL PRIVILEGES`); the future least-privilege split flips the migration `ServiceAccount`'s role-arn — and the `DATABASE_IAM_AUTH_MIGRATE_USER` env var on the Job — without touching application code. See [m0-foundations.md § IAM database authentication](m0-foundations.md#iam-database-authentication) and [database-best-practises.md § B.9](../best-practises/database-best-practises.md). The only DB credential the cluster ever sees is a short-lived `rds:GenerateDBAuthToken` minted at connect time (M0 helper).
 - `rebuild/runbooks/cutover.md`: T-minus runbook for cutover day plus rollback.
 - `rebuild/runbooks/oncall.md`: on-call quick-reference (alerts, dashboards, common ops, restart procedures).
 - `rebuild/comms/`: Slack pre-cutover post, Slack post-cutover post, in-product banner copy, and FAQ markdown.
 - `rebuild/backend/tests/load/k6_chat.js`: k6 load script targeting the chat completion endpoint.
 - `rebuild/backend/tests/chaos/`: pytest-driven chaos scenarios (kill-pod-mid-stream, kill-scheduler-mid-tick, kill-migration-pod-mid-apply).
-- `rebuild/backend/tests/integration/test_trusted_proxy.py`: asserts the `TrustedIpMiddleware` strips `X-Forwarded-Email` from requests outside `settings.TRUSTED_PROXY_CIDRS` and emits a redacted `security.trusted_proxy.miss` log line; covers both the inside-CIDR (200 with the expected `User`) and outside-CIDR (header stripped, route returns 401) paths. Referenced by the M5 acceptance criterion on the trusted-proxy boundary.
+- `rebuild/backend/tests/integration/test_trusted_proxy.py`: asserts the `TrustedIpMiddleware` strips `X-Forwarded-Email` from requests outside `settings.TRUSTED_PROXY_CIDRS` and emits a redacted `security.trusted_proxy.miss` log line; covers both the inside-CIDR (200 with the expected `User`) and outside-CIDR (header stripped, route returns 401) paths. Referenced by the M6 acceptance criterion on the trusted-proxy boundary.
 - Smoke E2E pack (5 specs) in `rebuild/frontend/tests/smoke/` reused as the post-deploy gate.
 - A grafana dashboard JSON in `rebuild/observability/dashboards/openwebui-rebuild.json` covering the signals listed below, importable into Canva's standard Grafana stack.
 
 ## Settings additions
 
-M5 extends the M0 `Settings` class with the production knobs needed for observability, rate limits, security, file upload, and launch comms. The casing convention from M0 (UPPER_SNAKE_CASE attributes matching env var names) applies; access is `settings.OTEL_*`, `settings.RATELIMIT_*`, `settings.TRUSTED_PROXY_CIDRS`, etc. everywhere.
+M6 extends the M0 `Settings` class with the production knobs needed for observability, rate limits, security, file upload, and launch comms. The casing convention from M0 (UPPER_SNAKE_CASE attributes matching env var names) applies; access is `settings.OTEL_*`, `settings.RATELIMIT_*`, `settings.TRUSTED_PROXY_CIDRS`, etc. everywhere.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -178,17 +178,17 @@ The dispatch table below documents the project-wide policy; the actual values li
 | `POST /api/files` (upload) | 30 s | 5 MiB upload over a slow link plus DB write. |
 | `GET /api/files/{id}` (download) | 60 s | Streaming read over a slow link. |
 | Channel/socket HTTP routes | 10 s | Same shape as chat CRUD. |
-| Webhook ingress (`POST /api/webhooks/incoming/{webhook_id}`) | 5 s | Caller is a bot; we are not waiting. Path matches M3's authoritative route shape. |
+| Webhook ingress (`POST /api/webhooks/incoming/{webhook_id}`) | 5 s | Caller is a bot; we are not waiting. Path matches M4's authoritative route shape. |
 | Internal scheduler `/test/scheduler/tick` | 5 s | Test-mode only; should be near-instant. |
 | Anything else | 15 s default | Catch-all. |
 
 ### SSE stream timeout
 
-Defined in code as `SSE_STREAM_TIMEOUT_SECONDS = 300`. Implementation: the streaming generator (M1, `app.services.chat_stream.stream_chat`) wraps the upstream `OpenAICompatibleProvider.stream()` iteration in `async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS)` with a 5-minute deadline. When the deadline trips, the generator catches `asyncio.TimeoutError`, emits the M1-defined `timeout` SSE event (`event: timeout\ndata: {"assistant_message_id": "...", "limit_seconds": 300}\n\n`), persists the assistant message with `cancelled=True, done=True`, and returns. The client renders a "Stream timed out at 5 minutes; click regenerate to continue" inline notice keyed off the `timeout` event. This is the same persistence shape as user-cancellation from M1; M5 only sets the value of the constant, it does not introduce a new event type. The `timeout(300)` route-layer dependency (see § Per-route HTTP timeouts above) is set to the same value as a backstop, but the in-generator deadline is the primary cap so the persist-partial branch always owns the cleanup path.
+Defined in code as `SSE_STREAM_TIMEOUT_SECONDS = 300`. Implementation: the streaming generator (M2, `app.services.chat_stream.stream_chat`) wraps the upstream `OpenAICompatibleProvider.stream()` iteration in `async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS)` with a 5-minute deadline. When the deadline trips, the generator catches `asyncio.TimeoutError`, emits the M2-defined `timeout` SSE event (`event: timeout\ndata: {"assistant_message_id": "...", "limit_seconds": 300}\n\n`), persists the assistant message with `cancelled=True, done=True`, and returns. The client renders a "Stream timed out at 5 minutes; click regenerate to continue" inline notice keyed off the `timeout` event. This is the same persistence shape as user-cancellation from M2; M6 only sets the value of the constant, it does not introduce a new event type. The `timeout(300)` route-layer dependency (see § Per-route HTTP timeouts above) is set to the same value as a backstop, but the in-generator deadline is the primary cap so the persist-partial branch always owns the cleanup path.
 
 ### APScheduler tick — short statement timeout
 
-The scheduler tick query (`SELECT … FOR UPDATE SKIP LOCKED` from M4) must never stall the app. We pin a per-statement timeout on the scheduler's database session via MySQL's `MAX_EXECUTION_TIME` optimizer hint:
+The scheduler tick query (`SELECT … FOR UPDATE SKIP LOCKED` from M5) must never stall the app. We pin a per-statement timeout on the scheduler's database session via MySQL's `MAX_EXECUTION_TIME` optimizer hint:
 
 ```sql
 SELECT /*+ MAX_EXECUTION_TIME(2000) */ ...
@@ -220,11 +220,11 @@ The middleware is mounted **first** (outermost) so a misconfigured Ingress can n
 - `expose_headers=["x-correlation-id","x-ratelimit-remaining","x-ratelimit-reset"]`.
 - `max_age=600`.
 
-In dev (`ENV=dev`) the origin allowlist expands to `http://localhost:5173` (SvelteKit dev server) for ergonomics. Prod refuses to start if `CORS_ALLOW_ORIGINS` is empty. The setting is the same `Settings.CORS_ALLOW_ORIGINS` introduced in M0 (`m0-foundations.md` §Settings); M5 does not add a new env var for the proxy origin.
+In dev (`ENV=dev`) the origin allowlist expands to `http://localhost:5173` (SvelteKit dev server) for ergonomics. Prod refuses to start if `CORS_ALLOW_ORIGINS` is empty. The setting is the same `Settings.CORS_ALLOW_ORIGINS` introduced in M0 (`m0-foundations.md` §Settings); M6 does not add a new env var for the proxy origin.
 
 ### SvelteKit CSRF (default-on, kept on)
 
-SvelteKit ships `kit.csrf.checkOrigin = true` by default — every incoming POST/PUT/PATCH/DELETE/OPTIONS to a SvelteKit route is rejected unless its `Origin` header matches the request's origin (see [sveltekit-best-practises.md § 6.5](sveltekit-best-practises.md)). We **leave it on** in `svelte.config.js` even though the rebuild has chosen the "thin SSR shell + direct FastAPI calls" mutation pattern (see [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting), rule 5) and therefore has zero first-party form actions for the check to protect: the cost of leaving it on is nil (no SvelteKit POST surface to false-positive on), and turning it off would have to be reconsidered the day a SvelteKit form action is introduced. FastAPI handles its own request validation independently — `Origin` and `Referer` are not part of its trust boundary; the trusted-header check lives in `app/security/trusted_ip.py` (above) and the auth dep in `app/core/auth.py` (M0).
+SvelteKit ships `kit.csrf.checkOrigin = true` by default — every incoming POST/PUT/PATCH/DELETE/OPTIONS to a SvelteKit route is rejected unless its `Origin` header matches the request's origin (see [sveltekit-best-practises.md § 6.5](../best-practises/sveltekit-best-practises.md)). We **leave it on** in `svelte.config.js` even though the rebuild has chosen the "thin SSR shell + direct FastAPI calls" mutation pattern (see [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting), rule 5) and therefore has zero first-party form actions for the check to protect: the cost of leaving it on is nil (no SvelteKit POST surface to false-positive on), and turning it off would have to be reconsidered the day a SvelteKit form action is introduced. FastAPI handles its own request validation independently — `Origin` and `Referer` are not part of its trust boundary; the trusted-header check lives in `app/security/trusted_ip.py` (above) and the auth dep in `app/core/auth.py` (M0).
 
 ### Security headers
 
@@ -237,7 +237,7 @@ A second middleware `SecurityHeadersMiddleware` adds, on every response:
 - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`.
 - `Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss: ${CORS_ALLOW_ORIGINS_JOINED}; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'` — `CORS_ALLOW_ORIGINS_JOINED` is the space-joined list from `settings.CORS_ALLOW_ORIGINS`.
 
-CSP includes `'unsafe-inline'` for styles because **SvelteKit's SSR injects inline `<style>` blocks** (for scoped styles, transitions, and arbitrary-value Tailwind classes) into the rendered HTML — `style-src 'self' 'unsafe-inline'` keeps that working without weakening any other directive. Scripts are `'self'` only because `adapter-node` produces a single bundle and we do not inline scripts. Markdown renderer (M1) sanitises via DOMPurify before insertion, so the strict CSP holds even with rich content.
+CSP includes `'unsafe-inline'` for styles because **SvelteKit's SSR injects inline `<style>` blocks** (for scoped styles, transitions, and arbitrary-value Tailwind classes) into the rendered HTML — `style-src 'self' 'unsafe-inline'` keeps that working without weakening any other directive. Scripts are `'self'` only because `adapter-node` produces a single bundle and we do not inline scripts. Markdown renderer (M2) sanitises via DOMPurify before insertion, so the strict CSP holds even with rich content.
 
 ### File upload validation
 
@@ -246,14 +246,14 @@ Reaffirmed from `rebuild.md` section 9. The `POST /api/files` endpoint:
 1. Reads `Content-Length`. Rejects > 5 MiB with `413` before any body is consumed.
 2. Streams chunks to a temp buffer, hard-stopping if the actual byte count exceeds 5 MiB (defends against a missing or lying `Content-Length`).
 3. Sniffs the leading 4 KiB with `python-magic` (libmagic) to determine MIME.
-4. Cross-checks sniffed MIME, declared `Content-Type`, and the file extension. Inconsistencies are rejected with `415`. The allowed list lives in `Settings.ALLOWED_FILE_TYPES` (default: images, plain text, common docs, audio for transcription if M3 ever adds it). Executables, archives, and HTML are blocked.
+4. Cross-checks sniffed MIME, declared `Content-Type`, and the file extension. Inconsistencies are rejected with `415`. The allowed list lives in `Settings.ALLOWED_FILE_TYPES` (default: images, plain text, common docs, audio for transcription if M4 ever adds it). Executables, archives, and HTML are blocked.
 5. Computes SHA-256, persists to `file_blob.data` as `MEDIUMBLOB`, and writes the metadata row to `file`.
 
 MySQL session is initialised with `SET SESSION max_allowed_packet=16M` (defensive — server is also pinned to 16M).
 
 ### Webhook tokens
 
-M3 already ships webhook tokens as **hashed-at-rest** (`channel_webhook.token_hash`, SHA-256, unique index; plaintext returned only at creation, no server-side persistence of plaintext). M5 does not change the schema — it confirms the design holds under load and adds the operational verification: the load test asserts that no webhook plaintext appears in any log line, and the `Logging hygiene` section below pins a regex redaction filter for share + webhook tokens. Rotation remains delete-and-create. The same generator (`secrets.token_urlsafe(32)`) is used for share tokens and webhook tokens; both are 43-character URL-safe strings.
+M4 already ships webhook tokens as **hashed-at-rest** (`channel_webhook.token_hash`, SHA-256, unique index; plaintext returned only at creation, no server-side persistence of plaintext). M6 does not change the schema — it confirms the design holds under load and adds the operational verification: the load test asserts that no webhook plaintext appears in any log line, and the `Logging hygiene` section below pins a regex redaction filter for share + webhook tokens. Rotation remains delete-and-create. The same generator (`secrets.token_urlsafe(32)`) is used for share tokens and webhook tokens; both are 43-character URL-safe strings.
 
 ### MySQL diagnostics (oncall reference)
 
@@ -351,8 +351,8 @@ This is intentionally lightweight — the rebuild's MySQL instance is a managed 
 
 ### SSE / WebSocket heartbeats and idle disconnect
 
-- **SSE**: every `STREAM_HEARTBEAT_SECONDS` of upstream silence (M0 constant; default 15 s), the streaming generator emits a `: keep-alive\n\n` comment frame (same byte-string as `m1-conversations.md` § SSE streaming and `FastAPI-best-practises.md` § A.7 Streaming responses (SSE)). Most reverse proxies drop idle connections at 60 s; 15 s is well inside that. The 5-minute hard cap above is the outer bound.
-- **WebSocket (socket.io)**: `ping_interval=STREAM_HEARTBEAT_SECONDS`, `ping_timeout=STREAM_HEARTBEAT_SECONDS * 2` (M3 wires both — see [m3-channels.md § Stack](m3-channels.md#stack)). Idle connections (no client events for 30 minutes) are forcibly disconnected by a periodic task that scans the session pool. Channel auto-reply tasks (`@model`) are bounded to 60 s of generation regardless of socket state, with cancellation if the originating user disconnects.
+- **SSE**: every `STREAM_HEARTBEAT_SECONDS` of upstream silence (M0 constant; default 15 s), the streaming generator emits a `: keep-alive\n\n` comment frame (same byte-string as `m2-conversations.md` § SSE streaming and `rebuild/docs/best-practises/FastAPI-best-practises.md` § A.7 Streaming responses (SSE)). Most reverse proxies drop idle connections at 60 s; 15 s is well inside that. The 5-minute hard cap above is the outer bound.
+- **WebSocket (socket.io)**: `ping_interval=STREAM_HEARTBEAT_SECONDS`, `ping_timeout=STREAM_HEARTBEAT_SECONDS * 2` (M4 wires both — see [m4-channels.md § Stack](m4-channels.md#stack)). Idle connections (no client events for 30 minutes) are forcibly disconnected by a periodic task that scans the session pool. Channel auto-reply tasks (`@model`) are bounded to 60 s of generation regardless of socket state, with cancellation if the originating user disconnects.
 
 ## Deploy pipeline
 
@@ -392,7 +392,7 @@ The legacy fork's `:${BUILDKITE_COMMIT}` tag is left untouched — we don't shar
 
 - Uses the same image as the app.
 - Runs `alembic -c rebuild/backend/alembic.ini upgrade head`.
-- Binds to a dedicated `serviceAccount: openwebui-rebuild-migrate` whose IRSA / Pod Identity binding maps to an IAM role that can mint `rds:GenerateDBAuthToken` for the IAM user named in `DATABASE_IAM_AUTH_MIGRATE_USER`. **Today** that env var resolves to the same single IAM user as `DATABASE_IAM_AUTH_USER` (one IAM user with `ALL PRIVILEGES` on the schema), and the migration `ServiceAccount`'s `eks.amazonaws.com/role-arn` annotation matches the runtime one. The dedicated `ServiceAccount` and the separate `DATABASE_IAM_AUTH_MIGRATE_USER` env var are deliberate seams: the future least-privilege split (runtime user → `SELECT, INSERT, UPDATE, DELETE`; migrate user → `ALL PRIVILEGES`) lands as a values-file change (flip the migration `ServiceAccount`'s role-arn + `DATABASE_IAM_AUTH_MIGRATE_USER`), not an application code change. No DB password is ever rendered into a `Secret`; the M0 IAM auth helper (`app.core.iam_auth.attach_iam_auth_to_engine`) fires inside Alembic's async engine and mints a fresh token for the Job's single physical connection. See [m0-foundations.md § IAM database authentication](m0-foundations.md#iam-database-authentication) for the helper surface and [database-best-practises.md § B.9](database-best-practises.md) for the do/don't list.
+- Binds to a dedicated `serviceAccount: openwebui-rebuild-migrate` whose IRSA / Pod Identity binding maps to an IAM role that can mint `rds:GenerateDBAuthToken` for the IAM user named in `DATABASE_IAM_AUTH_MIGRATE_USER`. **Today** that env var resolves to the same single IAM user as `DATABASE_IAM_AUTH_USER` (one IAM user with `ALL PRIVILEGES` on the schema), and the migration `ServiceAccount`'s `eks.amazonaws.com/role-arn` annotation matches the runtime one. The dedicated `ServiceAccount` and the separate `DATABASE_IAM_AUTH_MIGRATE_USER` env var are deliberate seams: the future least-privilege split (runtime user → `SELECT, INSERT, UPDATE, DELETE`; migrate user → `ALL PRIVILEGES`) lands as a values-file change (flip the migration `ServiceAccount`'s role-arn + `DATABASE_IAM_AUTH_MIGRATE_USER`), not an application code change. No DB password is ever rendered into a `Secret`; the M0 IAM auth helper (`app.core.iam_auth.attach_iam_auth_to_engine`) fires inside Alembic's async engine and mints a fresh token for the Job's single physical connection. See [m0-foundations.md § IAM database authentication](m0-foundations.md#iam-database-authentication) for the helper surface and [database-best-practises.md § B.9](../best-practises/database-best-practises.md) for the do/don't list.
 - Has `backoffLimit: 0` and `activeDeadlineSeconds: 300` — a migration must succeed within 5 minutes or fail loudly.
 - Pods only roll out after the Job completes successfully (Helm hook ordering).
 
@@ -404,7 +404,7 @@ We chose a pre-upgrade Job over an init container because:
 
 #### Retry safety
 
-`backoffLimit: 0` means **Kubernetes** will not auto-retry a failed migration Job, but operators routinely will: the runbook (`rebuild/runbooks/cutover.md` and `rebuild/runbooks/oncall.md`) instructs the on-call to delete the failed Job and re-run `helm upgrade` after diagnosing. That re-run must always be safe — MySQL DDL auto-commits, so a Job that crashes after creating two of three indexes leaves the schema in a half-state, and a naive `op.create_index(...)` on the second run would explode with `1061 Duplicate key name`. The contract that protects against this is locked at the project level in [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../rebuild.md#9-decisions-locked) and shipped in [m0-foundations.md § Migration helpers](m0-foundations.md#migration-helpers): every revision uses only the `*_if_not_exists` / `*_if_exists` wrappers, the M0 CI grep gate fails any PR that introduces a bare `op.create_*` in `backend/alembic/versions/`, and the `tests/test_migrations.py` suite asserts every revision is a re-runnable no-op on a fully-upgraded schema and recovers cleanly from a hand-crafted partial-apply.
+`backoffLimit: 0` means **Kubernetes** will not auto-retry a failed migration Job, but operators routinely will: the runbook (`rebuild/runbooks/cutover.md` and `rebuild/runbooks/oncall.md`) instructs the on-call to delete the failed Job and re-run `helm upgrade` after diagnosing. That re-run must always be safe — MySQL DDL auto-commits, so a Job that crashes after creating two of three indexes leaves the schema in a half-state, and a naive `op.create_index(...)` on the second run would explode with `1061 Duplicate key name`. The contract that protects against this is locked at the project level in [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../../rebuild.md#9-decisions-locked) and shipped in [m0-foundations.md § Migration helpers](m0-foundations.md#migration-helpers): every revision uses only the `*_if_not_exists` / `*_if_exists` wrappers, the M0 CI grep gate fails any PR that introduces a bare `op.create_*` in `backend/alembic/versions/`, and the `tests/test_migrations.py` suite asserts every revision is a re-runnable no-op on a fully-upgraded schema and recovers cleanly from a hand-crafted partial-apply.
 
 The same guarantee underwrites the cutover rollback path: if `helm rollback` triggers a `downgrade` against a partially-downgraded schema (because the previous attempt died mid-way), the inspector-based `*_if_exists` helpers skip already-dropped objects rather than raising. The Job exit code therefore reflects the actual schema-vs-target delta, not the partial-apply history.
 
@@ -428,7 +428,7 @@ Captured in full at `rebuild/runbooks/cutover.md`; this section sketches the spi
 
 - Run the full E2E suite against staging.
 - Run the k6 load script at modelled-peak QPS for 15 minutes; confirm SLOs hold.
-- Run a chaos drill: kill a pod mid-stream and a pod mid-automation. Confirm both recover per M1/M4 semantics.
+- Run a chaos drill: kill a pod mid-stream and a pod mid-automation. Confirm both recover per M2/M5 semantics.
 - Tag the staging build that passes as `rebuild-prod-candidate-${date}`.
 - Confirm rollback path: `helm rollback` on staging back to the previous good tag completes in under 60 s.
 - Final go/no-go in `#openwebui-cutover`. Decision-maker: engineering lead.
@@ -491,7 +491,7 @@ A single non-dismissible banner at the top of the app shell:
 
 > History was reset when we relaunched on {date}. Old chats are not migrated. The previous instance is read-only at archive.openwebui.canva-internal.com until {date+30}.
 
-After 14 days the banner auto-disables: the SvelteKit root layout reads `PUBLIC_LAUNCH_BANNER_UNTIL` from `$env/static/public` and renders the banner only while `Date.now() < new Date(PUBLIC_LAUNCH_BANNER_UNTIL).getTime()`. The value is set in `values-prod.yaml` and baked into the bundle at build time (per [sveltekit-best-practises.md § 7.1 / § 7.2](sveltekit-best-practises.md): `PUBLIC_*` static env vars are statically replaced and require a rebuild to change — exactly right here, since the cutoff is a known launch-time decision). FastAPI is not involved. After 30 days the archive link inside the banner copy is stripped by a code change in the same release.
+After 14 days the banner auto-disables: the SvelteKit root layout reads `PUBLIC_LAUNCH_BANNER_UNTIL` from `$env/static/public` and renders the banner only while `Date.now() < new Date(PUBLIC_LAUNCH_BANNER_UNTIL).getTime()`. The value is set in `values-prod.yaml` and baked into the bundle at build time (per [sveltekit-best-practises.md § 7.1 / § 7.2](../best-practises/sveltekit-best-practises.md): `PUBLIC_*` static env vars are statically replaced and require a rebuild to change — exactly right here, since the cutoff is a known launch-time decision). FastAPI is not involved. After 30 days the archive link inside the banner copy is stripped by a code change in the same release.
 
 ### FAQ
 
@@ -508,7 +508,7 @@ Lives at `rebuild/comms/faq.md` and is also the source for an in-app `/help` pag
 
 A single email to `openwebui-users@canva.com` at T-1 week, T-1 day, and T+0. Templates live in `rebuild/comms/email-templates.md`.
 
-## Tests gating M5
+## Tests gating M6
 
 ### Smoke E2E pack (5 specs)
 
@@ -516,15 +516,15 @@ Lives at `rebuild/frontend/tests/smoke/`, runs against staging post-deploy and a
 
 1. `01-health.spec.ts` — `/healthz` returns 200, `/readyz` returns 200, root returns 200 with the SvelteKit shell.
 2. `02-chat-stream.spec.ts` — login (header inject), create chat, send message, assert tokens stream, assert the assistant message persists across reload. The OpenAI mock from M0 is **not** used in prod-smoke; a real model gateway call is made and we assert any non-error response of length > 0.
-3. `03-share-and-read.spec.ts` — owner creates a share, second BrowserContext reads it. Reused from M2's E2E.
-4. `04-channel-realtime.spec.ts` — two contexts, one posts in a channel, the other receives the delta within 1 s. Reused from M3's E2E.
+3. `03-share-and-read.spec.ts` — owner creates a share, second BrowserContext reads it. Reused from M3's E2E.
+4. `04-channel-realtime.spec.ts` — two contexts, one posts in a channel, the other receives the delta within 1 s. Reused from M4's E2E.
 5. `05-automation-tick.spec.ts` — create a `FREQ=MINUTELY` automation, hit `/test/scheduler/tick` (test-only endpoint guarded by `settings.ENV in {"test", "staging"}`), assert the run record appears. Skipped in prod-smoke; staging only.
 
 Smoke runs sequentially (no parallelism) against shared resources, capped at 90 s. Failure aborts the deploy.
 
 ### Load test (k6)
 
-`rebuild/backend/tests/load/k6_chat.js` hits `POST /api/chats/{id}/messages` against staging. Modelled-peak QPS comes from the legacy instance's request rate p99 over 30 days, multiplied by 1.5 for headroom — concrete number to be filled in during M5 calibration. The script:
+`rebuild/backend/tests/load/k6_chat.js` hits `POST /api/chats/{id}/messages` against staging. Modelled-peak QPS comes from the legacy instance's request rate p99 over 30 days, multiplied by 1.5 for headroom — concrete number to be filled in during M6 calibration. The script:
 
 - Ramps from 0 to peak over 2 min, holds for 10 min, ramps down for 1 min.
 - Uses a pool of synthetic test users (`X-Forwarded-Email: loadtest-{i}@canva.com`) with the test allowlist enabled.
@@ -537,7 +537,7 @@ Three scenarios, run in staging via pytest fixtures that talk to the cluster API
 
 - **Kill mid-stream**: client opens an SSE stream; orchestrator kills the pod handling it after 2 s. Assertions: client receives a clean error or reconnect, the partial assistant message in `chat.history` is marked `cancelled`, no zombie streams remain in Redis (verified by counting active stream keys before/after).
 - **Kill mid-automation tick**: orchestrator kills the pod that just acquired a row via `FOR UPDATE SKIP LOCKED`. Assertions: the next surviving pod's tick reacquires the row (lock released by transaction abort), the automation runs, the `automation_run` row reflects exactly one success, no duplicate run is created.
-- **Kill migration pod mid-apply**: orchestrator (a) drops the schema, (b) launches the migration Job, (c) kills the Job pod after the binlog shows exactly one of M3's eight `CREATE TABLE`s has committed (i.e. mid-revision, not between revisions), (d) re-runs the Job. Assertions: the second Job exits 0, every M0–M4 schema object is present and correct, no `1050 Table already exists` / `1061 Duplicate key name` / `1826 Duplicate foreign key constraint name` errors are logged. This validates the project-wide robust-migration contract from `rebuild.md` §9 end-to-end and covers the M5 acceptance criterion below.
+- **Kill migration pod mid-apply**: orchestrator (a) drops the schema, (b) launches the migration Job, (c) kills the Job pod after the binlog shows exactly one of M4's eight `CREATE TABLE`s has committed (i.e. mid-revision, not between revisions), (d) re-runs the Job. Assertions: the second Job exits 0, every M0–M5 schema object is present and correct, no `1050 Table already exists` / `1061 Duplicate key name` / `1826 Duplicate foreign key constraint name` errors are logged. This validates the project-wide robust-migration contract from `rebuild.md` §9 end-to-end and covers the M6 acceptance criterion below.
 
 All three scenarios run as a Buildkite scheduled job once per week on staging. They are not gating for individual PRs (too slow, too noisy) but are gating for the cutover-candidate tag.
 
@@ -564,7 +564,7 @@ Failures page the on-call rotation. Five-minute cadence is balanced against budg
 - [ ] Webhook tokens are stored as SHA-256 hashes; plaintext appears only in the creation response.
 - [ ] SSE keep-alive and socket.io `ping_interval` both wired to `STREAM_HEARTBEAT_SECONDS` (M0 constant; default 15 s); socket.io `ping_timeout = 2 * STREAM_HEARTBEAT_SECONDS`; idle disconnect at 30 min. No hard-coded heartbeat cadence anywhere in the codebase (verified by `rg -n "ping_interval=|keep-alive.*15"` returning only the constant import).
 - [ ] Buildkite pipeline lints, tests, builds, pushes, and deploys to staging on every main commit; promotes to prod via manual unblock.
-- [ ] `alembic upgrade head` runs as a pre-upgrade Helm Job and gates the rollout. The Job is operator-rerunnable: a chaos test that kills the Job pod after exactly one of M3's eight `CREATE TABLE`s has committed, then re-applies the same Helm release, completes the migration on the retry without manual schema repair (covered by an M5 chaos scenario in `rebuild/backend/tests/chaos/test_migration_partial_apply.py`).
+- [ ] `alembic upgrade head` runs as a pre-upgrade Helm Job and gates the rollout. The Job is operator-rerunnable: a chaos test that kills the Job pod after exactly one of M4's eight `CREATE TABLE`s has committed, then re-applies the same Helm release, completes the migration on the retry without manual schema repair (covered by an M6 chaos scenario in `rebuild/backend/tests/chaos/test_migration_partial_apply.py`).
 - [ ] **No DB password is rendered into a `Secret` in any environment.** Both the runtime `Deployment` and the migration `Job` bind to IRSA / Pod Identity-annotated `ServiceAccount`s; the M0 IAM auth helper mints `rds:GenerateDBAuthToken` per physical connection. Verified by (a) `grep -RIn 'DATABASE_PASSWORD\|MYSQL_PASSWORD' rebuild/infra/k8s/` returning no results, (b) `helm template rebuild/infra/k8s -f values-prod.yaml | yq '.. | select(has("env")) | .env[] | select(.name | test("PASSWORD"))'` returning empty, and (c) a smoke check on staging that `kubectl exec` into a runtime pod and running `python -c "import os; assert 'DATABASE_PASSWORD' not in os.environ"` exits 0.
 - [ ] Smoke E2E pack passes against staging and prod post-deploy; failure rolls back automatically.
 - [ ] k6 load test holds SLOs at modelled-peak QPS for 10 min on staging.
@@ -572,7 +572,7 @@ Failures page the on-call rotation. Five-minute cadence is balanced against budg
 - [ ] Synthetic monitor active, alerting to on-call on failure.
 - [ ] Cutover runbook reviewed and dry-run on staging once before cutover day.
 - [ ] In-product banner copy ships before T-0 and auto-disables 14 days later.
-- [ ] Visual-regression baselines `error-banner.png` and `rate-limited-toast.png` captured under `rebuild/frontend/tests/visual-baselines/m5/` (Git LFS) covering the M5-introduced error/banner surfaces; the smoke pack consumes the same baselines.
+- [ ] Visual-regression baselines `error-banner.png` and `rate-limited-toast.png` captured under `rebuild/frontend/tests/visual-baselines/m5/` (Git LFS) covering the M6-introduced error/banner surfaces; the smoke pack consumes the same baselines.
 
 ## Out of scope
 
@@ -582,25 +582,25 @@ Failures page the on-call rotation. Five-minute cadence is balanced against budg
 - **No per-team rollout, no canary by user cohort, no feature flag controlling new-vs-old.** Single big-bang switch at the proxy layer.
 - **No blue/green between two prod deployments of the rebuild itself.** Standard rolling update via Helm is enough.
 - **No fancy SLO tooling** (Sloth, OpenSLO controllers). Plain Grafana alerts plus PagerDuty paging is the bar.
-- **No JWT, API keys, or user-managed tokens** — the trusted-header model from `rebuild.md` section 3 is unchanged. The only token-shaped credentials in the system are share tokens (M2) and webhook tokens (M3).
+- **No JWT, API keys, or user-managed tokens** — the trusted-header model from `rebuild.md` section 3 is unchanged. The only token-shaped credentials in the system are share tokens (M3) and webhook tokens (M4).
 - **No external object store** for files. MEDIUMBLOB-in-MySQL with the 5 MiB cap holds, per `rebuild.md` section 9.
 - **No multi-region deployment.** Single-region prod (us-east-1) until/unless the platform team mandates otherwise.
 - **No automated user-facing migration of bookmarks, browser caches, or saved share URLs** from the legacy domain. The 301 redirect from `openwebui.canva-internal.com/...` (legacy URL shape) → `archive.openwebui.canva-internal.com/...` covers GET; mutating verbs hit the read-only proxy and 405.
 
 - **No InnoDB Cluster, Group Replication, or MySQL Router.** The rebuild ships against a **single managed MySQL 8.0 instance** (snapshot backups + binlog-based PITR are the platform team's responsibility, confirmed via `rebuild.md` § 9). HA at internal scale doesn't justify the operational complexity of multi-primary or single-primary group replication, and MySQL Router would add a hop with no payoff for our access pattern. Revisit only if the platform team mandates it.
 
-- **No full-text search via `FULLTEXT` index or the `ngram` parser.** M1's sidebar `?q=` uses `LIKE %q%` on `title` plus `JSON_SEARCH(LOWER(history), ...)`. Benchmarks (`stackoverflow.com/q/72444384`) show the `ngram` parser actually loses to `LIKE` for chat-style substring queries because token overhead grows with query length. Revisit if M5 perf reveals a real bottleneck and the surface is actually used.
+- **No full-text search via `FULLTEXT` index or the `ngram` parser.** M2's sidebar `?q=` uses `LIKE %q%` on `title` plus `JSON_SEARCH(LOWER(history), ...)`. Benchmarks (`stackoverflow.com/q/72444384`) show the `ngram` parser actually loses to `LIKE` for chat-style substring queries because token overhead grows with query length. Revisit if M6 perf reveals a real bottleneck and the surface is actually used.
 
-- **No `JSON_TABLE`, window functions, hash-join hints, or `LATERAL` derived tables in the application query path.** None of the M0–M5 workloads benefit; the optimiser picks hash join automatically when appropriate. Trust the planner. Revisit only if a concrete query plan demonstrates a need.
+- **No `JSON_TABLE`, window functions, hash-join hints, or `LATERAL` derived tables in the application query path.** None of the M0–M6 workloads benefit; the optimiser picks hash join automatically when appropriate. Trust the planner. Revisit only if a concrete query plan demonstrates a need.
 
-- **No multi-valued indexes (`MEMBER OF` / `JSON_CONTAINS`).** They would be relevant if `channel_message.content` collapsed reactions into a JSON array, which it explicitly does not (M3 keeps `channel_message_reaction` as a separate row table). The MVI question is therefore moot until the schema changes, and the schema is not changing.
+- **No multi-valued indexes (`MEMBER OF` / `JSON_CONTAINS`).** They would be relevant if `channel_message.content` collapsed reactions into a JSON array, which it explicitly does not (M4 keeps `channel_message_reaction` as a separate row table). The MVI question is therefore moot until the schema changes, and the schema is not changing.
 
 - **No histograms (`ANALYZE TABLE ... UPDATE HISTOGRAM`).** Useful for low-cardinality columns where indexes don't help, but the rebuild's hot lookups all combine `user_id` (high cardinality) with another column in a composite index. Revisit if `EXPLAIN ANALYZE` shows estimate skew on a low-cardinality column we don't already index.
 
-- **No `BINARY(16)` UUID storage with `UUID_TO_BIN(?, 1)`.** All identifiers stay `VARCHAR(36)` UUIDv7 strings (M0 § ID and time helpers, plus the new `rebuild.md` § 9 decision). The storage halving and InnoDB B-tree locality benefits would be real, but UUIDv7 already provides the locality wins (its leading 48-bit timestamp clusters inserts naturally) and the SQLAlchemy `TypeDecorator` + every-call `BIN_TO_UUID` cost on every log line and JSON payload doesn't pay back at internal scale. Revisit if `chat` exceeds ~10M rows or the M5 hardening benchmarks flag secondary-index bloat as the bottleneck.
+- **No `BINARY(16)` UUID storage with `UUID_TO_BIN(?, 1)`.** All identifiers stay `VARCHAR(36)` UUIDv7 strings (M0 § ID and time helpers, plus the new `rebuild.md` § 9 decision). The storage halving and InnoDB B-tree locality benefits would be real, but UUIDv7 already provides the locality wins (its leading 48-bit timestamp clusters inserts naturally) and the SQLAlchemy `TypeDecorator` + every-call `BIN_TO_UUID` cost on every log line and JSON payload doesn't pay back at internal scale. Revisit if `chat` exceeds ~10M rows or the M6 hardening benchmarks flag secondary-index bloat as the bottleneck.
 
 ## Open questions
 
-1. **Deploy substrate.** This plan assumes Kubernetes + Helm because that is the dominant pattern at Canva for FastAPI services and matches the shape of the existing legacy `Dockerfile` + ECR push. If the actual target is ECS/Fargate, an Argo Rollouts pipeline, or a Spinnaker config, the artefacts under `rebuild/infra/k8s/` are a kustomize overlay or a Spinnaker `pipeline.json` instead — the rest of the plan (image tags, migration Job, smoke gating, rollback flow) is substrate-agnostic. **Owner**: platform on-call to confirm at the start of M5.
+1. **Deploy substrate.** This plan assumes Kubernetes + Helm because that is the dominant pattern at Canva for FastAPI services and matches the shape of the existing legacy `Dockerfile` + ECR push. If the actual target is ECS/Fargate, an Argo Rollouts pipeline, or a Spinnaker config, the artefacts under `rebuild/infra/k8s/` are a kustomize overlay or a Spinnaker `pipeline.json` instead — the rest of the plan (image tags, migration Job, smoke gating, rollback flow) is substrate-agnostic. **Owner**: platform on-call to confirm at the start of M6.
 2. **Legacy archive duration.** The plan assumes a 30-day read-only archive, after which the legacy DB snapshot is retained per standard policy but the UI is taken down. If compliance or product wants a longer (90-day, 1-year) archive UI, the only delta is keeping the read-only proxy + DB up — no work required from this milestone, but the ops cost lands on whoever owns the budget. **Owner**: data governance, by T-2 weeks.
 3. **Whether to retain a DB snapshot for compliance beyond standard retention.** Chat content can include sensitive prompts and outputs; some teams may have compliance/audit reasons to keep the snapshot longer than the default. If yes, store under `s3://canva-data-retention/openwebui-legacy-final-{date}.sql.gz` per the platform team's encryption-at-rest standards. **Owner**: legal + data governance, by T-2 weeks. Default if no answer: standard retention only.
