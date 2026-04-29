@@ -6,6 +6,11 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from open_webui.internal.iam_auth import (
+    attach_iam_auth_to_engine,
+    is_iam_auth_enabled,
+    url_with_iam_token,
+)
 from open_webui.internal.wrappers import register_connection
 from open_webui.env import (
     OPEN_WEBUI_DIR,
@@ -153,6 +158,12 @@ def handle_peewee_migration(DATABASE_URL):
         # Normalize SSL params so psycopg2 always sees `sslmode=` (never `ssl=`).
         url_without_ssl, ssl_mode = extract_ssl_mode_from_url(DATABASE_URL)
         normalized_url = reattach_ssl_mode_to_url(url_without_ssl, ssl_mode)
+
+        # peewee_migrate runs once at startup and doesn't sit behind a
+        # SQLAlchemy pool we can hook do_connect onto, so embed a freshly
+        # minted IAM token directly into the URL for this one-shot use.
+        if is_iam_auth_enabled() and not normalized_url.startswith('sqlite'):
+            normalized_url = url_with_iam_token(normalized_url)
 
         # Replace the postgresql:// with postgres:// to handle the peewee migration
         db = register_connection(normalized_url.replace('postgresql://', 'postgres://'))
@@ -309,6 +320,16 @@ else:
     else:
         engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
 
+    if is_iam_auth_enabled():
+        # MySQL = pymysql here (env.py normalises bare mysql:// for us);
+        # everything else (postgres, mariadb's mysql variant, etc.) lands
+        # in the postgres branch, which only matters for the
+        # auth_plugin_map fixup.
+        attach_iam_auth_to_engine(
+            engine,
+            dialect='mysql' if 'mysql' in SQLALCHEMY_DATABASE_URL.lower() else 'postgresql',
+        )
+
 
 # Sync session — used ONLY for startup config loading (config.py runs at import time)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
@@ -381,6 +402,12 @@ else:
             ASYNC_SQLALCHEMY_DATABASE_URL,
             pool_pre_ping=True,
             **asyncpg_ssl_args,
+        )
+
+    if is_iam_auth_enabled():
+        attach_iam_auth_to_engine(
+            async_engine,
+            dialect='mysql' if 'mysql' in ASYNC_SQLALCHEMY_DATABASE_URL.lower() else 'postgresql',
         )
 
 

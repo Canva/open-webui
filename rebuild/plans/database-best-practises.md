@@ -267,6 +267,30 @@ The rebuild targets **MySQL 8.0** specifically (8.0.39 in compose; whatever the 
 - **Don't deploy InnoDB Cluster, Group Replication, or MySQL Router** as part of the rebuild. Single managed instance only. (`rebuild.md` §9.)
 - **Don't issue a backup-style query (`mysqldump`, `xtrabackup`, full-table read) from the application user.** That's a platform-team scoped role.
 
+### B.9 Connection authentication (Aurora IAM vs. static password)
+
+The dev compose stack uses a static `MYSQL_USER=rebuild` / `MYSQL_PASSWORD=rebuild` pair baked into the container — fine, throwaway, never leaves your laptop. **Production deployments connect to Aurora MySQL behind RDS IAM database authentication** (`rds:GenerateDBAuthToken`), so the password slot is empty and a short-lived token is minted per physical connection. The pattern is the project default; everything below is the contract a code-author or reviewer needs to keep in mind. Implementation lives in `app/core/iam_auth.py` and is wired into both the runtime engine (`app/core/db.py`) and the migration engine (`backend/alembic/env.py`); the M0 plan has the full file-and-function inventory under [`m0-foundations.md` § IAM database authentication](m0-foundations.md#iam-database-authentication).
+
+**DO**
+
+- **Mint the token in `do_connect`, never per query.** SQLAlchemy's `do_connect` event fires once per *physical* connection, before the driver's `connect()` call. That is the only correct interception point: it covers pool warm-up, `pool_pre_ping` reopens, overflow connections, and the long-tail "I bumped `pool_size` and got a new pool member at 02:14 AM" case in the same line of code. Per-query token mint would burn an `rds:GenerateDBAuthToken` API call on every statement (rate-limited, latency-additive, audit-noisy) and per-startup mint would bake a 15-minute TTL into a multi-hour pool member.
+- **Keep the IAM token TTL inside `DB_POOL_RECYCLE_SECONDS`.** RDS IAM tokens last ~900 s; the M0 default `DB_POOL_RECYCLE_SECONDS=1800` relies on `pool_pre_ping` to discard the rare stalled connection. If you want belt-and-braces (or you're shipping an extension that introspects pool internals), set it to `<900` so every member is forcibly cycled before its token expires. Tightening this is cheap on Aurora — connection establishment is sub-100 ms — and the symmetric tradeoff is "more `rds:GenerateDBAuthToken` calls per minute, lower probability of an in-flight expired-token error".
+- **Connect over TLS.** Aurora rejects IAM auth over an unencrypted connection. The production `DATABASE_URL` carries `?ssl=true` (or the asyncmy-native equivalent); the helper does not flip TLS on for you. Local dev is plaintext because the MySQL container has no certificate provisioned and IAM auth is off.
+- **Start with a single IAM database user; keep the seam to split runtime vs. migration later.** Today there is **one** Aurora-side IAM user with `ALL PRIVILEGES` on the schema (`CREATE USER 'rebuild_app'@'%' IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'; GRANT ALL PRIVILEGES ON rebuild.* TO 'rebuild_app';`). Wiring it into the application is intentionally split across **two settings** so the future least-privilege split is a values-file change, not a code change:
+  - `DATABASE_IAM_AUTH_USER` — IAM database user the **runtime** app authenticates as (consumed by `app/core/db.py`).
+  - `DATABASE_IAM_AUTH_MIGRATE_USER` — IAM database user the **Alembic Job** authenticates as (consumed by `backend/alembic/env.py`).
+
+  Both default to the username embedded in `DATABASE_URL` when unset — that fallback is what makes the dev path (no IAM) and the today-prod path (one IAM user, both env vars pointing at the same string) symmetric. In production both env vars are explicitly set, even when they hold the same value, so the credential-to-component mapping is auditable from the values file alone. When the time comes to split, create a second IAM user (`CREATE USER 'rebuild_migrate'@'%' IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'; GRANT ALL PRIVILEGES ON rebuild.* TO 'rebuild_migrate';`), demote the runtime user (`REVOKE ALL ... ; GRANT SELECT, INSERT, UPDATE, DELETE ON rebuild.* TO 'rebuild_app';`), update the IRSA / Pod Identity binding on the migration `ServiceAccount` to map to the new IAM role, and flip `DATABASE_IAM_AUTH_MIGRATE_USER=rebuild_migrate` in `values-prod.yaml`. No application code change. Each user maps to an IAM role; EKS pods bind via IRSA (Pod Identity), so credentials are never written to a Secret.
+- **Document the URL → IAM mapping in `values-prod.yaml`.** The `DATABASE_URL`'s username slot, the `DATABASE_IAM_AUTH_HOST` override (only needed when DNS in front of Aurora is an alias rather than the canonical `cluster-XYZ.<region>.rds.amazonaws.com` endpoint), and the IAM role ARN that mints tokens for that user are **the same fact** in three places. Drift between them is the single most common IAM auth failure mode; cross-reference them in a comment in the values file.
+
+**DON'T**
+
+- **Don't ship a static password into prod alongside `DATABASE_IAM_AUTH=True`.** `Settings` will refuse to construct (the validator from M0 raises `ValueError("DATABASE_IAM_AUTH=True but DATABASE_URL still carries a static password")`), but resist the urge to "fall back" to a password if IAM auth is intermittently failing — the fix is on the AWS side (IAM policy, IRSA binding, region resolution), not in the application.
+- **Don't generate IAM tokens against a CNAME or Route 53 alias.** RDS signs the token for a specific cluster/instance endpoint; the connection then has to resolve to the same hostname or AWS rejects the auth. If `DATABASE_URL` has to be a friendly alias for any reason (Helm templating, multi-region failover wrappers), set `DATABASE_IAM_AUTH_HOST=<canonical_aurora_endpoint>` so the helper signs against the right host. The helper passes `DBHostname=host` straight to boto3 — what you set is what gets signed.
+- **Don't put boto3 imports at module scope.** The IAM helper imports `boto3` inside `generate_iam_auth_token`; the rest of `app.core.iam_auth` is import-safe without it. This keeps the local-dev path free of an unnecessary 60+ MB transitive dependency walk and means tests that don't exercise IAM auth never trigger the import.
+- **Don't commit IAM access keys, ever.** The whole point of IAM database auth is that there is no shared secret to commit — boto3 picks credentials up from the IRSA-injected file on Pod Identity. If you find yourself writing `AWS_ACCESS_KEY_ID=...` into a values file or a `.env`, stop and escalate; the deploy pattern has gone wrong upstream.
+- **Don't enable IAM auth on local compose.** The dev MySQL container doesn't speak the AWS auth protocol, RDS isn't running, and boto3 has no credentials to pick up. `DATABASE_IAM_AUTH=False` (the default) is correct for `docker compose up`; flipping it on locally produces a confusing "could not load AWS credentials" error from the first connection.
+
 ---
 
 ## C. Features we have explicitly declined (and why)
@@ -339,12 +363,21 @@ Before opening a PR that touches the database (schema, query, or DAO), run throu
 - [ ] Variable is on the runbook's allow-list (or the platform team has been consulted).
 - [ ] Before/after numbers attached to the change.
 
+**Connection / authentication changes**
+
+- [ ] Local dev still works with `DATABASE_IAM_AUTH=False` (the default); no boto3 import on the dev path.
+- [ ] Production `DATABASE_URL` carries the IAM database username and **no password**; `DATABASE_IAM_AUTH=True`; `DATABASE_IAM_AUTH_REGION` is set or resolvable via `AWS_REGION` / `AWS_DEFAULT_REGION`.
+- [ ] Production `values-prod.yaml` sets **both** `DATABASE_IAM_AUTH_USER` and `DATABASE_IAM_AUTH_MIGRATE_USER` explicitly (today they point at the same single IAM user with `ALL PRIVILEGES`; tomorrow's least-privilege split flips one without a code change).
+- [ ] If `DATABASE_URL`'s host is a CNAME / Route 53 alias, `DATABASE_IAM_AUTH_HOST` is set to the canonical Aurora endpoint AWS signs the token for.
+- [ ] TLS query-string flag (`?ssl=true` or driver equivalent) is on every IAM-auth URL — Aurora rejects IAM auth over plaintext.
+- [ ] If a new pod or Job needs database access, the IRSA / Pod Identity binding for the matching IAM role is included in the same PR (Helm `serviceAccount.annotations` / OpenID-Connect role mapping). New IAM database user (`CREATE USER ... IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'`) lands in a platform-team change, not in an Alembic revision.
+
 ---
 
 ## E. References
 
 - [`rebuild.md`](../../rebuild.md) — top-level locked decisions (especially §9).
-- [`rebuild/plans/m0-foundations.md`](m0-foundations.md) — Alembic helpers, `app.core.ids`, `app.core.time`, charset/collation defaults, ruff `uuid4` ban.
+- [`rebuild/plans/m0-foundations.md`](m0-foundations.md) — Alembic helpers, `app.core.ids`, `app.core.time`, `app.core.iam_auth` (Aurora IAM database authentication), charset/collation defaults, ruff `uuid4` ban.
 - [`rebuild/plans/m1-conversations.md`](m1-conversations.md) — `chat.history` JSON shape, `chat.current_message_id` STORED generated column, recursive CTE for folders.
 - [`rebuild/plans/m3-channels.md`](m3-channels.md) — `channel_message.content` JSON shape, `MEDIUMBLOB` files, webhook tokens hashed at rest.
 - [`rebuild/plans/m4-automations.md`](m4-automations.md) — `SELECT ... FOR UPDATE SKIP LOCKED` scheduler tick.
@@ -362,3 +395,5 @@ External:
 - Invisible indexes: https://dev.mysql.com/doc/refman/8.0/en/invisible-indexes.html
 - `EXPLAIN ANALYZE`: https://dev.mysql.com/doc/refman/8.0/en/explain.html
 - RFC 9562 (UUID): https://www.rfc-editor.org/rfc/rfc9562.html
+- Aurora MySQL IAM database authentication (Python/boto3): https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/UsingWithRDS.IAMDBAuth.Connecting.Python.html
+- IAM Roles for Service Accounts (IRSA) on EKS: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html

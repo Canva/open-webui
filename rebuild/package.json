@@ -1,0 +1,42 @@
+{
+  "name": "rebuild-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "lint": "eslint . && prettier --check . && npm run -s lint:grep",
+    "lint:grep": "! grep -RInE '<slot|on:(click|input|change|submit)|use:|\\$app/stores|createEventDispatcher' frontend/src/",
+    "format": "prettier --write .",
+    "test:unit": "vitest run",
+    "test:ct": "playwright test -c playwright-ct.config.ts",
+    "test:e2e:smoke": "playwright test -c playwright.config.ts --grep @smoke"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "^5.2.9",
+    "@sveltejs/kit": "^2.8.0",
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "svelte": "^5.1.9",
+    "svelte-check": "^4.0.5",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4",
+    "jsdom": "^25.0.1",
+    "@playwright/test": "1.58.2",
+    "@playwright/experimental-ct-svelte": "1.58.2",
+    "msw": "^2.6.4",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "postcss": "^8.4.47",
+    "eslint": "^9.14.0",
+    "eslint-plugin-svelte": "^2.46.0",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "prettier": "^3.3.3",
+    "prettier-plugin-svelte": "^3.2.7",
+    "prettier-plugin-tailwindcss": "^0.7.4"
+  }
+}

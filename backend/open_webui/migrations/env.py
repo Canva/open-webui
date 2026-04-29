@@ -8,6 +8,7 @@ from open_webui.models.auths import Auth
 from open_webui.models.calendar import Calendar, CalendarEvent, CalendarEventAttendee  # noqa: F401
 from open_webui.env import DATABASE_URL as _ENV_DATABASE_URL, DATABASE_PASSWORD, LOG_FORMAT
 from open_webui.internal.db import extract_ssl_mode_from_url, reattach_ssl_mode_to_url
+from open_webui.internal.iam_auth import attach_iam_auth_to_engine, is_iam_auth_enabled
 from sqlalchemy import engine_from_config, pool, create_engine
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import CreateColumn, CreateIndex
@@ -254,6 +255,15 @@ def run_migrations_online() -> None:
             prefix='sqlalchemy.',
             poolclass=pool.NullPool,
         )
+
+        if is_iam_auth_enabled() and DB_URL and not DB_URL.startswith('sqlite'):
+            # Alembic uses the sync (psycopg2 / pymysql) engine — same
+            # do_connect hook works to inject a fresh IAM token before
+            # the migration's single physical connection is established.
+            attach_iam_auth_to_engine(
+                connectable,
+                dialect='mysql' if 'mysql' in DB_URL.lower() else 'postgresql',
+            )
 
     global _ACTIVE_MIGRATION_CONN
     with connectable.connect() as connection:

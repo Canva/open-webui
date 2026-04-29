@@ -309,10 +309,28 @@ DATABASE_TYPE = os.environ.get('DATABASE_TYPE')
 DATABASE_USER = os.environ.get('DATABASE_USER')
 DATABASE_PASSWORD = os.environ.get('DATABASE_PASSWORD')
 
+# AWS RDS IAM database authentication.
+# When enabled, a short-lived auth token is minted via boto3
+# (`rds:GenerateDBAuthToken`) and used in place of DATABASE_PASSWORD on every
+# new physical connection. Tokens last ~15 minutes; the token is regenerated
+# transparently each time SQLAlchemy creates a new pool connection — see
+# `open_webui.internal.iam_auth` for details.
+DATABASE_IAM_AUTH = os.environ.get('DATABASE_IAM_AUTH', 'False').lower() == 'true'
+# AWS region the RDS API call should hit. Falls back to the standard
+# AWS_REGION / AWS_DEFAULT_REGION boto3 already picks up.
+DATABASE_IAM_AUTH_REGION = os.environ.get('DATABASE_IAM_AUTH_REGION')
+# IAM tokens are bound to the cluster/instance endpoint that AWS knows
+# about — use this override when DATABASE_URL points at a CNAME or alias
+# instead of the canonical RDS endpoint.
+DATABASE_IAM_AUTH_HOST = os.environ.get('DATABASE_IAM_AUTH_HOST')
+DATABASE_IAM_AUTH_PORT = os.environ.get('DATABASE_IAM_AUTH_PORT')
+
 DATABASE_CRED = ''
 if DATABASE_USER:
     DATABASE_CRED += f'{DATABASE_USER}'
-if DATABASE_PASSWORD:
+# When IAM auth is on, we deliberately leave the password out of the URL —
+# the token is injected at connect-time by `open_webui.internal.iam_auth`.
+if DATABASE_PASSWORD and not DATABASE_IAM_AUTH:
     DATABASE_CRED += f':{DATABASE_PASSWORD}'
 
 DB_VARS = {

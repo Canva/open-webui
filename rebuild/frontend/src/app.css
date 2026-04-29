@@ -1,0 +1,101 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens for the Open WebUI (Canva fork). Pinned in M0 once and
+ * inherited by every later milestone. Source of truth:
+ *
+ *   .cursor/skills/impeccable/project/DESIGN.json
+ *   .cursor/skills/impeccable/project/DESIGN.md
+ *
+ * Do not introduce new color, radius, or spacing values without updating
+ * DESIGN.json first. Tailwind 4's @theme directive lifts these CSS
+ * variables into utility-class generators (bg-paper-white, text-body-ink,
+ * rounded-3xl, font-display, ...).
+ */
+@theme {
+  /* Color: zero-chroma neutral ramp (Ink-and-Paper Palette). */
+  --color-paper-white: oklch(0.98 0 0);
+  --color-page-fill: oklch(0.94 0 0);
+  --color-divider: oklch(0.92 0 0);
+  --color-hairline: oklch(0.85 0 0);
+  --color-placeholder: oklch(0.77 0 0);
+  --color-muted-ink: oklch(0.69 0 0);
+  --color-secondary-ink: oklch(0.51 0 0);
+  --color-body-ink: oklch(0.42 0 0);
+  --color-strong-ink: oklch(0.32 0 0);
+  --color-panel-dark: oklch(0.27 0 0);
+  --color-workshop-dark: oklch(0.2 0 0);
+  --color-ink-black: oklch(0.16 0 0);
+
+  /* Color: the one decorative accent (chrome). */
+  --color-mention-sky: oklch(0.69 0.17 237);
+
+  /* Color: semantic status hues (badges only, never decorative). */
+  --color-signal-blue: oklch(0.62 0.19 259);
+  --color-signal-blue-pressed: oklch(0.54 0.21 262);
+  --color-status-success: oklch(0.72 0.21 149);
+  --color-status-warning: oklch(0.79 0.17 70);
+  --color-status-danger: oklch(0.64 0.24 25);
+
+  /* Typography: every stack carries Vazirmatn (RTL parity). */
+  --font-sans: 'Inter', 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Archivo', 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrainsMono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-serif-accent: 'InstrumentSerif', serif;
+
+  /* Tracking: pinned to DESIGN.json typography.*.letterSpacing values. */
+  --tracking-label: 0.02em;
+  --tracking-headline: -0.005em;
+  --tracking-display: -0.01em;
+
+  /* Radius: small = embedded, large = floating. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 32px;
+
+  /* Motion: ease-out-quart, all functional, all sub-200ms. */
+  --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * App-wide text-scale knob. Pixel line-heights and min-heights declared in
+ * later milestones must multiply through this variable (Scale-Text-Scale
+ * Rule, DESIGN.md § 3). Default 1 for M0; settings UI later in M5 lets the
+ * user adjust.
+ */
+:root {
+  --app-text-scale: 1;
+}
+
+/*
+ * Base typography. Body copy is 14px (Body scale, DESIGN.md § 3). Caps for
+ * long-form prose live on individual surfaces, not here.
+ */
+@layer base {
+  body {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+   * Honour the user's reduced-motion preference globally, before any
+   * component-level transitions opt back in. M0 ships no motion; M1+ should
+   * still gate any added transition/animation behind their own
+   * `@media (prefers-reduced-motion)` check.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}

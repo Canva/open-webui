@@ -61,6 +61,7 @@ rebuild/
         constants.py                 # project-wide non-tunable constants (STREAM_HEARTBEAT_SECONDS, …)
         logging.py                   # structlog/standard logging bootstrap
         db.py                        # async engine, session factory, get_session
+        iam_auth.py                  # AWS RDS IAM database authentication (boto3 token mint)
         auth.py                      # get_user trusted-header dep + upsert_user_from_headers helper
         deps.py                      # Annotated type aliases: CurrentUser, DbSession (Provider added in M1)
         errors.py                    # AppError + FastAPI exception handlers
@@ -88,7 +89,7 @@ rebuild/
       test_auth.py                   # trusted-header auto-creates User, missing -> 401; covers both upsert_user_from_headers and get_user
       test_settings.py               # defaults + overrides parse correctly
       test_strict_model.py           # StrictModel rejects unknown fields (one regression case)
-      test_ids.py                    # new_id() UUIDv7 version-nibble + intra-ms monotonicity
+      test_ids.py                    # new_id() UUIDv7 version-nibble + cross-bucket lexicographic ordering
       test_time.py                   # now_ms() matches a frozen time.time_ns()
       test_constants.py              # smoke imports STREAM_HEARTBEAT_SECONDS + MAX_CHAT_HISTORY_BYTES
       test_no_bare_depends.py        # AST gate: no `Depends(get_session)` / `Depends(get_user)` in route signatures under app/routers/
@@ -149,7 +150,7 @@ Two zero-dependency helpers under `app/core/` are referenced by every later mile
 
 - **`app/core/time.py`** — `now_ms() -> int` returns `time.time_ns() // 1_000_000`. Project-wide timestamp source for every `BIGINT` epoch-ms column (chats, channels, automations, files). Centralised so the test suite can monkey-patch a single symbol to freeze time.
 
-Both modules are <30 LOC each, fully typed, covered by `tests/test_ids.py` and `tests/test_time.py` (asserts UUIDv7 version nibble = `7`, asserts monotonicity within a millisecond, asserts `now_ms` matches a frozen `time.time_ns`).
+Both modules are <30 LOC each, fully typed, covered by `tests/test_ids.py` and `tests/test_time.py` (asserts UUIDv7 version nibble = `7`, asserts cross-bucket lexicographic ordering of IDs from distinct ms buckets, asserts `now_ms` matches a frozen `time.time_ns`).
 
 ### `Settings(BaseSettings)`
 
@@ -161,10 +162,16 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 | `HOST` | `str` | `"0.0.0.0"` | Uvicorn bind. |
 | `PORT` | `int` | `8080` | Same as legacy default for proxy parity. |
 | `LOG_LEVEL` | `str` | `"INFO"` | Passed to `logging.basicConfig`. |
-| `DATABASE_URL` | `str` | `"mysql+asyncmy://rebuild:rebuild@mysql:3306/rebuild?charset=utf8mb4"` | Pool config below. |
+| `DATABASE_URL` | `str` | `"mysql+asyncmy://rebuild:rebuild@mysql:3306/rebuild?charset=utf8mb4"` | Pool config below. In dev compose this carries the static `rebuild:rebuild` credentials baked into the MySQL container; in production (Aurora MySQL behind IAM) the URL carries only the IAM database username — no password — and the token is minted at connect time (see `DATABASE_IAM_AUTH` below and § IAM database authentication). |
 | `DB_POOL_SIZE` | `int` | `10` | SQLAlchemy `pool_size`. |
 | `DB_POOL_MAX_OVERFLOW` | `int` | `5` | SQLAlchemy `max_overflow`. |
-| `DB_POOL_RECYCLE_SECONDS` | `int` | `1800` | Avoids stale MySQL connections. |
+| `DB_POOL_RECYCLE_SECONDS` | `int` | `1800` | Avoids stale MySQL connections. With IAM auth on, this is also the upper bound on token age held by a pool member; the RDS IAM token TTL is ~900 s, so 1800 s relies on `pool_pre_ping` to discard stalled connections — set to `<900` if you want belt-and-braces. |
+| `DATABASE_IAM_AUTH` | `bool` | `False` | When `True`, `DATABASE_URL`'s username is treated as an IAM database principal and the password is minted per physical connection via boto3's `rds:GenerateDBAuthToken`. Off in dev compose; on in staging/prod against Aurora MySQL. See § IAM database authentication. |
+| `DATABASE_IAM_AUTH_REGION` | `str \| None` | `None` | AWS region the `rds:GenerateDBAuthToken` call targets. Falls back to `AWS_REGION` then `AWS_DEFAULT_REGION` (the standard boto3 lookup chain). Required to be resolvable when `DATABASE_IAM_AUTH=True`. |
+| `DATABASE_IAM_AUTH_HOST` | `str \| None` | `None` | Override for the cluster/instance endpoint that signs the token. Use when `DATABASE_URL`'s host is a CNAME / Route 53 alias rather than the canonical Aurora endpoint AWS knows about (RDS rejects tokens minted against an alias). |
+| `DATABASE_IAM_AUTH_PORT` | `int \| None` | `None` | Override for the port the token is signed for. Defaults to the port in `DATABASE_URL`, then 3306. |
+| `DATABASE_IAM_AUTH_USER` | `str \| None` | `None` | IAM database user the **runtime** engine (`app/core/db.py`) authenticates as. Falls back to the username in `DATABASE_URL` when unset. Production sets this explicitly so the runtime credential is decoupled from the URL string. |
+| `DATABASE_IAM_AUTH_MIGRATE_USER` | `str \| None` | `None` | IAM database user the **Alembic migration Job** (`backend/alembic/env.py`) authenticates as. Falls back to the username in `DATABASE_URL` when unset. Today this points at the same single IAM user as `DATABASE_IAM_AUTH_USER` (one IAM user with `ALL PRIVILEGES`); the future least-privilege split flips this to `rebuild_migrate` without a code change — see [`database-best-practises.md` § B.9](database-best-practises.md). |
 | `REDIS_URL` | `str` | `"redis://redis:6379/0"` | Used by `/readyz` only in M0. |
 | `MODEL_GATEWAY_BASE_URL` | `str \| None` | `None` | Wired in M1; loaded in M0 to fail fast on misconfig. |
 | `MODEL_GATEWAY_API_KEY` | `SecretStr \| None` | `None` | Same. |
@@ -176,9 +183,56 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 | `READYZ_DB_TIMEOUT_MS` | `int` | `1000` | Per-call timeout in `/readyz`. |
 | `READYZ_REDIS_TIMEOUT_MS` | `int` | `500` | Per-call timeout in `/readyz`. |
 
-Pydantic-settings 2 reads CSVs into `list[str]` automatically when annotated, and the `SecretStr` type prevents the API key from leaking into log lines.
+Pydantic-settings 2 only auto-decodes list-typed fields as JSON, so `TRUSTED_EMAIL_DOMAIN_ALLOWLIST` and `CORS_ALLOW_ORIGINS` are declared as `Annotated[list[str], NoDecode]` and paired with a `field_validator(mode="before")` that splits on commas (treating `""` and `None` as `[]`). The `SecretStr` type prevents `MODEL_GATEWAY_API_KEY` from leaking into `repr(settings)` or log lines.
 
 **Casing convention (locked).** Every field on `Settings` is declared with the same UPPER_SNAKE_CASE name as its env var; access from code is therefore always `settings.MODEL_GATEWAY_BASE_URL`, never `settings.model_gateway_base_url`. The convention is uniform across every milestone (M1–M5). Pydantic-settings 2 supports either casing, but mixing them causes silent attribute errors when the wrong case is used at a call site, so the project pins one. Later milestones that extend `Settings` with new fields (M1's `SSE_STREAM_TIMEOUT_SECONDS`, M4's `AUTOMATION_*` knobs, M5's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`) follow the same UPPER_SNAKE_CASE rule and are listed in their plans' "Settings additions" subsection. The launch-banner cutoff (`PUBLIC_LAUNCH_BANNER_UNTIL`) is intentionally **not** a backend `Settings` field — it lives only on the SvelteKit side as a `PUBLIC_*` static env var (see `m5-hardening.md` § In-product banner).
+
+### IAM database authentication
+
+Production deployments at Canva connect to **AWS Aurora MySQL** behind **IAM database authentication** (`rds:GenerateDBAuthToken`); the dev compose stack uses a static `rebuild:rebuild` MySQL container password. The same code path serves both — IAM auth is a single boolean opt-in (`DATABASE_IAM_AUTH=True`) plus three locator overrides (`DATABASE_IAM_AUTH_REGION`, `DATABASE_IAM_AUTH_HOST`, `DATABASE_IAM_AUTH_PORT`) and two per-engine user overrides (`DATABASE_IAM_AUTH_USER`, `DATABASE_IAM_AUTH_MIGRATE_USER`) — so a developer never has to think about it locally and a misconfigured prod is a refusal-to-start, not a silent fallback to a static password.
+
+**Why per-connection token minting.** RDS IAM tokens are short-lived (~15 minutes); they are not refreshable in place. Long-lived pool connections therefore must be torn down and reopened with a fresh token before the TTL elapses. The pattern that survives both `pool_pre_ping` churn and the unlikely "token expired between checkout and execute" race is to mint a new token **inside the SQLAlchemy `do_connect` event** — that hook fires once per *physical* connection, before the driver's `connect()` call, on every fresh pool member. Pool churn (recycle / pre-ping / overflow) becomes the only thing that needs to outpace the TTL, and `DB_POOL_RECYCLE_SECONDS` is the single knob.
+
+**Module surface (`app/core/iam_auth.py`).** Five functions, no global state, boto3 imported lazily so the dev path doesn't pay for it:
+
+| Symbol | Purpose |
+|---|---|
+| `is_iam_auth_enabled() -> bool` | Single source of truth for the on/off flag (reads `settings.DATABASE_IAM_AUTH`). |
+| `resolve_iam_endpoint(database_url, *, user_override=None) -> tuple[host, port, user]` | Parses the URL once, applies the `DATABASE_IAM_AUTH_HOST`/`PORT` overrides, and resolves the user as `user_override or parsed.username`. Raises a clear `RuntimeError` when host or user is missing. The `user_override` parameter is what carries `DATABASE_IAM_AUTH_USER` (runtime engine) and `DATABASE_IAM_AUTH_MIGRATE_USER` (Alembic engine) into the token-mint. |
+| `generate_iam_auth_token(host, port, user, region=None) -> str` | Wraps `boto3.client('rds').generate_db_auth_token(...)`. boto3 is imported inside this function. |
+| `attach_iam_auth_to_engine(engine, *, dialect, user=None)` | Registers the `do_connect` listener on the engine's sync side (`async_engine.sync_engine` for `AsyncEngine`). The `user` kwarg is the per-engine IAM user override; the runtime engine passes `settings.DATABASE_IAM_AUTH_USER`, the Alembic engine passes `settings.DATABASE_IAM_AUTH_MIGRATE_USER`. The listener also overwrites `cparams['user']` to that resolved user, so the URL-derived username never wins over the override. On MySQL it also seeds `auth_plugin_map={'mysql_clear_password': None}` so PyMySQL/asyncmy hand the token to RDS verbatim instead of hashing it against `mysql_native_password`. |
+| `url_with_iam_token(database_url) -> str` | One-shot helper that returns `database_url` with a freshly-minted token URL-encoded into the password slot. Used only by the rare consumer that doesn't sit behind a SQLAlchemy pool we can hook (none in M0; reserved for future tooling). |
+
+**Engine wiring (`app/core/db.py`).** After the engine is constructed, exactly one branch:
+
+```python
+from app.core.iam_auth import attach_iam_auth_to_engine, is_iam_auth_enabled
+
+engine = create_async_engine(settings.DATABASE_URL, ...)
+if is_iam_auth_enabled():
+    attach_iam_auth_to_engine(engine, dialect="mysql", user=settings.DATABASE_IAM_AUTH_USER)
+```
+
+The dialect is hard-coded to `"mysql"` because the rebuild's `DATABASE_URL` is locked to MySQL via `rebuild.md` §2 (no Postgres path); the parameter exists on the helper for symmetry with the legacy fork and to keep the contract obvious to readers. The `user` kwarg defaults to `None` (i.e. fall back to the URL username), which is what makes the dev path keep working unmodified.
+
+**Alembic wiring (`backend/alembic/env.py`).** Alembic uses its own short-lived async engine inside `run_async_migrations()`. The same hook applies, registered on the sync side of the async engine immediately after `async_engine_from_config(...)`, but with `user=settings.DATABASE_IAM_AUTH_MIGRATE_USER` instead of `DATABASE_IAM_AUTH_USER`:
+
+```python
+if is_iam_auth_enabled():
+    attach_iam_auth_to_engine(
+        engine, dialect="mysql", user=settings.DATABASE_IAM_AUTH_MIGRATE_USER
+    )
+```
+
+Today both env vars resolve to the same single IAM user with `ALL PRIVILEGES`, so runtime and migration share one identity. The two-setting split exists so the future least-privilege migration (runtime user → `SELECT, INSERT, UPDATE, DELETE`; migrate user → `ALL PRIVILEGES`) lands as a values-file change, not a code change. See [`database-best-practises.md` § B.9](database-best-practises.md) for the operational do/don't list and the Aurora-side `CREATE USER` recipe.
+
+**Local dev.** `DATABASE_IAM_AUTH=False` (the default) means `attach_iam_auth_to_engine` is never called, boto3 is never imported, and `aiobotocore`/`botocore` startup overhead is paid only by the prod image. The MySQL container's `MYSQL_USER=rebuild` / `MYSQL_PASSWORD=rebuild` pair from `infra/docker-compose.yml` works unchanged.
+
+**Production opt-in.** Aurora-backed deploys (staging + prod) set `DATABASE_IAM_AUTH=True`, switch the URL from `rebuild:rebuild@mysql:3306/rebuild` to `<iam_user>@<aurora_cluster_endpoint>:3306/<dbname>?ssl=true`, set `DATABASE_IAM_AUTH_USER=rebuild_app` and `DATABASE_IAM_AUTH_MIGRATE_USER=rebuild_app` (same value today, on purpose — the credential mapping is auditable from `values-prod.yaml` even before the future split), and rely on the pod's IRSA / Pod Identity for the AWS credentials boto3 picks up. The TLS query-string flip is required by RDS — IAM auth is rejected over an unencrypted connection. Helm values (`m5-hardening.md` § Helm chart) carry the env-var bundle (`DATABASE_URL`, `DATABASE_IAM_AUTH`, `DATABASE_IAM_AUTH_REGION`, `DATABASE_IAM_AUTH_HOST`, `DATABASE_IAM_AUTH_USER`, `DATABASE_IAM_AUTH_MIGRATE_USER`) so flipping a single value file rotates which Aurora cluster the app talks to without a code change.
+
+**Validation.** `Settings` cross-checks at construction time: when `DATABASE_IAM_AUTH=True`, the URL's password slot must be empty (a populated password with IAM auth on is a hard `ValueError("DATABASE_IAM_AUTH=True but DATABASE_URL still carries a static password")` rather than a silent surprise where the static password wins by string position) and at least one of `DATABASE_URL`'s username, `DATABASE_IAM_AUTH_USER`, or `DATABASE_IAM_AUTH_MIGRATE_USER` must resolve to a non-empty string for both engines (otherwise `resolve_iam_endpoint` would raise on the first connection attempt; failing at construction surfaces the misconfiguration in startup logs instead). Same gate forbids an absent region: when IAM auth is on and none of `DATABASE_IAM_AUTH_REGION` / `AWS_REGION` / `AWS_DEFAULT_REGION` is set, the app refuses to start with a clear message.
+
+**Tests.** `backend/tests/test_iam_auth.py` covers (a) `is_iam_auth_enabled` reflects the env var, (b) `resolve_iam_endpoint` honours the host/port overrides, falls back to the URL username when `user_override` is `None`, prefers the override when set, and rejects a URL with no user, (c) the engine `do_connect` hook injects the token into `cparams['password']`, overwrites `cparams['user']` with the per-engine override, and sets `auth_plugin_map` for MySQL (boto3's `generate_db_auth_token` is monkey-patched to return a sentinel string; the test never makes a real AWS call), (d) the `Settings` validator rejects URL+password with IAM on, and (e) `Settings` accepts the today-prod shape (URL with username only, both `DATABASE_IAM_AUTH_USER` and `DATABASE_IAM_AUTH_MIGRATE_USER` set to the same value). boto3 is a hard dev-time dependency so the test imports it freely.
 
 ### Trusted-header dependency
 
@@ -327,7 +381,7 @@ No other tables. Alembic's `env.py` wires `target_metadata = app.db.base.Base.me
 
 ### Migration helpers
 
-Every Alembic revision in the rebuild — M0 baseline plus M1–M4 — calls only the wrappers defined in `app/db/migration_helpers.py`. The wrappers fall into two camps: those that map to a MySQL-native `IF NOT EXISTS` / `IF EXISTS` clause (CREATE/DROP TABLE, DROP INDEX on MySQL 8.0.29+), and those that introspect the live schema with SQLAlchemy `inspect()` and skip the underlying `op.*` call when the object already exists or has already been removed. MySQL 8.0 does not support `IF NOT EXISTS` on `CREATE INDEX`, `ALTER TABLE ADD COLUMN`, `ADD CONSTRAINT`, or `ADD FOREIGN KEY`, so the inspect-then-emit pattern is mandatory for those — confirmed against the MySQL 8.0 Reference Manual at the time of writing (see [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../rebuild.md#9-decisions-locked)). The full surface, in one file:
+Every Alembic revision in the rebuild — M0 baseline plus M1–M4 — calls only the wrappers defined in `app/db/migration_helpers.py`. The wrappers fall into two camps: those that map to a MySQL-native `IF EXISTS` clause (DROP TABLE, DROP INDEX on MySQL 8.0.29+), and those that introspect the live schema with SQLAlchemy `inspect()` and skip the underlying `op.*` call when the object already exists or has already been removed. `CREATE TABLE` belongs to the second camp: SQLAlchemy's MySQL dialect does not expose an `IF NOT EXISTS` table-arg, so `create_table_if_not_exists` relies on the Python `has_table` guard alone (the serial M5 migration Job with `backoffLimit: 0` means there is no concurrent racing migrator to defend against). MySQL 8.0 does not support `IF NOT EXISTS` on `CREATE INDEX`, `ALTER TABLE ADD COLUMN`, `ADD CONSTRAINT`, or `ADD FOREIGN KEY`, so the inspect-then-emit pattern is mandatory for those — confirmed against the MySQL 8.0 Reference Manual at the time of writing (see [rebuild.md § 9 "Robust, idempotent Alembic migrations"](../../rebuild.md#9-decisions-locked)). The full surface, in one file:
 
 ```python
 # rebuild/backend/app/db/migration_helpers.py
@@ -378,18 +432,21 @@ def has_check_constraint(table: str, name: str) -> bool:
 
 
 def create_table_if_not_exists(name: str, *columns: Any, **kw: Any) -> None:
-    """Idempotent op.create_table. Uses MySQL native IF NOT EXISTS via the
-    SQLAlchemy `mysql_create_if_not_exists=True` table-arg so the DDL itself
-    is `CREATE TABLE IF NOT EXISTS`, which is atomic and race-free across
-    parallel migration jobs (rare but possible during canary rollouts)."""
+    """Idempotent ``op.create_table``.
+
+    The Python-level ``has_table`` guard provides idempotency. SQLAlchemy's
+    MySQL dialect does NOT have a ``mysql_create_if_not_exists`` table-arg
+    (despite some third-party docs suggesting otherwise); attempting to set
+    one renders bogus DDL and raises a TypeError inside the dialect's
+    table-options compiler. The serial M5 migration Job (``backoffLimit: 0``)
+    means concurrent racing migrators are functionally impossible, so the
+    Python guard alone is sufficient.
+    """
     if has_table(name):
         return
     kw.setdefault("mysql_engine", "InnoDB")
     kw.setdefault("mysql_charset", "utf8mb4")
     kw.setdefault("mysql_collate", "utf8mb4_0900_ai_ci")
-    # mysql_create_if_not_exists is a table_arg recognised by the MySQL
-    # dialect; it emits IF NOT EXISTS in the rendered CREATE statement.
-    kw["mysql_create_if_not_exists"] = True
     op.create_table(name, *columns, **kw)
 
 
@@ -537,7 +594,7 @@ These conventions are pinned in M0 once and inherited by every later milestone (
    | `$app/state` (the `page` / `navigating` / `updated` reactive objects) | `$app/stores` (deprecated since SvelteKit 2.12) |
    | `error()` / `redirect()` (called) | `throw error(...)` / `throw redirect(...)` (SvelteKit 1 idiom) |
 
-   A grep gate in the lint step rejects any of `createEventDispatcher`, `<slot`, `on:click`, `use:`, or `$app/stores` under `frontend/src/`. The conversion table is duplicated for convenience in [svelte-best-practises.md § 17](svelte-best-practises.md).
+   A grep gate in the lint step rejects any of `createEventDispatcher`, `<slot`, `on:click` / `on:input` / `on:change` / `on:submit`, `use:`, or `$app/stores` under `frontend/src/`. The gate is implemented as the `lint:grep` npm script (`! grep -RInE '<slot|on:(click|input|change|submit)|use:|\$app/stores|createEventDispatcher' frontend/src/`) and chained off the main `lint` script, not as an `eslint-plugin-svelte` rule — there is no published `svelte/no-deprecated-slot-element` rule, so a script is the only reliable way to fail CI on these idioms today. The conversion table is duplicated for convenience in [svelte-best-practises.md § 17](svelte-best-practises.md).
 
 5. **Mutations: direct REST calls to FastAPI, not SvelteKit form actions — by deliberate decision.** The SvelteKit layer in the rebuild is a thin SSR shell in front of a FastAPI backend. SvelteKit form actions and `use:enhance` would have to proxy every mutation through `event.fetch` to FastAPI anyway, doubling the surface area without delivering progressive-enhancement value (every user is behind the OAuth proxy with JS enabled). **Every mutation in M1–M4 (chat CRUD, folder CRUD, message send, share/unshare, channel CRUD, message post, reaction toggle, pin, automation CRUD, run-now) is therefore a typed `fetch` from a store action against the FastAPI `/api/...` route, with the optimistic update applied locally and rolled back on error.** This is a conscious trade-off — we forgo `use:enhance` in exchange for a single mutation pattern that matches the realtime (socket.io) and streaming (SSE) paths, both of which already bypass form actions. SvelteKit's built-in CSRF check (`kit.csrf.checkOrigin`, on by default) stays on as a backstop; it never fires in steady state because no first-party form actions exist to protect. If a future feature genuinely benefits from progressive enhancement (e.g. a public marketing page form), it gets a `+page.server.ts` action at that point — not before. Reviewers should reject "convert this to a form action" suggestions on M1–M4 routes; cite this paragraph.
 
@@ -547,6 +604,27 @@ These conventions are pinned in M0 once and inherited by every later milestone (
 - Svelte 5 (runes mode enabled by default in SvelteKit 2).
 - Tailwind 4 via `@tailwindcss/vite` (the v4-native Vite plugin; no `tailwind.config.cjs` content globs needed but a `tailwind.config.ts` is kept for future plugin registration).
 - TypeScript 5 with `strict: true`, `noUncheckedIndexedAccess: true`.
+
+**`svelte.config.js` — `adapter-node` `out: 'frontend/build'`.** The adapter is configured with `adapter({ out: 'frontend/build' })` (not the default `out: 'build'`) so the production bundle lands inside the `frontend/` subtree and Stage 1 of [`Dockerfile`](../Dockerfile) can `COPY --from=frontend /work/frontend/build /app/frontend` without juggling paths. The full config also overrides `kit.files.appTemplate` / `routes` / `lib` / `hooks` / `assets` to the `frontend/src/...` and `frontend/static/` paths because the SvelteKit project root is `rebuild/`, not `rebuild/frontend/`.
+
+**`vite.config.ts` — dev `/api` proxy.** The dev server runs `tailwindcss()` and `sveltekit()` plugins and adds a `server.proxy` block:
+
+```ts
+server: {
+  port: 5173,
+  host: true,
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8080',
+      changeOrigin: false,
+    },
+  },
+},
+```
+
+This makes the dev fetch chain `browser → vite (5173) → app (8080)` work without CORS, and lets Playwright E2E specs use relative paths like `page.request.get('/api/me')` against the SvelteKit dev server during the smoke run.
+
+**`tsconfig.json` — explicit `include` of SvelteKit ambients.** The frontend tsconfig `extends` `./.svelte-kit/tsconfig.json`, but TypeScript's `extends` does NOT merge `include` / `exclude` arrays — it replaces them. The frontend tsconfig's `include` therefore must list the SvelteKit-generated ambient files explicitly (`.svelte-kit/ambient.d.ts`, `.svelte-kit/non-ambient.d.ts`, `.svelte-kit/types/**/$types.d.ts`) alongside the project's `frontend/src/**/*.{ts,js,svelte}`, `frontend/playwright/**/*.ts`, and the root-level `*.config.ts` / `*.config.js` files. Skipping the ambient lines breaks `$env/*` typing and SvelteKit's auto-generated route `$types`.
 
 ### `app.html`
 
@@ -588,7 +666,7 @@ A typed env barrel at `src/lib/env.ts` reads `import.meta.env.PUBLIC_*` for brow
 
 - `PUBLIC_API_BASE_URL` — defaults to `""` (same-origin); used by the typed fetch client.
 
-The backend URL for SSR proxying is derived from `process.env.BACKEND_URL` (default `http://app:8080`) inside `hooks.server.ts`.
+The backend URL for SSR proxying is derived from `process.env.BACKEND_URL` inside `hooks.server.ts`. The default `http://app:8080` is correct inside the compose network, where the app service is reachable by name. When running the SvelteKit dev server on the host (`cd rebuild && npm run dev`), Docker DNS does not apply, so `rebuild/.env` sets `BACKEND_URL=http://localhost:8080` (next to the `PUBLIC_API_BASE_URL=""` line). E2E specs depend on this — without it, `hooks.server.ts` issues the bootstrap `/api/me` against `http://app:8080` and fails with `getaddrinfo ENOTFOUND app`, the page never receives `locals.user`, and the smoke spec sees `null` instead of the seeded user.
 
 ## Infrastructure (rebuild/infra)
 
@@ -647,6 +725,13 @@ services:
       REDIS_URL: redis://redis:6379/0
       TRUSTED_EMAIL_HEADER: X-Forwarded-Email
       CORS_ALLOW_ORIGINS: http://localhost:5173
+    # Run alembic before uvicorn so `docker compose up -d --wait` produces a
+    # migrated, healthy app with no manual step. Idempotent: the M0 helper
+    # short-circuits when the schema is already at head. Production images
+    # use the Dockerfile CMD directly; M5 will swap this for a migrate Job.
+    command: >
+      sh -c "cd /app/backend && /app/.venv/bin/alembic upgrade head &&
+      exec python -m uvicorn app.asgi:app --host 0.0.0.0 --port 8080"
     ports:
       - "8080:8080"
     depends_on:
@@ -697,6 +782,21 @@ The compose ports are intentionally non-default (`13306`, `16379`) so the engine
 [rebuild/Dockerfile](../Dockerfile) is three stages, distinct from the legacy [Dockerfile](../../Dockerfile). It installs no ML deps (no torch, sentence-transformers, faster-whisper, ollama).
 
 ```dockerfile
+# Build & runtime notes (apply across all three stages):
+#   * Stage 2: install build-essential before `uv sync` because asyncmy 0.2.11
+#     does not publish a `manylinux_2_17_aarch64` wheel for cp312 (only
+#     macosx_arm64). On linux/arm64 build contexts (Apple Silicon Docker
+#     Desktop) uv falls back to a source build that needs gcc + headers.
+#     The compiler stays in the intermediate `pydeps` image; the runtime
+#     image (stage 3) does not include it.
+#   * Stage 3 / CMD: invoke uvicorn via `python -m uvicorn` instead of the
+#     bare entry-point script. uv writes absolute build-time shebangs into
+#     the venv's bin/ scripts pointing at /work/backend/.venv/bin/python,
+#     which doesn't resolve once the venv is COPY'd to /app/.venv. The
+#     phantom /work/backend/.venv -> /app/.venv symlink lets ad-hoc
+#     `docker exec` invocations of alembic/mako-render/openai/etc. keep
+#     working without prefixing them with `python -m`.
+
 # Stage 1 — frontend build
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS frontend
 WORKDIR /work
@@ -709,6 +809,9 @@ RUN npm run --workspace frontend build
 # Stage 2 — Python deps
 FROM python:3.12.7-slim-bookworm AS pydeps
 WORKDIR /work
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential default-libmysqlclient-dev && \
+    rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv==0.5.5
 COPY pyproject.toml uv.lock* ./
 COPY backend ./backend
@@ -725,12 +828,13 @@ WORKDIR /app
 COPY --from=pydeps   /work/backend/.venv  /app/.venv
 COPY --from=pydeps   /work/backend        /app/backend
 COPY --from=frontend /work/frontend/build /app/frontend
+RUN mkdir -p /work/backend && ln -s /app/.venv /work/backend/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=10 \
   CMD curl -fsS http://localhost:${PORT}/healthz || exit 1
-CMD ["uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "-m", "uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
 Notes: non-root `app` user fixed at UID 10001 for predictable volume permissions; final image targets < 250 MB on `python:3.12.7-slim-bookworm`. The image is single-purpose (FastAPI). Frontend assets are colocated at `/app/frontend` but routing them is M1+.
@@ -780,11 +884,14 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 addopts = "-ra -q --strict-markers --strict-config"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["backend/tests"]
 filterwarnings = ["error::DeprecationWarning"]
 ```
 
-The `conftest.py` boots a fresh MySQL via `testcontainers-mysql` (matching version 8.0.39) for the test suite, runs Alembic upgrade head, and yields an async HTTPX client bound to the FastAPI app.
+`asyncio_default_fixture_loop_scope = "function"` is required: pytest-asyncio 0.24 emits a deprecation warning when this is unset, and `filterwarnings = ["error::DeprecationWarning"]` would promote that warning to an error and refuse to start the suite. Function scope is also the only safe choice given the conftest pattern below.
+
+The `conftest.py` boots a fresh MySQL via `testcontainers-mysql` (matching version 8.0.39) for the test suite, runs Alembic upgrade head, and yields an async HTTPX client bound to the FastAPI app. The async engine is constructed with `create_async_engine(url, poolclass=NullPool)`. SQLAlchemy's default pool retains connections that were originally opened against pytest-asyncio's first event loop; once a later test runs on a fresh function-scoped loop, those pooled connections raise `RuntimeError: Task ... got Future ... attached to a different loop`. `NullPool` reopens a connection per checkout, which costs almost nothing in-process against testcontainers and eliminates the cross-loop bug entirely.
 
 ### Vitest
 
@@ -811,7 +918,7 @@ export default defineConfig({
 
 ### Playwright Component Testing
 
-Initialised via `npm init playwright@latest -- --ct` against the Svelte template, output committed at `rebuild/frontend/playwright-ct.config.ts` and `rebuild/frontend/playwright/index.ts`. The CT config registers a single project against chromium only (CT does not need browser-matrix coverage; that lives in E2E). The `playwright/index.html` template imports `../src/app.css` so component tests render with Tailwind 4 styles applied.
+Initialised via `npm init playwright@latest -- --ct` against the Svelte template, output committed at `rebuild/playwright-ct.config.ts` and `rebuild/frontend/playwright/index.ts`. The CT config registers a single project against chromium only (CT does not need browser-matrix coverage; that lives in E2E) and sets `use: { ctTemplateDir: './frontend/playwright' }` so Playwright resolves `index.html` and `index.ts` from the actual frontend tree. The default `ctTemplateDir` is `./playwright` relative to the config's directory; because the config sits at `rebuild/playwright-ct.config.ts` rather than under `rebuild/frontend/`, the override is mandatory — without it CT exits with `Component testing template file playwright/index.html is missing` and no specs run. The `playwright/index.html` template imports `../src/app.css` so component tests render with Tailwind 4 styles applied.
 
 ### MSW
 
@@ -821,6 +928,17 @@ Initialised via `npm init playwright@latest -- --ct` against the Svelte template
 - `src/lib/msw/node.ts`: registered as a Vitest setup file and as the CT global `beforeMount` hook so component tests mock network without real HTTP.
 
 `src/lib/msw/handlers.ts` ships a single handler in M0: `GET /api/me -> 200 { id, email, name, ... }`.
+
+### Prettier ignores
+
+[rebuild/.prettierignore](../.prettierignore) excludes generated and vendored content so `prettier --check .` (and the `lint:grep` chained off it) can run with zero noise:
+
+- `node_modules/`, `**/.venv/`, `.svelte-kit/` — package manager and tool caches; nothing to format.
+- `frontend/build/` — `adapter-node` output; regenerated on every build.
+- `frontend/playwright/.cache/` — Playwright Component Testing's per-run vite cache.
+- `frontend/static/mockServiceWorker.js` — MSW-generated worker with its own banner; reformatting drifts it from the upstream template.
+- `package.json`, `package-lock.json`, `uv.lock` — package-manager owned files; npm and uv reformat them deterministically and Prettier should not fight them.
+- `plans/` — rebuild milestone plans are hand-authored long-form Markdown; the prose and the embedded code blocks are intentionally laid out for diff review and reading, not for Prettier's wrap rules. (The legacy plans were pre-existing Prettier violations — adding them to the ignore list keeps `npm run lint` green during the rebuild without rewriting docs.)
 
 ## CI: Buildkite pipeline
 
@@ -924,6 +1042,7 @@ dependencies = [
   "uvicorn[standard] >=0.32,<0.33",
   "sqlalchemy[asyncio] >=2.0.36,<2.1",
   "asyncmy >=0.2.10,<0.3",
+  "cryptography >=43,<46",          # required by asyncmy for MySQL 8 caching_sha2_password
   "alembic >=1.13,<1.14",
   "pydantic >=2.9,<3",
   "pydantic-settings >=2.6,<3",
@@ -933,6 +1052,7 @@ dependencies = [
   "httpx >=0.27,<0.29",
   "redis >=5.1,<6",
   "uuid7-standard >=1.1,<2",        # RFC 9562 UUIDv7 backport (Python 3.12); see app/core/ids.py
+  "boto3 >=1.35,<2",                # AWS RDS IAM database authentication (rds:GenerateDBAuthToken); imported lazily inside app.core.iam_auth
 ]
 
 [dependency-groups]
@@ -945,6 +1065,7 @@ dev = [
   "anyio >=4.6,<5",
   "testcontainers[mysql] >=4.8,<5",
   "fakeredis >=2.26,<3",
+  "boto3-stubs[rds] >=1.35,<2",     # IAM auth helper is typed against RDSClient; mypy strict needs the stubs
 ]
 ```
 
@@ -960,7 +1081,8 @@ dev = [
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "lint": "eslint . && prettier --check .",
+    "lint": "eslint . && prettier --check . && npm run -s lint:grep",
+    "lint:grep": "! grep -RInE '<slot|on:(click|input|change|submit)|use:|\\$app/stores|createEventDispatcher' frontend/src/",
     "format": "prettier --write .",
     "test:unit": "vitest run",
     "test:ct": "playwright test -c playwright-ct.config.ts",
@@ -976,8 +1098,8 @@ dev = [
     "vite": "^5.4.10",
     "vitest": "^2.1.4",
     "jsdom": "^25.0.1",
-    "@playwright/test": "^1.48.2",
-    "@playwright/experimental-ct-svelte": "^1.48.2",
+    "@playwright/test": "1.58.2",
+    "@playwright/experimental-ct-svelte": "1.58.2",
     "msw": "^2.6.4",
     "tailwindcss": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
@@ -989,12 +1111,12 @@ dev = [
     "@typescript-eslint/parser": "^8.13.0",
     "prettier": "^3.3.3",
     "prettier-plugin-svelte": "^3.2.7",
-    "prettier-plugin-tailwindcss": "^0.6.8"
+    "prettier-plugin-tailwindcss": "^0.7.4"
   }
 }
 ```
 
-Versions are floating within their major. If install fails because of a yanked patch, bump the minor and document the deviation in the PR description.
+Versions are floating within their major. If install fails because of a yanked patch, bump the minor and document the deviation in the PR description. The two `@playwright/*` packages are the only exception: they share a single exact-version pin (no caret, no range) because `@playwright/experimental-ct-svelte` and `@playwright/test` link a shared `playwright-core` runtime and a version skew between them produces silent `test()`/`expect()` mismatches at CT runtime. Bump both in the same PR.
 
 ## Tests gating M0
 
@@ -1003,7 +1125,8 @@ The following must run green in CI before the milestone is closed.
 **Backend (pytest):**
 - `test_health.py`: `healthz_ok`, `readyz_ok` (live MySQL testcontainer + fakeredis), `readyz_db_down` returns 503.
 - `test_auth.py`: `missing_header_returns_401`, `creates_user_on_first_request`, `reuses_user_on_subsequent_requests`, `domain_allowlist_rejects`.
-- `test_settings.py`: defaults match the env-var table; `CORS_ALLOW_ORIGINS=a,b` parses to `["a","b"]`.
+- `test_settings.py`: defaults match the env-var table; `CORS_ALLOW_ORIGINS=a,b` parses to `["a","b"]`; `DATABASE_IAM_AUTH=True` with a password-bearing `DATABASE_URL` raises a `ValueError` at construction time.
+- `test_iam_auth.py`: `do_connect` injects the minted token into `cparams['password']`; MySQL branch sets `auth_plugin_map={'mysql_clear_password': None}`; host/port overrides are honoured; missing region raises with a clear message. boto3 is monkey-patched, no real AWS call.
 - Alembic round-trip: `upgrade head` → `downgrade base` succeeds against a fresh testcontainer MySQL.
 
 **Frontend (Vitest + Playwright):**
@@ -1023,11 +1146,12 @@ The following must run green in CI before the milestone is closed.
 - [ ] `curl localhost:8080/healthz` returns `200`; `curl localhost:8080/readyz` returns `200` while compose is healthy.
 - [ ] `cd rebuild && make migrate` runs `alembic upgrade head` against the dev MySQL and the `user` table is present with `utf8mb4_0900_ai_ci` collation and `InnoDB` engine. Re-running `make migrate` immediately afterwards produces zero DDL (verified by `tests/test_migrations.py::test_upgrade_head_is_idempotent`).
 - [ ] `app/db/migration_helpers.py` exists and exposes the full helper surface (`create_table_if_not_exists`, `drop_table_if_exists`, `create_index_if_not_exists`, `drop_index_if_exists`, `add_column_if_not_exists`, `drop_column_if_exists`, `create_foreign_key_if_not_exists`, `drop_constraint_if_exists`, `create_check_constraint_if_not_exists`, `execute_if`); the four migration-contract tests (`test_upgrade_head_is_idempotent`, `test_downgrade_base_is_idempotent`, `test_partial_upgrade_recovers`, `test_no_bare_op_calls`) run green in CI.
+- [ ] `app/core/iam_auth.py` exists, `Settings` exposes `DATABASE_IAM_AUTH` / `DATABASE_IAM_AUTH_REGION` / `DATABASE_IAM_AUTH_HOST` / `DATABASE_IAM_AUTH_PORT` / `DATABASE_IAM_AUTH_USER` / `DATABASE_IAM_AUTH_MIGRATE_USER`, `app/core/db.py` calls `attach_iam_auth_to_engine(..., user=settings.DATABASE_IAM_AUTH_USER)` and `backend/alembic/env.py` calls it with `user=settings.DATABASE_IAM_AUTH_MIGRATE_USER` when the flag is on. `tests/test_iam_auth.py` covers token mint, host/port overrides, the user-override fallback chain (URL username → `DATABASE_IAM_AUTH_USER` / `DATABASE_IAM_AUTH_MIGRATE_USER`), the validator that rejects `IAM=True` with a populated URL password, and the no-region failure mode (boto3 monkey-patched; no real AWS call).
 - [ ] `app/core/auth.py` exposes both `upsert_user_from_headers(db, *, email, name)` and the `get_user` dep; `get_user` calls the helper. `tests/test_auth.py` covers both call shapes.
 - [ ] `app/core/deps.py` exports `CurrentUser` and `DbSession`; `app/routers/me.py` uses `user: CurrentUser` (not `user: User = Depends(get_user)`).
 - [ ] `app/schemas/_base.py` exports `StrictModel`; `UserRead` inherits from it; `tests/test_strict_model.py` asserts that posting `{"id": "...", "email": "...", "extra": 1}` to a stub endpoint returns 422.
 - [ ] `app/core/constants.py` exports `STREAM_HEARTBEAT_SECONDS = 15` and `MAX_CHAT_HISTORY_BYTES = 1_048_576`. M1 and M3 plans reference these by import path (verified by a `tests/test_constants.py` smoke import).
-- [ ] `src/hooks.server.ts` populates `event.locals.user` from `GET /api/me` on every server request; `src/routes/+layout.server.ts` is a one-liner returning `{ user: locals.user }`. `App.Locals.user` is typed as `User | null` in `app.d.ts`. A regression test (`frontend/tests/component/auth-locals.spec.ts`) asserts that a route handler reading `event.locals.user` sees the same value the client receives in `data.user`.
+- [ ] `src/hooks.server.ts` populates `event.locals.user` from `GET /api/me` on every server request; `src/routes/+layout.server.ts` is a one-liner returning `{ user: locals.user }`. `App.Locals.user` is typed as `User | null` in `app.d.ts`. A regression test (`frontend/tests/e2e/auth-locals.spec.ts`, `@smoke`) asserts that the value the client receives in `data.user` matches `event.locals.user` after `hooks.server.ts handle` runs; placement is E2E rather than Playwright Component Testing because CT mounts the component in isolation and does not exercise `hooks.server.ts`, so an E2E test against the running SvelteKit server is the only way to assert the locals-vs-data invariant end-to-end.
 - [ ] The "Frontend conventions (cross-cutting)" section is referenced (not redeclared) by every store / state declaration in M1, M3, and M4. A grep gate fails any `frontend/src/lib/stores/*.ts` (without the `.svelte.ts` infix) that contains `$state(`, `$derived(`, or `$effect(`.
 - [ ] `cd rebuild && make lint` runs ruff + ESLint + Prettier check with zero errors.
 - [ ] `cd rebuild && make typecheck` runs mypy strict and `svelte-check` with zero errors.

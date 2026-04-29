@@ -1,0 +1,77 @@
+env:
+  IMAGE_REPO: '699983977898.dkr.ecr.us-east-1.amazonaws.com/container-build/data-platform/open-webui-rebuild'
+
+agents:
+  - queue=container-build-prod
+
+steps:
+  - label: ':python: lint (ruff)'
+    key: lint-py
+    if: build.changed_files =~ /^rebuild\//
+    commands:
+      - cd rebuild && uv sync --frozen --group dev --project backend
+      - cd rebuild && uv run --project backend ruff check backend
+      - cd rebuild && uv run --project backend ruff format --check backend
+    timeout_in_minutes: 5
+
+  - label: ':mypy: typecheck'
+    key: typecheck
+    if: build.changed_files =~ /^rebuild\//
+    commands:
+      - cd rebuild && uv sync --frozen --group dev --project backend
+      - cd rebuild && uv run --project backend mypy backend/app
+    timeout_in_minutes: 5
+
+  - label: ':javascript: lint+typecheck (frontend)'
+    key: lint-fe
+    if: build.changed_files =~ /^rebuild\//
+    commands:
+      - cd rebuild && npm ci
+      - cd rebuild && npm run -s lint
+      - cd rebuild && npm run -s check
+    timeout_in_minutes: 5
+
+  - label: ':pytest: unit'
+    key: unit
+    if: build.changed_files =~ /^rebuild\//
+    commands:
+      - cd rebuild && uv sync --frozen --group dev --project backend
+      - cd rebuild && uv run --project backend pytest backend/tests -x
+    timeout_in_minutes: 8
+
+  - label: ':vitest: unit (frontend)'
+    key: unit-fe
+    if: build.changed_files =~ /^rebuild\//
+    commands: [cd rebuild && npm ci, cd rebuild && npm run -s test:unit]
+    timeout_in_minutes: 5
+
+  - label: ':playwright: component'
+    key: component
+    if: build.changed_files =~ /^rebuild\//
+    commands:
+      - cd rebuild && npm ci
+      - cd rebuild && npx playwright install --with-deps chromium
+      - cd rebuild && npm run -s test:ct
+    timeout_in_minutes: 10
+
+  - label: ':playwright: e2e-smoke'
+    key: e2e-smoke
+    if: build.changed_files =~ /^rebuild\//
+    depends_on: [unit, unit-fe]
+    commands:
+      - cd rebuild && docker compose -f infra/docker-compose.yml up -d --wait
+      - cd rebuild && npm ci && npx playwright install --with-deps chromium firefox webkit
+      - cd rebuild && npm run -s test:e2e:smoke
+      - cd rebuild && docker compose -f infra/docker-compose.yml down -v
+    timeout_in_minutes: 15
+
+  - wait
+
+  - label: ':docker: build image'
+    key: build-image
+    if: build.changed_files =~ /^rebuild\//
+    commands:
+      - docker build --build-arg BUILD_HASH=${BUILDKITE_COMMIT} -t ${IMAGE_REPO}:${BUILDKITE_COMMIT} rebuild
+    timeout_in_minutes: 15
+    plugins:
+      - Canva/universal-fetch#stable: ~
