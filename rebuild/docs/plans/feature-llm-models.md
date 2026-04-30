@@ -94,10 +94,9 @@ rebuild/
         oai_router.py                  # /v1/models, /v1/chat/completions (stream + non-stream)
         oai_models.py                  # ChatCompletionRequest/Response/Chunk + ModelInfo/Object/List
         agents.py                      # Pydantic-AI Agent factory keyed by model alias
-        sse.py                         # tiny "data: {...}\n\n" emitter shared between stream paths
       tests/
         __init__.py
-        conftest.py                    # respx-mocked Ollama, fastapi.TestClient
+        conftest.py                    # bare-FastAPI factory + TestClient; per-test pydantic-ai TestModel/FunctionModel
         test_oai_models.py             # ChatCompletionRequest accepts the OpenAI shape rebuild's SDK sends
         test_oai_router_models.py      # /v1/models returns the configured aliases with the documented shape
         test_oai_router_chat.py        # /v1/chat/completions stream=True yields the OpenAI chunk format
@@ -134,12 +133,19 @@ name = "agent-platform"
 version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi==0.115.0",
-  "uvicorn[standard]==0.32.0",
-  "pydantic==2.9.2",
+  # Ranges, not exact pins, because pydantic-ai==1.88.0 transitively requires
+  # pydantic>=2.12 + starlette>=0.45.3 — fastapi==0.115.0 (the rebuild backend's
+  # pin) caps starlette below that. The locked decision (§ Decisions locked,
+  # item 4) keeps pydantic-ai itself exact-pinned; the surrounding stack widens
+  # just enough to satisfy its resolver. agent-platform is a self-contained
+  # Python project with its own uv.lock, so the wider ranges do NOT leak into
+  # rebuild/backend/.
+  "fastapi>=0.118,<0.120",
+  "uvicorn[standard]>=0.32.0,<0.40",
+  "pydantic>=2.12,<3",
   "pydantic-ai==1.88.0",
-  "pydantic-settings==2.6.0",
-  "httpx==0.27.2",
+  "pydantic-settings>=2.6.0,<3",
+  "httpx>=0.27.2,<1",
   "uuid7-standard >=1.1,<2",     # UUIDv7 — same dep + version range as rebuild/pyproject.toml
 ]
 
@@ -533,11 +539,12 @@ async def _stream_response(
     yield "data: [DONE]\n\n"
 ```
 
-Three things to call out:
+Four things to call out:
 
 - **No `usage` chunk in the streaming path.** OpenAI emits a final usage delta when the request includes `stream_options.include_usage=true` (which the rebuild's provider does — see [rebuild/backend/app/providers/openai.py](../../backend/app/providers/openai.py) line 129). Pydantic-AI's `agent.iter()` doesn't surface per-chunk usage cleanly through the node-stream events today; we accept the rebuild's `usage` event being absent on the dev path. The rebuild handles `delta.usage is None` already (its streaming pipeline gates on `if delta.usage:`), so a missing usage chunk is a no-op there. **Add a comment in the router** documenting this divergence and pointing at the relevant pydantic-ai issue if one exists at implementation time.
 - **Cancellation** is handled by Starlette: when the client disconnects, FastAPI raises `CancelledError` inside the generator, which propagates through `agent.iter()`'s `async with` block and closes the upstream Ollama connection. We re-raise so Starlette does its own teardown.
 - **No conversation persistence.** The reference saves messages into a `ConversationStore`; we explicitly do not — the rebuild's MySQL-backed `chat.history` is the source of truth, and the platform is stateless.
+- **SSE emission is inlined here, not factored into a separate `sse.py` helper.** The leading (role) chunk, per-token deltas, and the final (`finish_reason="stop"` + `[DONE]`) chunks all use the same `"data: " + ChatCompletionChunk(...).model_dump_json() + "\n\n"` literal three times in `_stream_response()`. There is only one stream path and no second consumer of the helper, so the abstraction would be premature; revisit if a second SSE-emitting endpoint lands.
 
 ### `infra/agent-platform/app/main.py`
 
@@ -600,7 +607,9 @@ async def healthz() -> dict[str, str]:
 
 ## Compose wiring
 
-The diff to [rebuild/infra/docker-compose.yml](../../infra/docker-compose.yml) — two new top-level services, a new named volume, and two changes to the `app` block. The `ollama` service's healthcheck gates on the configured model being *present in `/api/tags`*, not just on the daemon being up — so when `ollama` is reported healthy, the model is already cached and the agent platform can stream against it immediately.
+The diff to [rebuild/infra/docker-compose.yml](../../infra/docker-compose.yml) — two new top-level services, a new named volume, and two changes to the `app` block. The `ollama` service's healthcheck gates on the configured model being *present in `ollama list`*, not just on the daemon being up — so when `ollama` is reported healthy, the model is already cached and the agent platform can stream against it immediately.
+
+> **Locked: use the in-image `ollama` CLI for both the readiness loop and the healthcheck — never `curl`.** The official `ollama/ollama:0.5.7` image ships **no HTTP client at all** (no `curl`, no `wget`, no `nc`, no `python`). A `curl`-based healthcheck fails immediately with `sh: 1: curl: not found` and the container is marked `unhealthy`; worse, a `curl`-based readiness loop in the entrypoint spins forever, so `ollama pull` never runs and the model is never cached. `ollama list` exits 0 once the daemon's local socket is up and piping it to `grep -q "<tag>"` produces a stable single-signal oracle (daemon-up AND model-cached). Both tools (`ollama`, `grep`) are in-image, so no custom Dockerfile is needed.
 
 ```yaml
 services:
@@ -612,26 +621,39 @@ services:
     ports: ['11434:11434']     # exposed to host so a developer can `ollama list` etc.
     volumes:
       - ollama_models:/root/.ollama
-    # Background `ollama serve`, wait for it to answer, pull the configured
-    # model (no-op on cache hit), then `wait` on the daemon PID so the
-    # container's lifecycle stays tied to the serve process. `set -e` makes
-    # a failed pull fail the entrypoint, which compose surfaces via the
-    # healthcheck timeout below. The daemon's stderr goes to the container
-    # log stream as normal.
+    # Background `ollama serve`, wait for the daemon to answer, pull the
+    # configured model (no-op on cache hit), then `wait` on the daemon PID
+    # so the container's lifecycle stays tied to the serve process.
+    # `set -e` makes a failed pull fail the entrypoint, which compose
+    # surfaces via the healthcheck timeout below. The daemon's stderr goes
+    # to the container log stream as normal.
+    #
+    # The readiness loop calls `ollama list`, NOT `curl`. The official
+    # `ollama/ollama:0.5.7` image ships no HTTP client (see the locked
+    # callout above this YAML block). `ollama list` exits 0 once the
+    # daemon's local socket is up.
+    #
+    # Double-dollar (`$$`) escapes Compose's own variable interpolation pass
+    # so the shell sees single-`$` correctly. Single-`$pid` would be eaten
+    # at compose-render time (`pid` is unset there) and silently break the
+    # `wait`. Verify the rendered command with `docker compose config`.
     entrypoint: ['/bin/sh', '-c']
     command:
       - |
         set -e
         ollama serve &
-        pid=$!
-        until curl -fsS http://localhost:11434/api/tags >/dev/null 2>&1; do sleep 0.5; done
+        pid=$$!
+        until ollama list >/dev/null 2>&1; do sleep 0.5; done
         ollama pull qwen2.5:0.5b
-        wait "$pid"
+        wait "$$pid"
     healthcheck:
-      # Greps the model id out of /api/tags so "healthy" implies both
+      # Greps the model id out of `ollama list` so "healthy" implies both
       # daemon-up AND model-cached. The agent platform's depends_on chain
-      # then needs only a single condition to gate startup.
-      test: ['CMD', 'sh', '-c', 'curl -fsS http://localhost:11434/api/tags | grep -q "qwen2.5:0.5b"']
+      # then needs only a single condition to gate startup. Uses CMD-SHELL
+      # so the pipe is interpreted by sh inside the container; the image
+      # has /bin/sh and grep but no curl, so the equivalent CMD-form
+      # `['CMD', 'sh', '-c', 'curl ...']` would fail immediately.
+      test: ['CMD-SHELL', 'ollama list | grep -q "qwen2.5:0.5b"']
       interval: 5s
       timeout: 3s
       retries: 60       # first-up pull of qwen2.5:0.5b is ~400 MB; 5 min budget at 5 s interval
@@ -738,8 +760,8 @@ Three layers, all isolated from the backend test suite.
 ### Unit tests (`infra/agent-platform/tests/`)
 
 - **`test_oai_router_models.py`** — TestClient hits `GET /v1/models`, asserts the JSON shape matches what `OpenAICompatibleProvider.list_models` reads (`data: [{id, owned_by}]`).
-- **`test_oai_router_chat.py`** — TestClient hits `POST /v1/chat/completions` with `stream=true`. Mocks Ollama via `respx` to return a fixed SSE response. Asserts the platform emits the OpenAI chunk shape (`{id, object, created, model, choices: [{delta: {content}}]}`) and terminates with `data: [DONE]\n\n`.
-- **`test_oai_router_nonstream.py`** — Same, but `stream=false`. Asserts the non-streaming envelope (`object: "chat.completion"`, `choices: [{message: {role, content}, finish_reason}]`).
+- **`test_oai_router_chat.py`** — TestClient hits `POST /v1/chat/completions` with `stream=true`. Mocks the Pydantic AI model driver via `pydantic_ai.models.test.TestModel` (rather than the Ollama HTTP layer via `respx`) so the SSE shape lock survives OpenAI-SDK telemetry / header drift. The router's full `agent.iter()` loop and the `PartStartEvent` / `PartDeltaEvent` event taxonomy still execute unchanged. Asserts the platform emits the OpenAI chunk shape (`{id, object, created, model, choices: [{delta: {content}}]}`) and terminates with `data: [DONE]\n\n`.
+- **`test_oai_router_nonstream.py`** — Same, but `stream=false`. Uses `pydantic_ai.models.function.FunctionModel` to stub the assistant response (returns a single `ModelResponse` containing one `TextPart`). Asserts the non-streaming envelope (`object: "chat.completion"`, `choices: [{message: {role, content}, finish_reason}]`).
 - **`test_oai_models.py`** — `ChatCompletionRequest.model_validate(payload)` accepts the exact body shape the rebuild's `AsyncOpenAI(...).chat.completions.create(stream=True, stream_options={"include_usage": True}, ...)` emits. Use a captured payload from a real call as the fixture.
 - **`test_seed_history.py`** — table-driven test of `_seed_history()` with at least four scenarios: (a) single user message → empty history + the prompt; (b) `[system, user]` → empty history + system-prefixed prompt; (c) `[user, assistant, user]` multi-turn → history of one `ModelRequest` + one `ModelResponse` + the trailing prompt; (d) `[system, user, assistant, system, user]` → both system messages concatenated into the prefix. Locks the "drop the trailing user from history so iter() doesn't double-stack" invariant against future Pydantic-AI API drift.
 - **`test_agents.py`** — `build_agents(settings)` returns one entry per `ModelDef`; alias→tag mapping survives. `agents.get("does-not-exist") is None`.
@@ -781,6 +803,7 @@ Explicitly deferred to follow-up PRs (each tiny, none blocking):
 - **Production replacement.** The internal model gateway in production stays the upstream for staging + prod (`MODEL_GATEWAY_BASE_URL` is injected by Helm). The agent platform never ships in the runtime image and never appears in any non-`infra/` path.
 - **Auth on the agent platform.** The platform is exposed only on the compose network and host loopback. If a developer wants to expose it externally for some reason (shared dev box), they add their own basic-auth proxy in front; we don't bake it in.
 - **GPU acceleration.** Ollama uses CPU on most developer machines; on Apple Silicon it auto-detects Metal. We do not configure CUDA / ROCm passthrough in compose.
+- **Pydantic-AI 1.88.0 deprecations.** The as-shipped 1.88.0 emits 7 `DeprecationWarning`s the platform's tests surface but do not error on: `OpenAIModel` is renamed to `OpenAIChatModel` (5 sites in `app/agents.py` + tests), and `RequestUsage.request_tokens` / `.response_tokens` are renamed to `.input_tokens` / `.output_tokens` (2 sites in `app/oai_router.py`'s non-streaming path). Migrating is a one-PR follow-up; deferred so this PR stays scoped to "land the dev compose service" rather than "land the dev compose service AND chase a deprecation churn." When the migration lands it should also bump the locked-pin in § Decisions locked → item 4 to `pydantic-ai==<next>` with a fresh changelog scan.
 - **Optional `--profile` to skip the agent platform.** Even when `MODEL_GATEWAY_BASE_URL` is overridden to point at a real upstream, compose still stands up `ollama` and `agent-platform`. Locked here to keep the topology static; a developer who finds the boot cost annoying can `docker compose stop agent-platform ollama` after one `make dev`.
 
 ## Decisions locked from review

@@ -39,6 +39,74 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local Ollama daemon. Backgrounds `ollama serve`, waits for the daemon
+  # to answer, runs `ollama pull qwen2.5:0.5b` (no-op on cache hit), then
+  # `wait`s on the daemon PID so the container's lifecycle stays tied to
+  # the serve process. The healthcheck greps the model id out of
+  # `ollama list` so "healthy" implies BOTH daemon-up AND model-cached —
+  # the agent-platform's depends_on chain then needs only one condition
+  # to gate startup. See feature-llm-models.md § Architecture for the
+  # rationale of folding the pull into the daemon entrypoint instead of
+  # using a separate ollama-pull init container.
+  #
+  # Readiness + healthcheck both use the in-image `ollama` CLI rather
+  # than `curl`, because the official `ollama/ollama:0.5.7` image ships
+  # NO HTTP client (no curl, wget, nc, or python). `ollama list` exits 0
+  # once the daemon's local socket is up and parseably empty; piping it
+  # to `grep -q "<tag>"` produces a stable single-signal oracle. Diverges
+  # from the plan's curl-based block — see § Compose wiring for the
+  # rationale.
+  #
+  # `$$pid` / `$$!` are double-dollar-escaped to bypass compose's own
+  # variable interpolation pass; the shell sees `$pid` / `$!`. Verify with
+  # `docker compose -f infra/docker-compose.yml config`. Diverges from the
+  # plan's quoted YAML (which used single-dollar) — compose v2 would have
+  # expanded `$pid` to empty and broken the wait.
+  ollama:
+    image: ollama/ollama:0.5.7
+    container_name: rebuild_ollama
+    ports:
+      - '11434:11434' # exposed to host so a developer can `ollama list` etc.
+    volumes:
+      - ollama_models:/root/.ollama
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        ollama serve &
+        pid=$$!
+        until ollama list >/dev/null 2>&1; do sleep 0.5; done
+        ollama pull qwen2.5:0.5b
+        wait "$$pid"
+    healthcheck:
+      test: ['CMD-SHELL', 'ollama list | grep -q "qwen2.5:0.5b"']
+      interval: 5s
+      timeout: 3s
+      retries: 60 # first-up pull of qwen2.5:0.5b is ~400 MB; 5 min budget at 5 s interval
+
+  # Pydantic-AI wrapper that surfaces an OpenAI-compatible /v1/models +
+  # /v1/chat/completions on port 8081. The rebuild's `app` service points
+  # MODEL_GATEWAY_BASE_URL at it for the dev loop. See
+  # rebuild/infra/agent-platform/ for the service source.
+  agent-platform:
+    build:
+      context: ./agent-platform
+      dockerfile: Dockerfile
+    container_name: rebuild_agent_platform
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      LOG_LEVEL: INFO
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      - '8081:8081' # exposed to host for `curl http://localhost:8081/v1/models` debugging
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8081/healthz']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   app:
     build:
       context: ..
@@ -48,6 +116,7 @@ services:
       ENV: dev
       DATABASE_URL: mysql+asyncmy://rebuild:rebuild@mysql:3306/rebuild?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
+      MODEL_GATEWAY_BASE_URL: http://agent-platform:8081/v1
       TRUSTED_EMAIL_HEADER: X-Forwarded-Email
       CORS_ALLOW_ORIGINS: http://localhost:5173
     # Run alembic before uvicorn so `docker compose up -d --wait` produces a
@@ -64,6 +133,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      agent-platform:
+        condition: service_healthy
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:8080/healthz']
       interval: 5s
@@ -72,3 +143,4 @@ services:
 
 volumes:
   rebuild_mysql_data:
+  ollama_models:

@@ -1,0 +1,40 @@
+[project]
+name = "agent-platform"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = [
+  # pydantic-ai==1.88.0 requires starlette>=0.45.3, which only
+  # FastAPI >=0.117 supports; the rebuild backend pins fastapi==0.115.0
+  # but this is a separate Python project (no shared lockfile or import
+  # path), so we widen here to satisfy the locked pydantic-ai pin from
+  # the plan's § Decisions locked.
+  "fastapi>=0.118,<0.120",
+  "uvicorn[standard]>=0.32.0,<0.40",
+  # pydantic-ai==1.88.0 requires pydantic>=2.12; the rebuild backend
+  # pins pydantic==2.9.2 but the same self-containment argument applies.
+  "pydantic>=2.12,<3",
+  "pydantic-ai==1.88.0",
+  "pydantic-settings>=2.6.0,<3",
+  "httpx>=0.27.2,<1",
+  "uuid7-standard >=1.1,<2",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.3",
+  "pytest-asyncio==0.24.0",
+  "respx==0.21.1",
+  "ruff==0.7.4",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = ["compose: smoke test that requires the full docker stack"]
+
+# Mirror the rebuild backend's UUIDv7 ban on uuid.uuid4 so the platform's
+# completion id helper can't drift back to v4 on a future contributor's
+# autocomplete. The ban is per-project (no shared ruff config inheritance
+# from rebuild/pyproject.toml — agent-platform is a self-contained Python
+# project) and is the only ruff lint we wire here.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"uuid.uuid4".msg = "Use uuid7.create() (UUIDv7) instead. Mirrors rebuild/pyproject.toml; see rebuild.md §9."

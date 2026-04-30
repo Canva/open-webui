@@ -107,7 +107,13 @@ class OpenAICompatibleProvider:
 
         out: list[Model] = []
         for m in page.data:
-            out.append(Model(id=m.id, label=m.id, owned_by=getattr(m, "owned_by", None)))
+            out.append(
+                Model(
+                    id=m.id,
+                    label=getattr(m, "label", None) or m.id,
+                    owned_by=getattr(m, "owned_by", None),
+                )
+            )
         out.sort(key=lambda m: m.id)
         return out
 

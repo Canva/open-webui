@@ -201,3 +201,103 @@ async def test_get_models_504_on_provider_timeout(
 
     response = await models_client[0].get("/api/models", headers=alice_headers)
     assert response.status_code == 502
+
+
+async def test_get_models_round_trips_label(
+    models_client: tuple[Any, Any, Any],
+    alice_headers: dict[str, str],
+    cassette_mock_app: Any,
+) -> None:
+    """A ``/v1/models`` entry that ships both ``id`` and a non-OpenAI
+    ``label`` field round-trips the friendly label all the way through
+    to the rebuild's ``/api/models`` response.
+
+    Without the ``getattr(m, "label", None) or m.id`` shim in
+    :class:`OpenAICompatibleProvider`, the ``label`` would silently
+    equal ``id`` and the dropdown would render ``dev`` instead of
+    ``Dev (Qwen 2.5, 0.5B)``. See
+    ``rebuild/docs/plans/feature-llm-models.md`` § Deliverables.
+
+    Mirrors the per-test mock mutation pattern from
+    :func:`test_get_models_502_on_provider_error` — the cassette mock
+    is per-test and direct route-table mutation is OK.
+    """
+    from fastapi.responses import JSONResponse
+
+    for route in list(cassette_mock_app.router.routes):
+        if getattr(route, "path", "") == "/v1/models":
+            cassette_mock_app.router.routes.remove(route)
+            break
+
+    async def with_label() -> JSONResponse:
+        return JSONResponse(
+            {
+                "object": "list",
+                "data": [
+                    {
+                        "id": "dev",
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": "agent-platform",
+                        "label": "Dev (Qwen 2.5, 0.5B)",
+                    }
+                ],
+            }
+        )
+
+    cassette_mock_app.get("/v1/models")(with_label)
+
+    client, _cache, _counted = models_client
+    response = await client.get("/api/models", headers=alice_headers)
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == "dev"
+    assert items[0]["label"] == "Dev (Qwen 2.5, 0.5B)"
+
+
+async def test_get_models_label_falls_back_to_id_when_upstream_omits(
+    models_client: tuple[Any, Any, Any],
+    alice_headers: dict[str, str],
+    cassette_mock_app: Any,
+) -> None:
+    """When the upstream's ``/v1/models`` entries don't carry a ``label``
+    field (today's prod gateway behaviour), ``getattr(m, "label", None)``
+    returns ``None`` and the shim falls through to ``m.id``.
+
+    Locks the "production behaviour unchanged" half of the
+    ``label`` plumbing contract: shipping the agent-platform's friendly
+    labels MUST NOT change what the prod dropdown reads back today.
+    """
+    from fastapi.responses import JSONResponse
+
+    for route in list(cassette_mock_app.router.routes):
+        if getattr(route, "path", "") == "/v1/models":
+            cassette_mock_app.router.routes.remove(route)
+            break
+
+    async def without_label() -> JSONResponse:
+        return JSONResponse(
+            {
+                "object": "list",
+                "data": [
+                    {
+                        "id": "gpt-4o",
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": "openai",
+                    }
+                ],
+            }
+        )
+
+    cassette_mock_app.get("/v1/models")(without_label)
+
+    client, _cache, _counted = models_client
+    response = await client.get("/api/models", headers=alice_headers)
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == "gpt-4o"
+    assert items[0]["label"] == items[0]["id"]
+    assert items[0]["label"] == "gpt-4o"

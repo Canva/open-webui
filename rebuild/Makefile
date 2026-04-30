@@ -28,7 +28,7 @@
 # Tail container output with `make logs`.
 # ---------------------------------------------------------------------------
 
-.PHONY: setup dev migrate lint typecheck test-unit test-component test-e2e-smoke verify-stack verify-migrate build down logs
+.PHONY: setup dev dev-rebuild-models migrate lint typecheck test-unit test-component test-e2e-smoke verify-stack verify-migrate build down logs
 
 # One-shot install of backend (uv) and frontend (npm) dependencies.
 setup:
@@ -43,6 +43,16 @@ setup:
 # in a second terminal to serve the SvelteKit frontend on :5173.
 dev:
 	docker compose -f infra/docker-compose.yml up -d --build --wait
+
+# Force-recreate the `ollama` container so its entrypoint wrapper re-runs
+# the `ollama pull qwen2.5:0.5b` step on next boot. Idempotent: `ollama
+# pull` is a no-op on cache hit, so this target is mostly useful when the
+# `ollama_models` named volume has been wiped (`make down -v`) or when
+# the configured MODELS list in `infra/agent-platform/app/config.py` (or
+# its compose-time MODELS env override) has changed and the new tag
+# needs to be fetched. Does not touch any other service.
+dev-rebuild-models:
+	docker compose -f infra/docker-compose.yml up -d --force-recreate --no-deps ollama
 
 # Run Alembic against the host-mapped MySQL container from the host.
 # Only needed when iterating on revisions; the Docker `app` container
@@ -59,9 +69,19 @@ migrate:
 	cd backend && DATABASE_URL=$${DATABASE_URL:-mysql+asyncmy://rebuild:rebuild@127.0.0.1:13306/rebuild?charset=utf8mb4} uv run --project . alembic upgrade head
 
 # Lint backend (ruff) and frontend (eslint + prettier + custom grep).
+#
+# The `pydantic-ai` grep gate enforces that the dev-only agent platform's
+# pydantic-ai dependency does not leak into the runtime backend. The
+# agent platform lives under `infra/agent-platform/` (separate Python
+# project with its own pyproject + lock); the runtime image must never
+# pick up pydantic-ai or its transitives. See
+# `rebuild/docs/plans/feature-llm-models.md` § Deliverables and
+# § pyproject.toml for the rationale; this is the first backend custom
+# grep gate (mirrors the frontend `lint:grep` pattern from m0).
 lint:
 	uv run --project backend ruff check backend
 	uv run --project backend ruff format --check backend
+	@! grep -RInE 'pydantic[-_]ai' backend || (echo "ERROR: pydantic-ai must not appear under rebuild/backend/ -- see rebuild/docs/plans/feature-llm-models.md" && exit 1)
 	npm run -s lint
 
 # Static typechecks: mypy for backend, svelte-check for frontend.
@@ -91,6 +111,18 @@ test-e2e-smoke:
 # vars, and broken migrations that the lint / typecheck / unit / e2e
 # gates can't see.
 #
+# COLD-START BUDGET: with the agent-platform / ollama services now in the
+# compose stack (see `feature-llm-models.md`), a fresh runner that has
+# no `ollama_models` volume cached pays a one-time `ollama pull
+# qwen2.5:0.5b` cost (~400 MB) before the ollama container reports
+# healthy, which gates agent-platform startup, which gates the rebuild's
+# app startup. Wall-clock budget grows from ~30 s to ~3-5 minutes on
+# that first run; subsequent runs (cached docker layer + populated
+# `ollama_models` volume) stay at the existing budget. If a future
+# investigation flags "verify-stack got slower", check whether the
+# ollama_models volume was dropped (`make down` does drop it) — that's
+# the single most likely cause.
+#
 # DESTRUCTIVE: tears down the rebuild_* compose stack and drops the
 # mysql volume on entry AND on exit (success or failure). Don't run
 # while you have work-in-progress data in the dev MySQL.
@@ -104,6 +136,9 @@ verify-stack:
 	  echo "==> GET /readyz"  ; curl -fsS http://localhost:8080/readyz  ; echo ; \
 	  echo "==> GET /api/me (trusted-header bootstrap)" ; \
 	  curl -fsS -H "X-Forwarded-Email: verifier@canva.com" http://localhost:8080/api/me ; echo ; \
+	  echo "==> GET /api/models (must return non-empty)" ; \
+	  curl -fsS -H "X-Forwarded-Email: verifier@canva.com" http://localhost:8080/api/models \
+	    | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"items\"), \"no models returned\"; print(\"models: \" + \",\".join(m[\"id\"] for m in d[\"items\"]))" ; \
 	  echo "==> alembic head" ; \
 	  docker exec rebuild_mysql mysql -urebuild -prebuild rebuild -sNe "SELECT version_num FROM alembic_version" 2>/dev/null ; \
 	  echo "verify-stack OK"'
