@@ -1,5 +1,17 @@
 import type { User } from '$lib/types/user';
 import type { ThemeId } from '$lib/theme/presets';
+import type { ChatList, ChatRead } from '$lib/types/chat';
+import type { FolderRead } from '$lib/types/folder';
+import type { ModelInfo } from '$lib/types/model';
+
+/*
+ * Side-effect ambient declarations for KaTeX optional packages live in
+ * `frontend/src/ambient.d.ts` (a no-import script file so the
+ * `declare module` statements register globally). They cannot live in
+ * this file because the `import` statements above turn it into an
+ * external module, which would re-scope the declarations to local
+ * augmentations.
+ */
 
 declare global {
   namespace App {
@@ -30,6 +42,26 @@ declare global {
       user: User | null;
       theme: ThemeId;
       themeSource: 'explicit' | 'fallback';
+      /**
+       * Initial sidebar payload from `(app)/+layout.server.ts` (Phase
+       * 3d). Optional because routes outside the `(app)` group (e.g.
+       * `/401`, the public smoke landing) do not load it. The layout
+       * passes it to `provideChats(...)` so the sidebar paints
+       * server-side without an extra round-trip.
+       */
+      chats?: ChatList;
+      /** Initial folder list — same lifetime as `chats`. */
+      folders?: FolderRead[];
+      /** Initial model catalog — same lifetime as `chats`. */
+      models?: ModelInfo[];
+      /**
+       * Server-loaded full chat for `/c/[id]` deep-links (set by
+       * `(app)/c/[id]/+page.server.ts` in Phase 3d). The conversation
+       * view's `$effect` calls `useActiveChat().load(data.chat.id)`
+       * after hydration so the in-memory store matches the SSR'd
+       * markup.
+       */
+      chat?: ChatRead;
     }
     interface Error {}
     interface PageState {}

@@ -32,6 +32,24 @@ const { svelte, vitePreprocess } = (await import(
 // what `kit.files.lib` declares in `svelte.config.js`.
 const LIB_DIR = resolve(import.meta.dirname, 'frontend/src/lib');
 
+// SvelteKit virtual-module stubs. The CT bundler does not load the
+// `sveltekit()` Vite plugin (which would pull in the full Kit dev
+// server), so any `.svelte` file that imports `$app/navigation` /
+// `$app/state` / `$app/stores` (e.g. the M2 `(app)/+layout.svelte`'s
+// `afterNavigate` and `Sidebar.svelte`'s `page.url.pathname`) fails
+// to bundle with a Rollup "failed to resolve" error.
+//
+// The stubs at `frontend/playwright/sveltekit-stubs.ts` re-export the
+// Kit lifecycle / nav helpers as no-ops and expose a frozen `page`
+// object whose URL points at `/`. This is the smallest viable patch
+// — and the long-term option (run the Kit plugin inside CT) trips the
+// duplicate-Svelte-runtime gate documented above.
+const SVELTEKIT_STUBS = resolve(import.meta.dirname, 'frontend/playwright/sveltekit-stubs.ts');
+const SVELTEKIT_ENV_STUBS = resolve(
+  import.meta.dirname,
+  'frontend/playwright/sveltekit-env-stubs.ts',
+);
+
 export default defineConfig({
   testDir: './frontend/tests/component',
   use: {
@@ -55,6 +73,15 @@ export default defineConfig({
       resolve: {
         alias: {
           $lib: LIB_DIR,
+          // Stub SvelteKit virtual modules (see SVELTEKIT_STUBS comment
+          // above). Order matters: more specific paths first so vite
+          // doesn't accidentally swallow `$app` itself before the
+          // sub-path matchers run.
+          '$app/navigation': SVELTEKIT_STUBS,
+          '$app/state': SVELTEKIT_STUBS,
+          '$app/stores': SVELTEKIT_STUBS,
+          '$env/static/public': SVELTEKIT_ENV_STUBS,
+          '$env/dynamic/public': SVELTEKIT_ENV_STUBS,
         },
       },
     },

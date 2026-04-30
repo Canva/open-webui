@@ -1,28 +1,78 @@
 <script lang="ts">
   /**
-   * Authenticated app shell. Constructs the per-request `ThemeStore`
-   * and exposes it via `setContext('theme', store)` per the
-   * cross-cutting frontend conventions in
-   * `rebuild/docs/plans/m0-foundations.md` § Frontend conventions.
+   * Authenticated chat shell. Replaces the M0 identity demo with the
+   * real chrome: a persistent sidebar (chats + folders + workspace
+   * actions) on the inline-start, the active conversation surface on
+   * the inline-end, the global toaster pinned to the bottom-end.
    *
-   * Visible chrome: the M0 identity demo (header + identity card +
-   * data.user JSON dump). M2 replaces the demo with the real chat
-   * shell; this layout's responsibility is the theme context, the
-   * matchMedia $effect, and the agent-workshop navigation chrome.
+   * Construction site for every M2 store. Pinned by
+   * `rebuild/docs/plans/m2-conversations.md` § Stores and state (lines
+   * 1003-1019) and `rebuild/docs/plans/m0-foundations.md` § Frontend
+   * conventions (cross-cutting): one class per store, instances
+   * provided via `setContext` per request, no module-level `$state`.
+   *
+   * The M1 ThemeStore wiring is preserved verbatim (per the dispatch
+   * spec): the matchMedia $effect listens for OS preference changes
+   * and re-resolves the theme without persisting unless the user has
+   * an explicit choice.
+   *
+   * The smoke routes under `(app)/(internal)/` use a `+layout@.svelte`
+   * reset to escape this layout (see
+   * `rebuild/docs/best-practises/sveltekit-best-practises.md` § 1.4)
+   * so the visual baselines do not pick up any sidebar chrome.
    */
   import { setContext, untrack } from 'svelte';
   import type { Snippet } from 'svelte';
+
+  import { provideActiveChat } from '$lib/stores/active-chat.svelte';
+  import { provideChats } from '$lib/stores/chats.svelte';
+  import { provideFolders } from '$lib/stores/folders.svelte';
+  import { provideModels } from '$lib/stores/models.svelte';
+  import { provideToast } from '$lib/stores/toast.svelte';
+  import { THEME_CONTEXT_KEY, ThemeStore } from '$lib/stores/theme.svelte';
   import { resolveTheme } from '$lib/theme/presets';
-  import { ThemeStore, THEME_CONTEXT_KEY } from '$lib/stores/theme.svelte';
+  import Sidebar from '$lib/components/chat/Sidebar.svelte';
+  import Toaster from '$lib/components/ui/Toaster.svelte';
+  import { afterNavigate } from '$app/navigation';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: Snippet } = $props();
 
-  // Construction captures the initial server-resolved theme on purpose;
-  // the matchMedia $effect below handles in-tree changes to the OS
-  // preference, and explicit user changes go through `themeStore.setTheme`.
-  // `untrack` makes the "we genuinely want the snapshot" intent explicit
-  // and silences svelte/state_referenced_locally without a noisy ignore.
+  /**
+   * Below `md` (768px) the sidebar collapses to a slide-in drawer
+   * (DESIGN.md § Components > Navigation: "Mobile treatment: Sidebar
+   * becomes a drawer"). At wider viewports the drawer state is
+   * irrelevant — the sidebar is always visible in the grid column.
+   * Default closed so the conversation view owns first paint on
+   * narrow screens.
+   */
+  let drawerOpen = $state(false);
+
+  // Close the drawer on every client navigation so a chat tap doesn't
+  // leave it stuck open on top of the new conversation.
+  afterNavigate(() => {
+    drawerOpen = false;
+  });
+
+  // Stores are instance-scoped to this layout (one per request render
+  // tree). `setContext` in `provide*()` makes them visible to any
+  // descendant via `use*()`. `untrack` makes the "we want the snapshot
+  // at construction time" intent explicit and silences
+  // svelte/state_referenced_locally — the stores own the live state
+  // from this point on, the `data` prop only seeds them.
+  untrack(() => {
+    provideChats(data.chats ?? null);
+    provideFolders(data.folders ?? []);
+    provideModels(data.models ?? []);
+    provideActiveChat();
+    provideToast();
+  });
+
+  // M1 ThemeStore wiring — copied verbatim from the previous M0 layout
+  // so the M1 theme picker keeps working across the M2 layout swap.
+  // `untrack` makes the "we genuinely want the snapshot" intent
+  // explicit and silences svelte/state_referenced_locally without a
+  // noisy ignore comment.
   const themeStore = untrack(
     () =>
       new ThemeStore({
@@ -33,20 +83,6 @@
   );
   setContext(THEME_CONTEXT_KEY, themeStore);
 
-  const userJson = $derived(JSON.stringify(data.user, null, 2));
-
-  // Sync OS preference to the store after hydration. Runs on every
-  // `prefers-color-scheme` change for the lifetime of the layout. The
-  // store ignores the new value when the user has an explicit choice
-  // (its `setOsDark` short-circuits in that case), so this effect is
-  // safe to run unconditionally.
-  //
-  // The store mutations are wrapped in `untrack` so this effect only
-  // depends on its real inputs (`data.theme`, `data.themeSource`,
-  // `mql.matches`) — the store's `_explicit` and `current` $state.raw
-  // fields are read inside `setOsDark`/`setTheme`, and tracking those
-  // would trip Svelte's effect_update_depth_exceeded guard the moment
-  // we mutate them in the same pass.
   $effect(() => {
     if (typeof window === 'undefined') return;
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
@@ -63,60 +99,71 @@
   });
 </script>
 
-<div class="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-10 px-6 py-16">
-  <header class="space-y-3">
-    <!--
-      Interim discoverability for the M1 ThemePicker route. The (app)
-      layout still ships the M0 identity demo with no nav chrome; this
-      single link is the only entry point into `/settings` until M2
-      lands the real shell. Drop this row when M2's nav appears.
-    -->
-    <div class="flex items-baseline justify-between gap-4">
-      <p class="text-accent-mention tracking-label text-xs font-medium uppercase">
-        M0 / Foundations
-      </p>
-      {#if data.user}
-        <a
-          href="/settings"
-          class="text-ink-muted motion-safe:ease-out-quart motion-safe:hover:text-ink-strong text-xs font-medium motion-safe:transition-colors motion-safe:duration-150"
-          >Settings →</a
-        >
-      {/if}
-    </div>
-    <h1 class="font-display text-ink-strong tracking-headline text-xl/[1.25] font-semibold">
-      The workshop is wired.
-    </h1>
-    <p class="text-ink-secondary max-w-prose text-sm/[1.5]">
-      Trusted-header authentication round-trips against the FastAPI backend. Theming arrives with
-      M1; the chat shell, channels, and automations arrive with M2 through M5; observability and
-      deploy land in M6.
+{#if data.user === null}
+  <!--
+    Trusted-header gate failed (no `X-Forwarded-Email` on the request).
+    Render a minimal explanation so engineers hitting the dev server
+    without the proxy see what's wrong instead of a blank shell.
+    Acceptance bullets requiring authenticated chrome (sidebar, branch
+    chevrons, etc) only fire when `data.user` is present.
+  -->
+  <div class="bg-background-app flex min-h-svh flex-col items-center justify-center gap-3 px-6">
+    <p class="text-ink-muted tracking-label text-xs font-medium uppercase">
+      Trusted-header auth required
     </p>
-  </header>
-
-  <section class="border-hairline bg-background-elevated rounded-2xl border p-6">
-    <p class="text-ink-muted tracking-label text-xs font-medium uppercase">Identity</p>
-    {#if data.user}
-      <p class="text-ink-strong mt-3 text-sm/[1.5]">
-        Signed in as <span class="font-medium">{data.user.email}</span>
-      </p>
-      <p class="text-ink-muted mt-1 text-xs">
-        {data.user.name} · {data.user.timezone}
-      </p>
-    {:else}
-      <p class="text-ink-strong mt-3 text-sm/[1.5] font-medium">No proxy header on this request.</p>
-      <p class="text-ink-muted mt-2 text-sm/[1.5]">
-        Set <code class="font-mono text-xs">X-Forwarded-Email</code> at the edge, or pass
-        <code class="font-mono text-xs">-H 'X-Forwarded-Email: you@canva.com'</code> to curl, to
-        populate <code class="font-mono text-xs">event.locals.user</code>.
-      </p>
+    <h1 class="text-ink-strong font-display text-xl font-semibold">
+      No proxy header on this request.
+    </h1>
+    <p class="text-ink-secondary max-w-md text-center text-sm leading-relaxed">
+      Set <code class="font-mono text-xs">X-Forwarded-Email</code> at the edge, or pass
+      <code class="font-mono text-xs">-H 'X-Forwarded-Email: you@canva.com'</code> to curl, to
+      populate
+      <code class="font-mono text-xs">event.locals.user</code>.
+    </p>
+  </div>
+{:else}
+  <div
+    class="bg-background-app text-ink-body relative grid h-svh w-full grid-cols-[minmax(0,1fr)] overflow-hidden md:grid-cols-[280px_minmax(0,1fr)]"
+  >
+    <aside
+      data-open={drawerOpen}
+      class="bg-background-sidebar border-hairline motion-safe:ease-out-quart fixed inset-y-0 start-0 z-30 w-[280px] -translate-x-full overflow-hidden border-e data-[open=true]:translate-x-0 motion-safe:transition-transform motion-safe:duration-200 md:static md:translate-x-0 rtl:translate-x-full rtl:data-[open=true]:translate-x-0 rtl:md:translate-x-0"
+      aria-label="Workspace navigation"
+    >
+      <Sidebar onnavigate={() => (drawerOpen = false)} />
+    </aside>
+    <main class="relative min-w-0 overflow-hidden">
+      <button
+        type="button"
+        class="text-ink-muted hover:bg-background-elevated hover:text-ink-strong border-hairline focus-visible:outline-accent-mention bg-background-app/80 absolute start-3 top-3 z-20 inline-flex h-8 w-8 items-center justify-center rounded-lg border backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-offset-2 md:hidden"
+        aria-label={drawerOpen ? 'Close navigation' : 'Open navigation'}
+        aria-expanded={drawerOpen}
+        onclick={() => (drawerOpen = !drawerOpen)}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M2 4h12M2 8h12M2 12h12" />
+        </svg>
+      </button>
+      {@render children()}
+    </main>
+    {#if drawerOpen}
+      <button
+        type="button"
+        class="bg-ink-strong/30 fixed inset-0 z-20 backdrop-blur-sm md:hidden"
+        aria-label="Close navigation"
+        onclick={() => (drawerOpen = false)}
+      ></button>
     {/if}
-  </section>
+  </div>
+{/if}
 
-  <section class="space-y-2">
-    <p class="text-ink-muted tracking-label text-xs font-medium uppercase">data.user</p>
-    <pre
-      class="border-hairline bg-background-code text-ink-strong overflow-x-auto rounded-xl border p-4 font-mono text-xs leading-relaxed">{userJson}</pre>
-  </section>
-
-  {@render children()}
-</div>
+<Toaster />

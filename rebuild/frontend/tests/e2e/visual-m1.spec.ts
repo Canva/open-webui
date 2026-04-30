@@ -25,7 +25,7 @@
  * .random` injected via init scripts shut down every animation,
  * timing-dependent rendering, and randomised pixel.
  *
- * Image capture is DEFERRED — baseline PNGs need to be generated on
+ * Image capture is DEFERRED: baseline PNGs need to be generated on
  * the same Linux container that runs CI (font drift would explode
  * macOS-vs-CI diffs). To capture:
  *
@@ -33,16 +33,16 @@
  *   npm run test:visual -- --update-snapshots
  *
  * (where `test:visual` is the alias for
- *  `playwright test --grep @visual-m1` — add it to package.json scripts
+ *  `playwright test --grep @visual-m1`; add it to package.json scripts
  *  if not already present.)
  *
  * The smoke components (`CodeBlockSmoke`, `MermaidSmoke`) live under
- * `src/lib/components/smoke/` per the foundation dispatch; M1 ships
- * a `/smoke/code-block` and `/smoke/mermaid` route surfacing them
- * is an M2 follow-up. Until those routes exist, the related visual
- * specs target the picker page (which already mounts both fonts /
- * tokens) and use a `data-testid` selector to scope the screenshot
- * to the smoke region.
+ * `src/lib/components/smoke/`. M2 added the dedicated visual-regression
+ * routes (`/smoke/code-block`, `/smoke/mermaid`) under the
+ * `(app)/(internal)/` route group per
+ * `rebuild/docs/plans/m2-conversations.md` § Deliverables; this spec
+ * now targets them directly. The `(internal)/+layout@.svelte` reset
+ * keeps parent-layout chrome out of the screenshot.
  */
 
 import { test, expect } from '@playwright/test';
@@ -149,19 +149,21 @@ test.describe('@visual-m1 theme-picker', () => {
 });
 
 test.describe('@visual-m1 smoke surfaces (tokyo-night)', () => {
+  // Targets the dedicated `(app)/(internal)/smoke/...` routes added by
+  // M2 per `rebuild/docs/plans/m2-conversations.md` § Deliverables. The
+  // baseline filenames stay `code-block-tokyo-night.png` /
+  // `mermaid-tokyo-night.png` so the existing LFS-tracked PNGs (once
+  // the M1 backfill lands) are not re-keyed.
   test('code-block-tokyo-night', async ({ page, context }) => {
     await setupForPreset(page, context, 'tokyo-night');
-    // The smoke components don't currently have a route; the picker
-    // page is where the role tokens are exercised. M2 should add
-    // `/smoke/code-block` and re-target this baseline.
-    await page.goto('/settings');
+    await page.goto('/smoke/code-block');
     await page.waitForLoadState('networkidle');
     await expect(page).toHaveScreenshot('code-block-tokyo-night.png', SCREENSHOT_OPTS);
   });
 
   test('mermaid-tokyo-night', async ({ page, context }) => {
     await setupForPreset(page, context, 'tokyo-night');
-    await page.goto('/settings');
+    await page.goto('/smoke/mermaid');
     await page.waitForLoadState('networkidle');
     await expect(page).toHaveScreenshot('mermaid-tokyo-night.png', SCREENSHOT_OPTS);
   });

@@ -33,7 +33,7 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
 **DO**
 
-- **Use `async def` for I/O-bound work and `await` every I/O call.** Database queries (`await session.execute(...)`), HTTP calls (`await httpx_client.get(...)`), Redis (`await redis.get(...)`), file streams. The provider stream in M2 (`OpenAICompatibleProvider.stream`) and the SSE generator (`stream_chat`) are the canonical pattern.
+- **Use `async def` for I/O-bound work and `await` every I/O call.** Database queries (`await session.execute(...)`), HTTP calls (`await httpx_client.get(...)`), Redis (`await redis.get(...)`), file streams. The provider stream in M2 (`OpenAICompatibleProvider.stream`) and the SSE pipeline (`prepare_stream` + `stream_assistant_response` — the two halves of the M2 split, see [m2-conversations.md § Streaming pipeline](../plans/m2-conversations.md#streaming-pipeline)) are the canonical pattern.
 - **Use plain `def` for genuinely-blocking work that has no async equivalent.** FastAPI runs `def` handlers in a Starlette threadpool, so a sync `requests.get(...)` inside a `def` route doesn't block the event loop the way it would inside an `async def` route. Prefer this over `asyncio.to_thread` wrappers for whole-route blocking work.
 - **For one-off blocking calls inside an otherwise-async route, use `from fastapi.concurrency import run_in_threadpool`** (or `asyncio.to_thread` from Python 3.9+). Pattern: `await run_in_threadpool(blocking_function, arg1, arg2)`. The `MysqlFileStore.put` SHA-256 calculation in M4 falls into this bucket if the file is large enough that hashing visibly stalls the loop — but at the 5 MiB cap it's microseconds, so we don't bother.
 
@@ -164,11 +164,16 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
 **DO**
 
-- **Use Starlette's `StreamingResponse`** with an `async generator` yielding `bytes`:
+- **Use Starlette's `StreamingResponse`** with an `async generator` yielding `bytes`. Split the route into a synchronous pre-yield validation phase and a post-validation generator so pre-stream errors (404 / 400 / 413 / 422) surface as proper JSON HTTP responses instead of being lost behind Starlette's already-sent `http.response.start`:
 
   ```python
+  prepared = await prepare_stream(
+      chat_id=chat_id, user=user, body=body, db=db, models_cache=models_cache,
+  )
   return StreamingResponse(
-      stream_chat(chat_id=chat_id, user=user, body=body, db=db, registry=registry),
+      stream_assistant_response(
+          db=db, provider=provider, registry=registry, prepared=prepared,
+      ),
       media_type="text/event-stream",
       headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
   )
@@ -176,14 +181,18 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
   `X-Accel-Buffering: no` defeats nginx's response buffering so tokens reach the client as they're produced.
 
-- **Handle `asyncio.CancelledError` inside the generator** to persist any in-flight state and unwind cleanly. Starlette raises it on client disconnect; re-raise after cleanup so the framework knows the response ended on a cancel. M2's `stream_chat` is the reference implementation for this — copy the pattern when adding new SSE endpoints.
+- **Handle `asyncio.CancelledError` inside the generator** to persist any in-flight state and unwind cleanly. Starlette raises it on client disconnect; persist the partial state, yield a terminal SSE frame, and `return` (don't re-raise — the SSE stream is already closed cleanly from the client's perspective). M2's `stream_assistant_response` is the reference implementation; copy the four-branch shape (cancel / timeout / mid-stream cap-overflow / provider error) when adding new SSE endpoints.
 - **Send a heartbeat comment frame every ~15 s** (`yield b": keep-alive\n\n"`) during quiet stretches. Reverse proxies often drop idle connections at 60 s; 15 s gives you 4× headroom.
 - **Bound the whole stream with `async with asyncio.timeout(...)` at a project-wide cap.** `SSE_STREAM_TIMEOUT_SECONDS = 300` (declared in M2's Settings additions; the same value is the per-route HTTP timeout for `/api/chats/{id}/messages` in M6's dispatch table). The `asyncio.timeout` context manager (Python 3.11+) wraps the provider iteration _inside the streaming generator_ so the persist-partial branch owns the cleanup path (a `TimeoutError` raised at the `async with` boundary is distinct from `CancelledError`, so the timeout branch can emit its own `timeout` SSE frame). On exceedance, persist the partial state, emit a terminal `timeout` SSE event, and return — don't let the generator hang forever.
 - **Persist incrementally inside the loop**, not just at the end. M2 commits the in-progress assistant content every ~1 s so a server crash doesn't lose minutes of streaming. The cost is one extra `UPDATE` per second per active stream — negligible compared to the user experience win.
 
 **DON'T**
 
-- **Don't open a fresh `AsyncSession` inside the generator that's different from the one passed in by the dependency.** The `db` from `Depends(get_session)` lives for the whole request, including the streaming body — that's exactly what you want.
+- **`Depends(get_session)`'s `async with` exits when the route handler returns the `StreamingResponse` — BEFORE Starlette starts iterating the generator body.** Empirically observed during M2 Phase 4c with `FIXTURE session-yield` / `session-teardown` log probes: FastAPI's `AsyncExitStack` for dependency teardown unwinds at the boundary of the route function, not after the response body is sent. The session's `close()` clears the identity map and detaches every persistent object loaded inside the route, so subsequent `await db.commit()` calls inside the generator body silently no-op (no UPDATE is issued; the assistant content + `done` flag never reach the DB). Three options for mutating ORM objects from inside a `StreamingResponse` body, in order of decreasing footgun-density:
+  1. **Re-attach the persistent object at the top of the generator** with `db.add(obj)`. The `AsyncSession` is reusable after `close()` (a fresh transaction auto-begins on the next operation); `db.add(obj)` resumes change-tracking on a row whose primary key already exists, so no INSERT is issued. **This is the rebuild's pattern** — see [`app/services/chat_stream.py::stream_assistant_response`](../../backend/app/services/chat_stream.py) for the canonical worked example, including the multi-paragraph comment block above the one-line `db.add(chat)` explaining why it is load-bearing. Cheapest fix; one line.
+  2. **Open a fresh `AsyncSession` inside the generator** via `async with AsyncSessionLocal() as gen_session:` and re-fetch by primary key. One extra round-trip but cleanly isolates the generator's transaction from anything the route did. Use this when the route's session may already be in an awkward state (e.g. it raised mid-transaction and you want a clean slate).
+  3. **Hold the original session open via a context manager tied to the response stream's lifetime.** Possible but not recommended — Starlette doesn't expose the right hook cleanly, and any caller that wraps your response (e.g. middleware) will fight you. Mentioned for completeness; never reach for this first.
+- **Don't open a fresh `AsyncSession` and assume the route's session is somehow still alive too.** Both can coexist (option 2 above), but the generator must take responsibility for its own session — never rely on the dependency-yielded one to outlive the route handler.
 - **Don't `await request.is_disconnected()` on a hot loop.** It's relatively cheap but it does work; check it once per chunk or once per second, not on every byte. M2 doesn't even bother — it relies on `CancelledError` propagation, which is more reliable.
 - **Don't build huge intermediate strings** (`"".join(accumulated)` once per chunk inside a 1k-token stream is `O(n²)` allocation). Append to a list and join at persist points only.
 

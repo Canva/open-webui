@@ -1,18 +1,78 @@
 import type { LayoutServerLoad } from './$types';
 
+import { ApiError, chats, folders, models } from '$lib/api/client';
+import type { ChatList } from '$lib/types/chat';
+import type { FolderRead } from '$lib/types/folder';
+import type { ModelInfo } from '$lib/types/model';
+
 /**
- * Authenticated route group: surfaces the M0 trusted-header user and
- * the M1 theme resolution from `event.locals` (populated by the
- * `handle` hook in `src/hooks.server.ts`) onto every child page's
- * `data` prop.
+ * Authenticated route group: surfaces the M0 trusted-header user, the
+ * M1 theme resolution, and the M2 sidebar/folder/model payloads from
+ * the FastAPI backend onto every child page's `data` prop.
  *
- * Per the M1 plan § Persistence and `m0-foundations.md` § Auth populate,
- * the cookie/header reads happen in `handle`, not in this load — that
- * way layout `load` caching across navigations cannot leak a stale
- * user or theme value.
+ * Pinned by `rebuild/docs/plans/m2-conversations.md`:
+ *   - § Frontend routes and components (line 875): "loads sidebar list
+ *     + folder list once per navigation".
+ *   - § Stores and state (line 1015): "The `(app)/+layout.server.ts`
+ *     `load` returns `{ chats, folders, models }`" — server-rendered
+ *     into HTML and re-used as the stores' initial values during
+ *     hydration so the first paint has the sidebar populated without
+ *     an extra round-trip.
+ *
+ * The cookie/header reads happen in `handle`, not here, so layout
+ * `load` caching across navigations cannot leak a stale user or
+ * theme value (per the M1 plan § Persistence).
+ *
+ * Fail-soft: when the backend is degraded each backend call falls
+ * back to its empty shape so the auth card and chat shell still
+ * render. Phase 3d's `<Toaster>` surfaces these so the user knows the
+ * sidebar / model selector are stale; the layout itself does not
+ * surface anything because the store error fields are reactive and
+ * components that consume them already render the right empty-state
+ * affordances (per `rebuild/docs/plans/m0-foundations.md` § Frontend
+ * conventions cross-cutting, rule 1: errors live on the store, not
+ * the layout).
  */
-export const load: LayoutServerLoad = ({ locals }) => ({
-  user: locals.user,
-  theme: locals.theme,
-  themeSource: locals.themeSource,
-});
+export const load: LayoutServerLoad = async ({ locals, fetch }) => {
+  const base = {
+    user: locals.user,
+    theme: locals.theme,
+    themeSource: locals.themeSource,
+  } as const;
+
+  if (locals.user === null) {
+    return base;
+  }
+
+  const [chatsResult, foldersResult, modelsResult] = await Promise.all([
+    chats.list({ limit: 50 }, fetch).catch((err: unknown) => {
+      logBackendError('chats.list', err);
+      return EMPTY_CHATS;
+    }),
+    folders.list(fetch).catch((err: unknown) => {
+      logBackendError('folders.list', err);
+      return EMPTY_FOLDERS;
+    }),
+    models.list(fetch).catch((err: unknown) => {
+      logBackendError('models.list', err);
+      return EMPTY_MODELS;
+    }),
+  ]);
+
+  return {
+    ...base,
+    chats: chatsResult,
+    folders: foldersResult,
+    models: modelsResult.items,
+  };
+};
+
+const EMPTY_CHATS: ChatList = { items: [], next_cursor: null };
+const EMPTY_FOLDERS: FolderRead[] = [];
+const EMPTY_MODELS: { items: ModelInfo[] } = { items: [] };
+
+function logBackendError(label: string, err: unknown): void {
+  const status = err instanceof ApiError ? ` (${err.status})` : '';
+  const message = err instanceof Error ? err.message : String(err);
+  console.warn(`[layout.server] ${label}${status}: ${message}`);
+}

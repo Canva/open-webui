@@ -49,6 +49,15 @@ COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 COPY tsconfig.json svelte.config.js vite.config.ts tailwind.config.ts postcss.config.cjs eslint.config.js .prettierrc.json ./
 COPY frontend ./frontend
+# SvelteKit's `$env/static/public` only exports PUBLIC_* env vars that are
+# present in the build environment. `lib/api/client.ts` imports
+# PUBLIC_API_BASE_URL at module top-level, so without this declaration the
+# build fails with `"PUBLIC_API_BASE_URL" is not exported by virtual:env/static/public`.
+# Empty string = same-origin (matches `rebuild/.env` and the m0-foundations
+# § Public env vars contract); deploys behind a different origin override
+# the build arg via `--build-arg PUBLIC_API_BASE_URL=https://api.example`.
+ARG PUBLIC_API_BASE_URL=""
+ENV PUBLIC_API_BASE_URL=$PUBLIC_API_BASE_URL
 RUN npm run build
 
 # Stage 2 — Python deps

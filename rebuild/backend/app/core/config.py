@@ -7,11 +7,11 @@ name verbatim — see ``rebuild/docs/plans/m0-foundations.md`` § Settings(BaseS
 "Casing convention (locked)" — so every call site reads
 ``settings.MODEL_GATEWAY_BASE_URL``, never the lower-case form.
 
-Later milestones extend this class in-place with new fields (M2's
-``SSE_STREAM_TIMEOUT_SECONDS``, M5's ``AUTOMATION_*`` knobs, M6's ``OTEL_*``,
-``LOG_FORMAT``, ``TRUSTED_PROXY_CIDRS``, ``RATELIMIT_*``,
-``ALLOWED_FILE_TYPES``). No per-domain ``BaseSettings`` subclasses (locked
-in ``rebuild/docs/best-practises/FastAPI-best-practises.md`` § A.1).
+Later milestones extend this class in-place with new fields (M5's
+``AUTOMATION_*`` knobs, M6's ``OTEL_*``, ``LOG_FORMAT``,
+``TRUSTED_PROXY_CIDRS``, ``RATELIMIT_*``, ``ALLOWED_FILE_TYPES``). M2 adds
+``SSE_STREAM_TIMEOUT_SECONDS``. No per-domain ``BaseSettings`` subclasses
+(locked in ``rebuild/docs/best-practises/FastAPI-best-practises.md`` § A.1).
 """
 
 from __future__ import annotations
@@ -84,6 +84,17 @@ class Settings(BaseSettings):
 
     READYZ_DB_TIMEOUT_MS: int = 1000
     READYZ_REDIS_TIMEOUT_MS: int = 500
+
+    # Whole-request cap on ``POST /api/chats/{id}/messages``. Wrapped around
+    # the provider iteration via ``async with asyncio.timeout(...)`` *inside*
+    # the M2 streaming generator so the persist-partial branch owns the
+    # cleanup path. MUST equal the M6 per-route HTTP timeout for
+    # ``/api/chats/{id}/messages`` (see
+    # ``rebuild/docs/plans/m6-hardening.md`` § Per-route HTTP timeouts) —
+    # diverging the two means the route timeout can fire before the
+    # executor's persist-partial branch runs. See
+    # ``rebuild/docs/plans/m2-conversations.md`` § Settings additions.
+    SSE_STREAM_TIMEOUT_SECONDS: int = 300
 
     @field_validator(
         "TRUSTED_EMAIL_DOMAIN_ALLOWLIST",

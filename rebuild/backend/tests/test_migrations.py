@@ -7,16 +7,23 @@ hold (m0 plan § Alembic helper test gate):
    fresh DB succeeds; rerun is a no-op (table count unchanged).
 2. ``test_downgrade_base_is_idempotent`` — upgrade then double-downgrade;
    the second downgrade is a no-op.
-3. ``test_partial_upgrade_recovers`` — half-applied schema (``user``
+3. ``test_partial_upgrade_recovers`` — half-applied M0 schema (``user``
    table created with a subset of columns, no alembic_version row) +
    ``alembic upgrade head`` completes without error. NB: the M0 baseline
    only ships ``op.create_table_if_not_exists`` for the single ``user``
    table; the helper short-circuits when ``has_table('user')`` is true,
    so the table's column shape is preserved (it does NOT add the missing
-   columns). For M2+ when revisions add new columns / indexes via
-   ``add_column_if_not_exists`` / ``create_index_if_not_exists``, this
-   test grows to assert the missing artefacts get added. See "Deviation
-   from dispatch" comment block above ``test_partial_upgrade_recovers``.
+   columns). See "Deviation from dispatch" comment block above
+   ``test_partial_upgrade_recovers``.
+
+3b. ``test_partial_upgrade_recovers_m2`` — half-applied M2 schema
+   (``user`` + ``folder`` exist, ``alembic_version`` at ``0001_baseline``,
+   ``chat`` was never created) + ``alembic upgrade head`` produces ``chat``,
+   the ``current_message_id`` ``STORED GENERATED`` column, all five named
+   composite indexes, both cross-table FKs, and the M3-reserved
+   ``share_id`` column without operator intervention. Asserts the M2
+   acceptance-criteria recovery contract from
+   ``rebuild/docs/plans/m2-conversations.md``.
 4. ``test_no_bare_op_calls`` — AST walk of ``backend/alembic/versions/``;
    bare ``op.create_*`` / ``op.drop_*`` / ``op.add_column`` / etc. are
    forbidden (use the helpers). Also: every ``execute_if(...)`` whose
@@ -111,6 +118,96 @@ async def _async_list_user_columns(database_url: str) -> list[str]:
         await engine.dispose()
 
 
+async def _async_list_columns(database_url: str, table: str) -> list[str]:
+    """Return a sorted list of column names on ``table`` (empty if the
+    table is absent). Used by the M2 partial-recovery test to confirm
+    the chat table picked up every base column plus the
+    ``share_id`` reservation and the generated ``current_message_id``.
+    """
+    engine = create_async_engine(database_url, future=True)
+    try:
+        async with engine.connect() as conn:
+
+            def _columns(sync_conn: Any) -> list[str]:
+                inspector = sa.inspect(sync_conn)
+                if not inspector.has_table(table):
+                    return []
+                return sorted(c["name"] for c in inspector.get_columns(table))
+
+            return await conn.run_sync(_columns)
+    finally:
+        await engine.dispose()
+
+
+async def _async_list_index_names(database_url: str, table: str) -> set[str]:
+    """Return the set of index names on ``table``. Used by the M2
+    partial-recovery test to assert all five chat composite indexes are
+    present after a half-applied migration recovers.
+    """
+    engine = create_async_engine(database_url, future=True)
+    try:
+        async with engine.connect() as conn:
+
+            def _indexes(sync_conn: Any) -> set[str]:
+                inspector = sa.inspect(sync_conn)
+                if not inspector.has_table(table):
+                    return set()
+                return {i["name"] for i in inspector.get_indexes(table) if i["name"]}
+
+            return await conn.run_sync(_indexes)
+    finally:
+        await engine.dispose()
+
+
+async def _async_list_fk_names(database_url: str, table: str) -> set[str]:
+    """Return the set of foreign-key constraint names on ``table``.
+    Used by the M2 partial-recovery test to assert both cross-table FKs
+    on chat survive the recovery.
+    """
+    engine = create_async_engine(database_url, future=True)
+    try:
+        async with engine.connect() as conn:
+
+            def _fks(sync_conn: Any) -> set[str]:
+                inspector = sa.inspect(sync_conn)
+                if not inspector.has_table(table):
+                    return set()
+                return {fk["name"] for fk in inspector.get_foreign_keys(table) if fk["name"]}
+
+            return await conn.run_sync(_fks)
+    finally:
+        await engine.dispose()
+
+
+async def _async_column_extra(database_url: str, table: str, column: str) -> str | None:
+    """Return the MySQL ``INFORMATION_SCHEMA.COLUMNS.EXTRA`` string for a
+    column (or ``None`` if the column is absent). For a STORED generated
+    column the value is ``'STORED GENERATED'``; the M2 partial-recovery
+    test uses this to confirm ``current_message_id`` was created with
+    the correct ``GENERATED ALWAYS AS (...) STORED`` shape rather than
+    as a plain nullable ``VARCHAR(36)``.
+    """
+    engine = create_async_engine(database_url, future=True)
+    try:
+        async with engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    sa.text(
+                        "SELECT EXTRA FROM INFORMATION_SCHEMA.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() "
+                        "AND TABLE_NAME = :table "
+                        "AND COLUMN_NAME = :column"
+                    ),
+                    {"table": table, "column": column},
+                )
+            ).first()
+            if row is None:
+                return None
+            return str(row[0])
+    finally:
+        await engine.dispose()
+
+
 async def _async_exec(database_url: str, sql: str) -> None:
     engine = create_async_engine(database_url, future=True)
     try:
@@ -143,7 +240,15 @@ def test_upgrade_head_is_idempotent(fresh_db: str) -> None:
 
     command.upgrade(cfg, "head")
     after_first = _run(_async_list_tables(fresh_db))
+    # M0 baseline + M2 conversation surface — both must land via the
+    # head walk. Asserting on the M2 tables here (rather than only in a
+    # separate M2 test) means any future revision that quietly breaks
+    # M2's idempotent re-application is caught by this single contract
+    # test, in line with the dispatch's "the existing head walk already
+    # covers the new revision" requirement.
     assert "user" in after_first
+    assert "chat" in after_first
+    assert "folder" in after_first
     assert "alembic_version" in after_first
 
     command.upgrade(cfg, "head")
@@ -165,9 +270,15 @@ def test_downgrade_base_is_idempotent(fresh_db: str) -> None:
     after_first_down = _run(_async_list_tables(fresh_db))
 
     # alembic_version may remain after a downgrade-to-base (alembic keeps
-    # the version-tracking table around as an empty marker). The user
-    # table must be gone.
+    # the version-tracking table around as an empty marker). Every
+    # business table from every revision must be gone — the M2 tables
+    # are checked here alongside the M0 baseline so the head-walk
+    # asymmetry that would slip through (head builds chat, base forgets
+    # to drop it) is caught by the contract test rather than by the
+    # next milestone's CI run.
     assert "user" not in after_first_down
+    assert "chat" not in after_first_down
+    assert "folder" not in after_first_down
 
     command.downgrade(cfg, "base")
     after_second_down = _run(_async_list_tables(fresh_db))
@@ -223,6 +334,148 @@ def test_partial_upgrade_recovers(fresh_db: str) -> None:
     assert "id" in columns
     assert "email" in columns
     assert "user" in _run(_async_list_tables(fresh_db))
+
+
+# ---------------------------------------------------------------------------
+# Contract test 3b: partial-recovery from a half-applied M2 schema.
+# ---------------------------------------------------------------------------
+#
+# Scenario the M2 plan cares about ("Acceptance criteria" §2 in
+# `rebuild/docs/plans/m2-conversations.md`): the M0 baseline ran
+# successfully (so `user` and `alembic_version='0001_baseline'` exist),
+# the M2 revision started but crashed after creating `folder` and
+# before creating `chat`. MySQL DDL implicitly commits, so this is the
+# realistic mid-migration crash mode. A retry of `alembic upgrade head`
+# must:
+#
+#   * Notice that `folder` already exists and skip the `create_table`
+#     for it (without raising on the inline self-FK / index already
+#     being present).
+#   * Create `chat` with both cross-table FKs (`fk_chat_user_id_user`,
+#     `fk_chat_folder_id_folder`).
+#   * Add the `current_message_id` `STORED GENERATED` column out of
+#     band via the inline `ALTER TABLE ... ALGORITHM=COPY, LOCK=SHARED`
+#     statement.
+#   * Add all five named composite indexes on `chat`, including the
+#     `ix_chat_current_message` index that targets the generated column.
+#   * Leave the `share_id VARCHAR(43) NULL` reservation in place for M3.
+#
+# We add this as a sibling test rather than extending
+# `test_partial_upgrade_recovers` so the M0 contract (the helper is
+# non-destructive on a partial table) and the M2 contract (the helper
+# fills in everything the missing revision was supposed to add) are
+# each testable in isolation.
+
+
+def test_partial_upgrade_recovers_m2(fresh_db: str) -> None:
+    cfg = _alembic_config()
+
+    # Bring M0 to a clean state — `user` table + `alembic_version` row
+    # at `0001_baseline`. We use the alembic command rather than raw
+    # DDL so the version-tracking row is set correctly; the next
+    # `upgrade head` then only needs to advance from M0 to M2.
+    command.upgrade(cfg, "0001_baseline")
+
+    # Pre-create `folder` matching exactly what the M2 revision would
+    # have created — including the inline self-FK and the
+    # `ix_folder_user_parent` composite index — to simulate the M2
+    # revision crashing AFTER `folder` landed and BEFORE `chat` did.
+    # Column types and FK shape match
+    # `alembic/versions/0002_m2_chat_folder.py::upgrade()` step 1 byte-
+    # for-byte; if those drift, `chat`'s `fk_chat_folder_id_folder` will
+    # fail at FK-creation time (InnoDB checks referenced/referencing
+    # column types) and surface here instead of in production.
+    _run(
+        _async_exec(
+            fresh_db,
+            "CREATE TABLE `folder` ("
+            "  id VARCHAR(36) NOT NULL,"
+            "  user_id VARCHAR(36) NOT NULL,"
+            "  parent_id VARCHAR(36) NULL,"
+            "  name TEXT NOT NULL,"
+            "  expanded BOOLEAN NOT NULL DEFAULT 0,"
+            "  created_at BIGINT NOT NULL,"
+            "  updated_at BIGINT NOT NULL,"
+            "  CONSTRAINT pk_folder PRIMARY KEY (id),"
+            "  CONSTRAINT fk_folder_user_id_user FOREIGN KEY (user_id) "
+            "    REFERENCES `user`(id) ON DELETE CASCADE,"
+            "  CONSTRAINT fk_folder_parent_id_folder FOREIGN KEY (parent_id) "
+            "    REFERENCES `folder`(id) ON DELETE CASCADE,"
+            "  KEY ix_folder_user_parent (user_id, parent_id)"
+            ") ENGINE=InnoDB CHARSET=utf8mb4 "
+            "COLLATE=utf8mb4_0900_ai_ci",
+        )
+    )
+
+    # Recovery: a single `alembic upgrade head` must complete the half-
+    # applied revision without operator intervention.
+    command.upgrade(cfg, "head")
+
+    # 1. `chat` exists alongside the pre-existing `folder`.
+    tables = _run(_async_list_tables(fresh_db))
+    assert "chat" in tables
+    assert "folder" in tables
+
+    # 2. Every base column landed, INCLUDING the M3-reserved `share_id`
+    #    placeholder (always NULL in M2; M3 attaches its FK + unique
+    #    index via the `0003_m3_sharing` revision).
+    chat_columns = set(_run(_async_list_columns(fresh_db, "chat")))
+    expected = {
+        "id",
+        "user_id",
+        "title",
+        "history",
+        "folder_id",
+        "archived",
+        "pinned",
+        "share_id",
+        "created_at",
+        "updated_at",
+        "current_message_id",
+    }
+    missing = expected - chat_columns
+    assert not missing, f"chat is missing columns: {sorted(missing)}"
+
+    # 3. `current_message_id` is a STORED generated column, not a plain
+    #    `VARCHAR(36) NULL`. MySQL exposes the generation kind through
+    #    `INFORMATION_SCHEMA.COLUMNS.EXTRA`; for a STORED generated
+    #    column the value is the literal string `'STORED GENERATED'`.
+    extra = _run(_async_column_extra(fresh_db, "chat", "current_message_id"))
+    assert (
+        extra == "STORED GENERATED"
+    ), f"expected current_message_id to be STORED GENERATED, got EXTRA={extra!r}"
+
+    # 4. All five composite indexes on `chat` are present, including
+    #    `ix_chat_current_message` which targets the generated column.
+    chat_indexes = _run(_async_list_index_names(fresh_db, "chat"))
+    expected_indexes = {
+        "ix_chat_user_updated",
+        "ix_chat_user_pinned_updated",
+        "ix_chat_user_archived_updated",
+        "ix_chat_user_folder_updated",
+        "ix_chat_current_message",
+    }
+    missing_indexes = expected_indexes - chat_indexes
+    assert not missing_indexes, f"chat is missing indexes: {sorted(missing_indexes)}"
+
+    # 5. Both cross-table FKs landed with their named constraints.
+    chat_fks = _run(_async_list_fk_names(fresh_db, "chat"))
+    assert "fk_chat_user_id_user" in chat_fks
+    assert "fk_chat_folder_id_folder" in chat_fks
+
+    # 6. The pre-existing folder is untouched and still carries the
+    #    self-FK + composite index it was created with.
+    folder_fks = _run(_async_list_fk_names(fresh_db, "folder"))
+    assert "fk_folder_user_id_user" in folder_fks
+    assert "fk_folder_parent_id_folder" in folder_fks
+    folder_indexes = _run(_async_list_index_names(fresh_db, "folder"))
+    assert "ix_folder_user_parent" in folder_indexes
+
+    # 7. Re-running `alembic upgrade head` immediately after recovery is
+    #    a no-op. Belt-and-braces idempotency check on top of the
+    #    head-walk contract test above.
+    command.upgrade(cfg, "head")
+    assert _run(_async_list_tables(fresh_db)) == tables
 
 
 # ---------------------------------------------------------------------------

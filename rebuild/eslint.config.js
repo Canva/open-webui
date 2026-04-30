@@ -107,6 +107,10 @@ export default [
     files: [
       'frontend/src/**/*.{ts,js}',
       'frontend/tests/**/*.{ts,js}',
+      // CT runtime infrastructure: the SvelteKit virtual-module stubs
+      // and any other test-only helpers under `frontend/playwright/`
+      // (see `playwright-ct.config.ts` for why those exist).
+      'frontend/playwright/**/*.{ts,js}',
       '*.config.{ts,js}',
       '*.config.cjs',
     ],
@@ -133,6 +137,7 @@ export default [
         // (`bind:this={el}` callbacks, MediaQueryList listeners, etc.).
         // ESLint's `no-undef` flags TS interface names the same way it
         // flags runtime identifiers, so the names must be declared here.
+        Element: 'readonly',
         HTMLElement: 'readonly',
         HTMLDivElement: 'readonly',
         HTMLInputElement: 'readonly',
@@ -148,6 +153,35 @@ export default [
         Document: 'readonly',
         Location: 'readonly',
         Storage: 'readonly',
+        // M2 streaming + cancellation primitives. `AbortController` /
+        // `AbortSignal` thread through `ActiveChatStore.send()` into
+        // the `chats.send` client method; `crypto.randomUUID()` mints
+        // optimistic temp ids in chats / folders / toast stores;
+        // `ReadableStream` / `TextDecoder` are the Web-Streams API
+        // building blocks consumed by `lib/utils/sse.ts`; `DOMException`
+        // is the universal `AbortError` shape across browsers and
+        // Node's undici.
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        DOMException: 'readonly',
+        ReadableStream: 'readonly',
+        TextDecoder: 'readonly',
+        TextEncoder: 'readonly',
+        crypto: 'readonly',
+        // Drag-and-drop primitives used by the sidebar specs that
+        // synthesise a HTML5 DnD sequence inside `page.evaluate(...)`.
+        // The callbacks run in the browser; ESLint sees the source as
+        // plain TS in the worker, so the names must be allow-listed.
+        DataTransfer: 'readonly',
+        DragEvent: 'readonly',
+        // Timer + microtask helpers: E2E specs that pace artificial
+        // SSE streams (see `tests/e2e/cancel-mid-stream.spec.ts`)
+        // need `setTimeout` available at module scope.
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        queueMicrotask: 'readonly',
         // Node globals available in server modules / configs.
         process: 'readonly',
         URL: 'readonly',
@@ -201,13 +235,47 @@ export default [
         document: 'readonly',
         fetch: 'readonly',
         console: 'readonly',
+        navigator: 'readonly',
+        sessionStorage: 'readonly',
+        localStorage: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        queueMicrotask: 'readonly',
+        confirm: 'readonly',
+        URL: 'readonly',
+        Blob: 'readonly',
+        // Browser DOM interface types used as TypeScript annotations
+        // (`bind:this={el}` callbacks, drag/keyboard handlers, etc.).
+        // ESLint's `no-undef` flags TS interface names the same way it
+        // flags runtime identifiers, so the names must be declared here.
         HTMLElement: 'readonly',
         HTMLDivElement: 'readonly',
+        HTMLSpanElement: 'readonly',
         HTMLInputElement: 'readonly',
         HTMLButtonElement: 'readonly',
         HTMLAnchorElement: 'readonly',
+        HTMLTextAreaElement: 'readonly',
+        HTMLSelectElement: 'readonly',
         MediaQueryList: 'readonly',
         MediaQueryListEvent: 'readonly',
+        // Event types used by inline handler signatures across the M2
+        // chat surfaces (drag/drop, keyboard, click, form submit).
+        Event: 'readonly',
+        KeyboardEvent: 'readonly',
+        MouseEvent: 'readonly',
+        DragEvent: 'readonly',
+        SubmitEvent: 'readonly',
+        FocusEvent: 'readonly',
+        ClipboardEvent: 'readonly',
+        // M2 streaming + cancellation primitives, mirrored from the .ts block.
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        DOMException: 'readonly',
+        ReadableStream: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
         $state: 'readonly',
         $derived: 'readonly',
         $effect: 'readonly',
@@ -219,8 +287,18 @@ export default [
     },
     rules: {
       'no-restricted-imports': ['error', restrictedImports],
+      // Match the .ts block: the typescript-eslint variant respects
+      // type signatures and the `_`-prefix opt-out, which is the
+      // signal we use for "param required by the contract but unused
+      // in this implementation" (e.g. callback prop type sigs).
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       // `<slot>` element usage is rejected by the `lint:grep` npm script;
       // see the header comment above for why no plugin rule is wired here.
     },
+    plugins: { '@typescript-eslint': tsPlugin },
   },
 ];

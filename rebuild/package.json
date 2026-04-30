@@ -23,6 +23,7 @@
     "@tailwindcss/postcss": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@types/culori": "^4.0.1",
+    "@types/katex": "^0.16.8",
     "@typescript-eslint/eslint-plugin": "^8.13.0",
     "@typescript-eslint/parser": "^8.13.0",
     "culori": "^4.0.2",
@@ -42,5 +43,11 @@
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vitest": "^2.1.4"
+  },
+  "dependencies": {
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.4.1",
+    "katex": "^0.16.45",
+    "marked": "^18.0.2"
   }
 }

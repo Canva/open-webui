@@ -53,9 +53,13 @@
   /* Color: semantic status hues (badges only, never decorative). */
   --color-signal-blue: oklch(0.62 0.19 259);
   --color-signal-blue-pressed: oklch(0.54 0.21 262);
-  --color-status-success: oklch(0.72 0.21 149);
-  --color-status-warning: oklch(0.79 0.17 70);
-  --color-status-danger: oklch(0.64 0.24 25);
+  /* `--color-status-success` / `--color-status-warning` / `--color-status-danger`
+   * are owned by the M1 role-token vocabulary in the @theme inline { ... }
+   * block below (which also adds `--color-status-info`); do not redeclare
+   * them here. M2 deletes the M0 oklch literals per
+   * `rebuild/docs/plans/m2-conversations.md` § Deliverables (M1 cleanup
+   * bullet); Tailwind utilities resolve via the runtime `--status-*` vars
+   * in either case. */
 
   /* Typography: every stack carries Vazirmatn (RTL parity). */
   --font-sans: 'Inter', 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;

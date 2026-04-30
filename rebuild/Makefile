@@ -28,7 +28,7 @@
 # Tail container output with `make logs`.
 # ---------------------------------------------------------------------------
 
-.PHONY: setup dev migrate lint typecheck test-unit test-component test-e2e-smoke build down logs
+.PHONY: setup dev migrate lint typecheck test-unit test-component test-e2e-smoke verify-stack verify-migrate build down logs
 
 # One-shot install of backend (uv) and frontend (npm) dependencies.
 setup:
@@ -36,16 +36,27 @@ setup:
 	npm ci
 
 # Bring up mysql + redis + app containers and wait for healthchecks.
+# `--build` ensures the `app` image is rebuilt when backend or frontend
+# source changes -- without it, docker compose silently reuses the cached
+# image and you boot stale code (no new routes, no new migrations).
 # Reminder: this does NOT start the Vite dev server -- run `npm run dev`
 # in a second terminal to serve the SvelteKit frontend on :5173.
 dev:
-	docker compose -f infra/docker-compose.yml up -d --wait
+	docker compose -f infra/docker-compose.yml up -d --build --wait
 
-# Run Alembic against the configured DATABASE_URL from the host. Only
-# needed when iterating on revisions; the Docker `app` container migrates
-# itself on boot.
+# Run Alembic against the host-mapped MySQL container from the host.
+# Only needed when iterating on revisions; the Docker `app` container
+# migrates itself on boot.
+#
+# The default `Settings.DATABASE_URL` points at hostname `mysql` (the
+# docker compose service name), which only resolves inside the compose
+# network. Override here so the host invocation lands on the published
+# port (`13306` -> container `3306`, see `infra/docker-compose.yml`).
+# A developer can pre-set `DATABASE_URL` in the env to point elsewhere
+# (staging, a different local cluster, ...) and the override falls
+# through.
 migrate:
-	cd backend && uv run --project . alembic upgrade head
+	cd backend && DATABASE_URL=$${DATABASE_URL:-mysql+asyncmy://rebuild:rebuild@127.0.0.1:13306/rebuild?charset=utf8mb4} uv run --project . alembic upgrade head
 
 # Lint backend (ruff) and frontend (eslint + prettier + custom grep).
 lint:
@@ -71,6 +82,50 @@ test-component:
 # (`make dev`) AND the Vite dev server (`npm run dev`) to be running.
 test-e2e-smoke:
 	npm run -s test:e2e:smoke
+
+# Cold-build the docker image, bring up mysql + redis + app, hit the
+# canonical health + bootstrap routes, confirm the DB is at the expected
+# alembic head, and tear down. This is the "the stack actually boots
+# clean from cold" gate the verifier and milestone acceptance criteria
+# rely on; it catches Dockerfile regressions, missing build-time env
+# vars, and broken migrations that the lint / typecheck / unit / e2e
+# gates can't see.
+#
+# DESTRUCTIVE: tears down the rebuild_* compose stack and drops the
+# mysql volume on entry AND on exit (success or failure). Don't run
+# while you have work-in-progress data in the dev MySQL.
+verify-stack:
+	@bash -c 'set -eu ; \
+	  trap "docker compose -f infra/docker-compose.yml down -v --remove-orphans >/dev/null 2>&1 || true" EXIT ; \
+	  docker compose -f infra/docker-compose.yml down -v --remove-orphans >/dev/null 2>&1 || true ; \
+	  echo "==> docker compose up --build --wait" ; \
+	  docker compose -f infra/docker-compose.yml up -d --build --wait ; \
+	  echo "==> GET /healthz" ; curl -fsS http://localhost:8080/healthz ; echo ; \
+	  echo "==> GET /readyz"  ; curl -fsS http://localhost:8080/readyz  ; echo ; \
+	  echo "==> GET /api/me (trusted-header bootstrap)" ; \
+	  curl -fsS -H "X-Forwarded-Email: verifier@canva.com" http://localhost:8080/api/me ; echo ; \
+	  echo "==> alembic head" ; \
+	  docker exec rebuild_mysql mysql -urebuild -prebuild rebuild -sNe "SELECT version_num FROM alembic_version" 2>/dev/null ; \
+	  echo "verify-stack OK"'
+
+# Bring up only the mysql container, run `make migrate` against it from
+# the host (exercises the documented host alembic flow), and confirm the
+# DB lands at head. Catches alembic.ini path bugs and DATABASE_URL
+# defaults that don't resolve from the host.
+#
+# DESTRUCTIVE: tears down rebuild_mysql and drops its volume on entry
+# AND on exit so the host migration starts against an empty schema.
+verify-migrate:
+	@bash -c 'set -eu ; \
+	  trap "docker compose -f infra/docker-compose.yml down -v --remove-orphans >/dev/null 2>&1 || true" EXIT ; \
+	  docker compose -f infra/docker-compose.yml down -v --remove-orphans >/dev/null 2>&1 || true ; \
+	  echo "==> docker compose up mysql --wait" ; \
+	  docker compose -f infra/docker-compose.yml up -d mysql --wait ; \
+	  echo "==> make migrate" ; \
+	  $(MAKE) -s migrate ; \
+	  echo "==> alembic head" ; \
+	  docker exec rebuild_mysql mysql -urebuild -prebuild rebuild -sNe "SELECT version_num FROM alembic_version" 2>/dev/null ; \
+	  echo "verify-migrate OK"'
 
 # Build the production app image (used by CI and prod deploy, not by
 # `make dev` -- which builds via docker compose).

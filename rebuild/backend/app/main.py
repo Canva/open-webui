@@ -5,6 +5,19 @@ The factory pattern keeps tests isolated — each fixture can build a fresh
 ``settings`` and the engine.
 
 Routers are mounted by the factory; no router knows about the others.
+
+M2 hosts every long-lived singleton on ``app.state`` so routes resolve
+them through the ``Provider`` / ``ModelsCacheDep`` / ``RedisDep`` /
+``StreamRegistryDep`` dependency aliases rather than via module-level
+singletons (single-instance-per-worker; fork-safe; testable via
+``app.dependency_overrides`` — see
+``rebuild/docs/best-practises/FastAPI-best-practises.md`` § A.5 / § B.4).
+
+Construction order matters: the Redis connection pool is built first so
+the :class:`StreamRegistry` (which holds it) can be constructed next,
+before the provider/cache. Shutdown reverses the order: registry, then
+Redis, then provider — so the registry can drain its in-flight pubsub
+subscriptions while the connection pool is still alive.
 """
 
 from __future__ import annotations
@@ -14,19 +27,44 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from redis.asyncio import Redis
 
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
-from app.routers import health, me
+from app.providers.openai import OpenAICompatibleProvider
+from app.routers import chats, folders, health, me, models
+from app.services.models_cache import ModelsCache
+from app.services.stream_registry import StreamRegistry
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.LOG_LEVEL)
-    yield
-    # No teardown needed in M0; the engine is process-scoped and uvicorn
-    # tears the worker down. M2+ add SSE registry / socket.io shutdown here.
+    # Redis pool first — the StreamRegistry below holds a reference to it
+    # for pubsub subscribe/publish. ``decode_responses=False`` keeps the
+    # bytes payloads we publish on cancel (``b"1"``) untouched; the
+    # registry never inspects the value.
+    redis = Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=False,
+        max_connections=10,
+    )
+    app.state.redis = redis
+    app.state.stream_registry = StreamRegistry(redis=redis)
+    provider = OpenAICompatibleProvider()
+    app.state.provider = provider
+    app.state.models_cache = ModelsCache(provider)
+    try:
+        yield
+    finally:
+        # Tear down in reverse construction order. The registry needs
+        # the Redis pool alive while it cancels its outstanding pubsub
+        # subscriptions; closing Redis first would leave the listen
+        # tasks raising on a dead connection.
+        await app.state.stream_registry.aclose()
+        await redis.aclose()
+        await provider.aclose()
 
 
 def create_app() -> FastAPI:
@@ -42,6 +80,9 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(health.router)
     app.include_router(me.router)
+    app.include_router(models.router)
+    app.include_router(folders.router)
+    app.include_router(chats.router)
     return app
 
 
