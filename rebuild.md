@@ -12,6 +12,8 @@
 | M5  | Automations. `automation`/`automation_run` tables, APScheduler worker w/ `FOR UPDATE SKIP LOCKED`, execute against provider, post to chat or channel, port editor + RRULE picker                                                                                                            | 1.5 weeks | [rebuild/docs/plans/m5-automations.md](rebuild/docs/plans/m5-automations.md)     |
 | M6  | Hardening + deploy. OTel + structured logs, rate limits, request timeouts, deploy pipeline, ops runbook, empty-slate cutover (no data migration)                                                                                                                                            | 3–4 days  | [rebuild/docs/plans/m6-hardening.md](rebuild/docs/plans/m6-hardening.md)         |
 
+> **Cross-cutting plans** also live under [`rebuild/docs/plans/`](rebuild/docs/plans/) — currently the dev-only local agent platform plan ([`feature-llm-models.md`](rebuild/docs/plans/feature-llm-models.md)) lands an `agent-platform` (Pydantic AI + Ollama) compose service so `make dev` exercises the M2 streaming path end-to-end without an external token. Dev-loop only; the runtime image and prod deploy are unchanged.
+
 ## 1. Decision: rebuild, not strip
 
 The current fork is ~39k LOC backend + ~128k LOC frontend, with three big architectural debts that are not fixable without a rewrite:
@@ -56,6 +58,8 @@ Two external services only: **MySQL** (rows + file blobs + scheduler row-lease v
 - Infra: MySQL 8.0, Redis 7, single multi-stage Docker image, Buildkite (consistent with `.buildkite/` in the current repo, which already has `test-mysql` targets in [`Makefile`](Makefile)).
 
 **Provider abstraction.** A single `OpenAICompatibleProvider` pointed at the internal model gateway via a configurable `MODEL_GATEWAY_BASE_URL`. Models are discovered dynamically via the gateway's `/v1/models` endpoint and surfaced in the model selector — no hardcoded model list, no provider matrix, no LiteLLM. The OpenAI SDK is used purely as transport.
+
+**Local dev gateway (compose only).** The dev `docker compose` stack ships a small OpenAI-compatible local upstream alongside MySQL and Redis — `agent-platform`, a Pydantic-AI wrapper in front of an `ollama` daemon — so a fresh `make dev` produces a populated `/v1/models` and streaming chat without any external token. This is dev-loop infrastructure (same category as the dev MySQL container), **not** a runtime provider class: `OpenAICompatibleProvider` stays the sole transport, the runtime image never picks up `pydantic-ai` or any LLM transitives, and staging/prod continue to point `MODEL_GATEWAY_BASE_URL` at the real internal gateway. The locked single-provider decision in §9 is unchanged. See [`rebuild/docs/plans/feature-llm-models.md`](rebuild/docs/plans/feature-llm-models.md).
 
 **File storage.** Files live in MySQL as `MEDIUMBLOB` rows in a dedicated `file_blob` table, separate from the `file` metadata table so that listing files never pulls binary payloads. Hard cap of **5 MiB per file** enforced at upload (FastAPI `UploadFile` size check + MySQL `max_allowed_packet=16M`). With this cap, MEDIUMBLOB (max 16 MiB) is sufficient and avoids LONGBLOB's larger row overhead. Streaming reads still use chunked transfers to the client. The `FileStore` interface is a thin facade so we can swap to S3 if scale ever forces it later — no caller code changes when we do.
 
