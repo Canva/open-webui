@@ -17,7 +17,7 @@ In this order. Where two disagree, the rule below decides.
 5. `.cursor/skills/impeccable/SKILL.md`, `.cursor/skills/impeccable/PROJECT.md`, and the project context under `.cursor/skills/impeccable/project/` (`PRODUCT.md`, `DESIGN.md`, `DESIGN.json`) — win on **visual decisions, copy, component structure**.
 6. `.cursor/skills/impeccable/reference/*.md` — win on **craft technique** for the impeccable command picked from the routing table below.
 
-Upstream `src/lib/components/` is reference material for *what to port*, never authoritative for *what is correct*.
+Upstream `src/lib/components/` is reference material for _what to port_, never authoritative for _what is correct_.
 
 ## Best-practises files to load before writing code
 
@@ -57,18 +57,18 @@ These come from `.cursor/skills/impeccable/PROJECT.md` § Project-specific absol
 
 Pick **one** impeccable command per dispatched task before you write code. The orchestrator (`implement-plan`) will usually name it for you in the dispatch; if it didn't, infer from the work shape:
 
-| Work shape | Command |
-|---|---|
-| Net-new visually-significant route or component (no upstream equivalent) | `craft` (run `shape` first) |
-| Net-new component that is a small variation of an existing one | `polish` |
-| Legacy port from `src/lib/components/{chat,channel,automations}/` | `polish` then `harden` |
-| Style refresh on existing rebuild surface | `polish` (or `bolder` / `quieter` / `distill` if briefed) |
-| Bug fix with no visual delta | none (mechanical rules still apply) |
-| Pre-milestone sweep | `audit` then `polish` per finding |
-| Empty / loading / error / first-run states | `onboard` then `harden` |
-| Adapt for a new viewport | `adapt` |
-| UI feels slow or janky | `optimize` |
-| Copy / labels / errors | `clarify` |
+| Work shape                                                               | Command                                                   |
+| ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Net-new visually-significant route or component (no upstream equivalent) | `craft` (run `shape` first)                               |
+| Net-new component that is a small variation of an existing one           | `polish`                                                  |
+| Legacy port from `src/lib/components/{chat,channel,automations}/`        | `polish` then `harden`                                    |
+| Style refresh on existing rebuild surface                                | `polish` (or `bolder` / `quieter` / `distill` if briefed) |
+| Bug fix with no visual delta                                             | none (mechanical rules still apply)                       |
+| Pre-milestone sweep                                                      | `audit` then `polish` per finding                         |
+| Empty / loading / error / first-run states                               | `onboard` then `harden`                                   |
+| Adapt for a new viewport                                                 | `adapt`                                                   |
+| UI feels slow or janky                                                   | `optimize`                                                |
+| Copy / labels / errors                                                   | `clarify`                                                 |
 
 A port is **never** `craft`. Crafting a port is scope creep into redesign — surface the request to the orchestrator first and let the user decide.
 
@@ -83,11 +83,11 @@ A port is **never** `craft`. Crafting a port is scope creep into redesign — su
    - `.cursor/skills/impeccable/project/PRODUCT.md`, `project/DESIGN.md`, `project/DESIGN.json`.
    - `.cursor/skills/impeccable/reference/product.md`, plus the reference file matching your picked command (e.g. `reference/craft.md`, `reference/polish.md`, `reference/audit.md`).
    - For visual changes, also `reference/spatial-design.md` and `reference/typography.md`. Add `reference/motion-design.md`, `reference/responsive-design.md`, `reference/color-and-contrast.md`, `reference/interaction-design.md`, `reference/ux-writing.md` based on the task.
-   Skip any file that is already in the session and unchanged.
+     Skip any file that is already in the session and unchanged.
 3. **Plan.** If porting, enumerate two lists in your handoff message **before writing code**:
    - **Imports to delete** (the upstream junk: tools, skills, RAG, MCP, etc.).
    - **Design violations to fix** (from the absolute bans + token-first styling rules in `PROJECT.md`).
-   If neither list has entries on a port, you've under-read the upstream component.
+     If neither list has entries on a port, you've under-read the upstream component.
 4. **Implement.** Build to the milestone-plan spec, the `DESIGN.json` tokens, and the impeccable command's reference file. Resolve conflicts using the order in `PROJECT.md` § Conflict resolution.
 5. **Gate.** Run `cd rebuild && make lint typecheck test-unit test-component`. Fix any failures before continuing.
 6. **Design self-critique.** Run the eight checks from `PROJECT.md` § Self-critique before handoff:
@@ -99,7 +99,7 @@ A port is **never** `craft`. Crafting a port is scope creep into redesign — su
    6. Responsive coverage (adapts, doesn't just shrink).
    7. RTL parity.
    8. `prefers-reduced-motion` gating on any added motion.
-   Iterate until each check passes. **Then** refresh visual baselines.
+      Iterate until each check passes. **Then** refresh visual baselines.
 
 ## Handoff message contract
 

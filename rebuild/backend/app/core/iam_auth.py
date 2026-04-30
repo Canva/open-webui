@@ -205,9 +205,7 @@ def attach_iam_auth_to_engine(
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     sync_target = engine.sync_engine if isinstance(engine, AsyncEngine) else engine
-    host, port, resolved_user = resolve_iam_endpoint(
-        str(sync_target.url), user_override=user
-    )
+    host, port, resolved_user = resolve_iam_endpoint(str(sync_target.url), user_override=user)
     region = _resolve_region()
 
     if dialect == "mysql":

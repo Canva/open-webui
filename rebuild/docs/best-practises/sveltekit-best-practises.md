@@ -25,16 +25,16 @@ If you remember nothing else from this document, remember these. Every other sec
 
 ### 1.1 The route file alphabet
 
-| File                     | Runs on        | Purpose                                                                                  |
-| ------------------------ | -------------- | ---------------------------------------------------------------------------------------- |
-| `+page.svelte`           | server + browser | The page component. Receives `data` (from `load`) and `form` (from actions) as `$props`. |
-| `+page.ts`               | server + browser | Universal `load`. Runs both during SSR and during client navigation.                     |
-| `+page.server.ts`        | server only    | Server `load` and form `actions`. Can touch the DB, cookies, private env.                |
-| `+layout.svelte`         | server + browser | Wraps every child route. Renders `{@render children()}`.                                 |
-| `+layout.ts`             | server + browser | Universal layout `load`. Result is merged into every child page's `data`.                |
-| `+layout.server.ts`      | server only    | Server layout `load`. Use for things shared across many routes (auth user, navigation).  |
-| `+server.ts`             | server only    | API endpoint. Exports `GET` / `POST` / `PUT` / etc. returning `Response`.                |
-| `+error.svelte`          | server + browser | Catches errors thrown in `load` (and rendering, with the experimental flag) for this subtree. |
+| File                | Runs on          | Purpose                                                                                       |
+| ------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| `+page.svelte`      | server + browser | The page component. Receives `data` (from `load`) and `form` (from actions) as `$props`.      |
+| `+page.ts`          | server + browser | Universal `load`. Runs both during SSR and during client navigation.                          |
+| `+page.server.ts`   | server only      | Server `load` and form `actions`. Can touch the DB, cookies, private env.                     |
+| `+layout.svelte`    | server + browser | Wraps every child route. Renders `{@render children()}`.                                      |
+| `+layout.ts`        | server + browser | Universal layout `load`. Result is merged into every child page's `data`.                     |
+| `+layout.server.ts` | server only      | Server layout `load`. Use for things shared across many routes (auth user, navigation).       |
+| `+server.ts`        | server only      | API endpoint. Exports `GET` / `POST` / `PUT` / etc. returning `Response`.                     |
+| `+error.svelte`     | server + browser | Catches errors thrown in `load` (and rendering, with the experimental flag) for this subtree. |
 
 Two rules you can lean on without thinking:
 
@@ -208,10 +208,7 @@ const parent = await parentLoad();
 const data = await getData(params);
 
 // GOOD — parallel where possible
-const [parentData, data] = await Promise.all([
-  parentLoad(),
-  getData(params)
-]);
+const [parentData, data] = await Promise.all([parentLoad(), getData(params)]);
 ```
 
 Inside a single `load`, **issue independent fetches in parallel**:
@@ -234,8 +231,8 @@ Top-level promises in a `load` return value used to be auto-awaited in SvelteKit
 ```ts
 // +page.server.ts
 export const load = async ({ params }) => ({
-  post: await loadPost(params.slug),       // blocks render
-  comments: loadComments(params.slug)      // streams in afterwards
+  post: await loadPost(params.slug), // blocks render
+  comments: loadComments(params.slug), // streams in afterwards
 });
 ```
 
@@ -265,7 +262,7 @@ Caveats:
 - Or when a parent's `load` (that this `load` `await parent()`s) reruns.
 - Use `depends('app:foo')` to register a custom dependency, then `invalidate('app:foo')` to refresh just that.
 
-Don't reach for `invalidateAll()` reflexively — it reruns *every* `load` for the current page, including layout loads. Targeted `invalidate(url)` is almost always what you want.
+Don't reach for `invalidateAll()` reflexively — it reruns _every_ `load` for the current page, including layout loads. Targeted `invalidate(url)` is almost always what you want.
 
 **References**
 
@@ -295,7 +292,7 @@ export const actions: Actions = {
 
     const chat = await db.createChat({ userId: locals.user.id, title });
     redirect(303, `/chats/${chat.id}`);
-  }
+  },
 };
 ```
 
@@ -327,9 +324,15 @@ If a button is the only caller, that's a form action. If there's an API in your 
 ```ts
 // All four buttons on /login post to actions on the same page
 export const actions: Actions = {
-  login: async (event) => { /* … */ },
-  register: async (event) => { /* … */ },
-  forgot: async (event) => { /* … */ }
+  login: async (event) => {
+    /* … */
+  },
+  register: async (event) => {
+    /* … */
+  },
+  forgot: async (event) => {
+    /* … */
+  },
 };
 ```
 
@@ -362,12 +365,12 @@ export const actions: Actions = {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
-      secure: !dev
+      secure: !dev,
     });
 
     // Redirect on success — form prop will not be set
     redirect(303, '/dashboard');
-  }
+  },
 };
 ```
 
@@ -388,7 +391,7 @@ cookies.set('sessionid', token, {
   httpOnly: true,
   sameSite: 'lax',
   secure: !dev,
-  maxAge: 60 * 60 * 24 * 30
+  maxAge: 60 * 60 * 24 * 30,
 });
 ```
 
@@ -490,10 +493,10 @@ For a 3-field login form, plain `use:enhance` + a hand-written check is shorter 
 
 ### 5.1 The three hook files
 
-| File              | Runs on        | Common exports                                 |
-| ----------------- | -------------- | ---------------------------------------------- |
-| `hooks.server.ts` | server only    | `handle`, `handleFetch`, `handleError`, `init` |
-| `hooks.client.ts` | browser only   | `handleError`, `init`                          |
+| File              | Runs on          | Common exports                                 |
+| ----------------- | ---------------- | ---------------------------------------------- |
+| `hooks.server.ts` | server only      | `handle`, `handleFetch`, `handleError`, `init` |
+| `hooks.client.ts` | browser only     | `handleError`, `init`                          |
 | `hooks.ts`        | server + browser | `reroute`, `transport`                         |
 
 ### 5.2 `handle` — your server middleware
@@ -535,7 +538,10 @@ Use `sequence(...)` from `@sveltejs/kit/hooks` to compose multiple `Handle` func
 - Bypass the public URL when the server can hit the API directly:
   ```ts
   if (request.url.startsWith('https://api.example.com/')) {
-    request = new Request(request.url.replace('https://api.example.com', 'http://internal-api:8080'), request);
+    request = new Request(
+      request.url.replace('https://api.example.com', 'http://internal-api:8080'),
+      request,
+    );
   }
   ```
 - Forward auth cookies to subdomains (SvelteKit's automatic cookie forwarding only covers same-origin and stricter subdomains).
@@ -571,7 +577,7 @@ The matching `hooks.client.ts` `handleError` lets you forward client-side render
 // src/hooks.ts
 const map: Record<string, string> = {
   '/de/ueber-uns': '/de/about',
-  '/fr/a-propos': '/fr/about'
+  '/fr/a-propos': '/fr/about',
 };
 export const reroute = ({ url }) => map[url.pathname];
 ```
@@ -595,10 +601,10 @@ Not applied recursively, not applied to external URLs. Server errors return 500;
 
 ### 6.1 Session vs token
 
-| Approach | Pros | Cons | Use when |
-|----------|------|------|----------|
-| **Server session ID** in cookie + DB lookup per request | Immediate revocation, small cookie | DB roundtrip on every request | Default. Fine for our scale. |
-| **Signed JWT** in cookie, no DB lookup | No DB hit per request, edge-deployable | Cannot revoke until expiry; rotating secrets is painful | High RPS, latency-critical, edge runtime |
+| Approach                                                | Pros                                   | Cons                                                    | Use when                                 |
+| ------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------- | ---------------------------------------- |
+| **Server session ID** in cookie + DB lookup per request | Immediate revocation, small cookie     | DB roundtrip on every request                           | Default. Fine for our scale.             |
+| **Signed JWT** in cookie, no DB lookup                  | No DB hit per request, edge-deployable | Cannot revoke until expiry; rotating secrets is painful | High RPS, latency-critical, edge runtime |
 
 For this rebuild's profile (single managed MySQL, normal request volumes), **session-ID-in-cookie** is the default. JWTs are a premature optimisation.
 
@@ -614,8 +620,8 @@ For this rebuild's profile (single managed MySQL, normal request volumes), **ses
 
 This is the most-asked SvelteKit question. The trade-off:
 
-- **In `hooks.server.ts`** — runs on every request including `+server.ts` and form actions. Cleanest for "block /admin/* unless admin" style guards.
-- **In `+layout.server.ts`** — child loads must `await parent()` to be guaranteed it ran. Otherwise loads run in parallel. Layout loads are also cached across navigations, which means a child page navigation might *not* re-trigger the layout's auth check.
+- **In `hooks.server.ts`** — runs on every request including `+server.ts` and form actions. Cleanest for "block /admin/\* unless admin" style guards.
+- **In `+layout.server.ts`** — child loads must `await parent()` to be guaranteed it ran. Otherwise loads run in parallel. Layout loads are also cached across navigations, which means a child page navigation might _not_ re-trigger the layout's auth check.
 - **In `+page.server.ts`** — runs every time the page loads. Most explicit, no performance pitfalls.
 
 **Recommended pattern** for the rebuild:
@@ -655,10 +661,10 @@ Then call `const user = requireUser();` from any `load` or action without thread
 ```ts
 cookies.set('sessionid', token, {
   path: '/',
-  httpOnly: true,    // not readable from JS — protects against XSS
-  sameSite: 'lax',   // not sent on most cross-site POSTs — CSRF defence
-  secure: !dev,      // HTTPS-only in production
-  maxAge: 60 * 60 * 24 * 30
+  httpOnly: true, // not readable from JS — protects against XSS
+  sameSite: 'lax', // not sent on most cross-site POSTs — CSRF defence
+  secure: !dev, // HTTPS-only in production
+  maxAge: 60 * 60 * 24 * 30,
 });
 ```
 
@@ -689,12 +695,12 @@ For greenfield work, [Better Auth](https://www.better-auth.com/) and [Lucia](htt
 
 ### 7.1 The four `$env` modules
 
-| Module                   | When                  | Visibility | Use for                                     |
-| ------------------------ | --------------------- | ---------- | ------------------------------------------- |
-| `$env/static/private`    | Build time, replaced  | Server-only | API keys, DB URL — when the value is fixed at build |
-| `$env/static/public`     | Build time, replaced  | Anywhere   | `PUBLIC_*` — public config like analytics keys |
-| `$env/dynamic/private`   | Runtime, `process.env` | Server-only | Secrets that vary per environment without rebuild |
-| `$env/dynamic/public`    | Runtime               | Anywhere   | Public config that needs to change without rebuild |
+| Module                 | When                   | Visibility  | Use for                                             |
+| ---------------------- | ---------------------- | ----------- | --------------------------------------------------- |
+| `$env/static/private`  | Build time, replaced   | Server-only | API keys, DB URL — when the value is fixed at build |
+| `$env/static/public`   | Build time, replaced   | Anywhere    | `PUBLIC_*` — public config like analytics keys      |
+| `$env/dynamic/private` | Runtime, `process.env` | Server-only | Secrets that vary per environment without rebuild   |
+| `$env/dynamic/public`  | Runtime                | Anywhere    | Public config that needs to change without rebuild  |
 
 Rules:
 
@@ -719,7 +725,7 @@ Importing either from code that ends up in the browser bundle is a **build-time 
 export const db = createClient(env.DATABASE_URL);
 
 // src/routes/+page.svelte — fails to build
-import { db } from '$lib/server/db';   // ← compile error
+import { db } from '$lib/server/db'; // ← compile error
 ```
 
 ### 7.3 `$app/server`
@@ -740,9 +746,11 @@ import { db } from '$lib/server/db';   // ← compile error
 
 ```ts
 // src/lib/server/wat.ts — NEVER do this
-let currentUser: User | null = null;  // ← shared across every request!
+let currentUser: User | null = null; // ← shared across every request!
 
-export function setUser(u: User) { currentUser = u; }
+export function setUser(u: User) {
+  currentUser = u;
+}
 ```
 
 A SvelteKit server is a long-running process. Every user shares this `currentUser` variable. The next request sees the previous user's data. This is a security incident waiting to happen.
@@ -800,8 +808,12 @@ The safe pattern when SSR is on: **wrap the state in a function** so each consum
 // $lib/state/counter.svelte.ts — SSR-safe pattern
 let counter = $state(0);
 
-export function getCounter() { return counter; }
-export function setCounter(v: number) { counter = v; }
+export function getCounter() {
+  return counter;
+}
+export function setCounter(v: number) {
+  counter = v;
+}
 ```
 
 This is still mutable shared state on the server when rendered with SSR — only safe because **no code on the server should be calling `setCounter()`**. If you can't guarantee that, use context.
@@ -842,7 +854,7 @@ A `load` function is conceptually pure: given inputs, return data. **Don't write
 // BAD
 export const load = async () => {
   const u = await fetchUser();
-  user.set(u);  // ← shared on the server
+  user.set(u); // ← shared on the server
 };
 
 // GOOD
@@ -890,7 +902,7 @@ src/error.html                          ← static fallback
 
 Important wrinkles:
 
-- **An error thrown in a layout `+layout.server.ts` looks for the error component *above* the layout** (because the layout itself is now broken).
+- **An error thrown in a layout `+layout.server.ts` looks for the error component _above_ the layout** (because the layout itself is now broken).
 - **`+error.svelte` does not catch errors thrown in `handle` or `+server.ts` handlers** — those return either a JSON error or `src/error.html` based on the `Accept` header.
 - **Catch-all 404s** with rest params still need a route file to be matched. See `src/routes/marx-brothers/[...path]/+page.ts` pattern in the routing docs.
 
@@ -932,8 +944,9 @@ try {
 ```ts
 import { isHttpError, isRedirect } from '@sveltejs/kit';
 
-try { /* ... */ }
-catch (e) {
+try {
+  /* ... */
+} catch (e) {
   if (isRedirect(e) || isHttpError(e)) throw e;
   // your real error handling
 }
@@ -962,32 +975,34 @@ By default every route is **SSR'd then hydrated for CSR**. That's nearly always 
 
 ```ts
 // +page.ts or +page.server.ts (or +layout to apply to a subtree)
-export const ssr = true;       // server-side render? default true
-export const csr = true;       // ship JS for hydration? default true
+export const ssr = true; // server-side render? default true
+export const csr = true; // ship JS for hydration? default true
 export const prerender = true; // generate static HTML at build time? default false
 ```
 
 They compose:
 
-| `ssr` | `csr` | `prerender` | Behaviour |
-|-------|-------|-------------|-----------|
-| `true`  | `true`  | `false` | **Default.** SSR + hydrate. |
-| `true`  | `true`  | `true`  | Static HTML at build time, then hydrates. Best for marketing pages with dynamic JS islands. |
-| `true`  | `false` | `true`  | Pure static, no client JS. Best for blog posts. |
-| `true`  | `false` | `false` | SSR'd HTML on every request, no client JS. Rare. |
-| `false` | `true`  | `false` | SPA: empty shell, JS does everything. Slow first paint, worse SEO. Avoid unless required. |
-| `false` | `false` | any   | Renders nothing. Build error. |
+| `ssr`   | `csr`   | `prerender` | Behaviour                                                                                   |
+| ------- | ------- | ----------- | ------------------------------------------------------------------------------------------- |
+| `true`  | `true`  | `false`     | **Default.** SSR + hydrate.                                                                 |
+| `true`  | `true`  | `true`      | Static HTML at build time, then hydrates. Best for marketing pages with dynamic JS islands. |
+| `true`  | `false` | `true`      | Pure static, no client JS. Best for blog posts.                                             |
+| `true`  | `false` | `false`     | SSR'd HTML on every request, no client JS. Rare.                                            |
+| `false` | `true`  | `false`     | SPA: empty shell, JS does everything. Slow first paint, worse SEO. Avoid unless required.   |
+| `false` | `false` | any         | Renders nothing. Build error.                                                               |
 
 ### 10.3 When to prerender
 
 A page is prerenderable if **two anonymous users hitting it directly get the same HTML.** That includes pages with parameters whose space is known at build time (`/[slug]` for known slugs).
 
 Prerender:
+
 - Marketing pages, about, pricing.
 - Documentation.
 - A blog if posts come from a CMS at build time.
 
 Don't prerender:
+
 - Anything with user-specific data.
 - Anything that uses `url.searchParams` in `load`.
 - Anything with form actions (POST cannot be prerendered).
@@ -1040,7 +1055,7 @@ Default is `'never'`: `/foo/` redirects to `/foo`. The other options are `'alway
 The default project template ships:
 
 ```html
-<body data-sveltekit-preload-data="hover">
+<body data-sveltekit-preload-data="hover"></body>
 ```
 
 That preloads a link's data on hover (or `touchstart` on mobile), making most navigations feel instant. The other options:
@@ -1085,7 +1100,7 @@ SvelteKit doesn't preload fonts by default (it can't tell which weights you actu
 
 ```ts
 const response = await resolve(event, {
-  preload: ({ type, path }) => type === 'font' && path.includes('/fonts/inter-')
+  preload: ({ type, path }) => type === 'font' && path.includes('/fonts/inter-'),
 });
 ```
 
@@ -1130,19 +1145,19 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['src/**/*.{test,spec}.ts']
-        }
+          include: ['src/**/*.{test,spec}.ts'],
+        },
       },
       {
         extends: true,
         test: {
           name: 'component',
           browser: { enabled: true, provider: 'playwright', name: 'chromium' },
-          include: ['src/**/*.svelte.{test,spec}.ts']
-        }
-      }
-    ]
-  }
+          include: ['src/**/*.svelte.{test,spec}.ts'],
+        },
+      },
+    ],
+  },
 });
 ```
 
@@ -1160,15 +1175,15 @@ export default defineConfig({
   webServer: {
     command: 'npm run build && npm run preview',
     port: 4173,
-    reuseExistingServer: !process.env.CI
+    reuseExistingServer: !process.env.CI,
   },
   testDir: 'e2e',
   use: { baseURL: 'http://localhost:4173' },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
-    { name: 'webkit', use: { browserName: 'webkit' } }
+    { name: 'webkit', use: { browserName: 'webkit' } },
   ],
-  workers: process.env.CI ? 4 : undefined
+  workers: process.env.CI ? 4 : undefined,
 });
 ```
 
@@ -1182,13 +1197,13 @@ Run E2E against `vite preview` (the production build), not `vite dev`. Dev mode 
 
 ### 12.5 What to test
 
-| Layer | Coverage target | What to test |
-|-------|-----------------|--------------|
-| Pure helpers in `$lib/` | High | Every public function, including edge cases |
-| `.svelte.ts` rune modules | High | State transitions, derivations |
-| Components | Medium | Behaviour, not styling. Slot/snippet wiring. Form submission. |
-| Server `load` and actions | Medium | Auth gates, validation paths, error returns |
-| E2E flows | Low (in count, high in coverage) | Login + main workflow + logout, signup, settings save, sharing |
+| Layer                     | Coverage target                  | What to test                                                   |
+| ------------------------- | -------------------------------- | -------------------------------------------------------------- |
+| Pure helpers in `$lib/`   | High                             | Every public function, including edge cases                    |
+| `.svelte.ts` rune modules | High                             | State transitions, derivations                                 |
+| Components                | Medium                           | Behaviour, not styling. Slot/snippet wiring. Form submission.  |
+| Server `load` and actions | Medium                           | Auth gates, validation paths, error returns                    |
+| E2E flows                 | Low (in count, high in coverage) | Login + main workflow + logout, signup, settings save, sharing |
 
 **References**
 
@@ -1202,13 +1217,13 @@ Run E2E against `vite preview` (the production build), not `vite dev`. Dev mode 
 
 ### 13.1 Pick an adapter
 
-| Adapter                      | Use when |
-|------------------------------|----------|
-| `@sveltejs/adapter-node`     | Self-host on a VM, container, Kubernetes, anything with `node`. **Default for the rebuild.** |
-| `@sveltejs/adapter-static`   | Fully prerendered site / SPA hosted on any static host (S3, GitHub Pages, Cloudflare Pages). |
-| `@sveltejs/adapter-vercel`   | Vercel — supports edge / serverless / ISR per route. |
-| `@sveltejs/adapter-netlify`  | Netlify. |
-| `@sveltejs/adapter-cloudflare` | Cloudflare Pages or Workers. |
+| Adapter                        | Use when                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `@sveltejs/adapter-node`       | Self-host on a VM, container, Kubernetes, anything with `node`. **Default for the rebuild.** |
+| `@sveltejs/adapter-static`     | Fully prerendered site / SPA hosted on any static host (S3, GitHub Pages, Cloudflare Pages). |
+| `@sveltejs/adapter-vercel`     | Vercel — supports edge / serverless / ISR per route.                                         |
+| `@sveltejs/adapter-netlify`    | Netlify.                                                                                     |
+| `@sveltejs/adapter-cloudflare` | Cloudflare Pages or Workers.                                                                 |
 
 Configure in `svelte.config.js`:
 
@@ -1221,9 +1236,9 @@ export default {
       out: 'build',
       precompress: true,
       envPrefix: '',
-      polyfill: false
-    })
-  }
+      polyfill: false,
+    }),
+  },
 };
 ```
 
@@ -1298,7 +1313,7 @@ Ephemeral UI state (textarea contents, scroll positions of a sidebar, expanded s
   let comment = $state('');
   export const snapshot = {
     capture: () => comment,
-    restore: (v) => comment = v
+    restore: (v) => (comment = v),
   };
 </script>
 ```
@@ -1326,14 +1341,14 @@ export const GET: RequestHandler = () => {
         controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`));
       const t = setInterval(() => send({ at: Date.now() }), 1000);
       return () => clearInterval(t);
-    }
+    },
   });
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    }
+      Connection: 'keep-alive',
+    },
   });
 };
 ```

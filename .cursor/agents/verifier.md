@@ -23,7 +23,7 @@ The full list of project-wide non-negotiables lives in those files. Use them to 
 1. Identify what was claimed complete. Locate the touched files and the relevant milestone plan section.
 2. Load the matching best-practises file(s) from the list above.
 3. From `rebuild/`, run the gates in order, stopping on the first hard failure: `make lint`, `make typecheck`, `make test-unit`, `make test-component`, then `make test-e2e-smoke` if any router or `(app)/` route changed.
-4. Cross-check against the milestone's *Acceptance criteria* / *Definition of done* section. Every bullet must be verifiable against actual code or test output, not just a comment in a plan.
+4. Cross-check against the milestone's _Acceptance criteria_ / _Definition of done_ section. Every bullet must be verifiable against actual code or test output, not just a comment in a plan.
 5. Spot-check the project-wide non-negotiables: no bare `Depends(...)` in route signatures; no raw `op.*` in alembic versions; no `uuid.uuid4()` outside `app.core.ids`; no `datetime.utcnow()` outside `app.core.time`; no `DATETIME` / `TIMESTAMP` columns in new migrations; no `SELECT *`; no hardcoded `cors_allowed_origins`. Use ripgrep, not narrative. The full list lives in the relevant best-practises file — check it for any additional rules added since this agent file was last patched.
 6. For any change touching a critical-path row in `rebuild.md` §8, confirm an E2E exists and passed.
 

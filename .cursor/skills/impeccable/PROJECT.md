@@ -50,18 +50,18 @@ When porting from `src/lib/components/`, replace upstream's color and radius cla
 
 The svelte-engineer subagent picks one impeccable command per task, based on the work shape. Pick before coding; do not switch mid-task.
 
-| Work shape | Command | Notes |
-|---|---|---|
-| Net-new visually-significant route or component (no upstream equivalent) | `craft` | Run `shape` first. Skip Step 3 (north-star image generation) — the rebuild has no image tool and the design system is already authored. |
-| Net-new component that is a small variation of an existing one | `polish` | Build to spec, then run polish. Don't `craft` minor variants. |
-| Legacy port from `src/lib/components/{chat,channel,automations}/` | `polish` then `harden` | Strip dead imports + violate-bans first; then handle empty/loading/error/edge states. **Do not** `craft` a port — that is scope creep into redesign. |
-| Style refresh on existing rebuild surface | `polish` (or `bolder` / `quieter` / `distill` if explicitly briefed) | Targeted, no rewrite. |
-| Bug fix with no visual delta | none | Skip the design loop. Mechanical rules from `rebuild/docs/best-practises/svelte-best-practises.md` still apply. |
-| Pre-milestone sweep across multiple surfaces | `audit` then `polish` per finding | Generate the checklist first, then fix. |
-| Adding empty states, error states, first-run flows | `onboard` then `harden` | Production-readiness pass. |
-| Adapting a component for new viewports | `adapt` | Don't just shrink — redesign for the new context. |
-| UI feels slow or janky | `optimize` | Diagnose before changing. |
-| Copy / labels / error message work | `clarify` | UX writing pass. |
+| Work shape                                                               | Command                                                              | Notes                                                                                                                                                |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Net-new visually-significant route or component (no upstream equivalent) | `craft`                                                              | Run `shape` first. Skip Step 3 (north-star image generation) — the rebuild has no image tool and the design system is already authored.              |
+| Net-new component that is a small variation of an existing one           | `polish`                                                             | Build to spec, then run polish. Don't `craft` minor variants.                                                                                        |
+| Legacy port from `src/lib/components/{chat,channel,automations}/`        | `polish` then `harden`                                               | Strip dead imports + violate-bans first; then handle empty/loading/error/edge states. **Do not** `craft` a port — that is scope creep into redesign. |
+| Style refresh on existing rebuild surface                                | `polish` (or `bolder` / `quieter` / `distill` if explicitly briefed) | Targeted, no rewrite.                                                                                                                                |
+| Bug fix with no visual delta                                             | none                                                                 | Skip the design loop. Mechanical rules from `rebuild/docs/best-practises/svelte-best-practises.md` still apply.                                      |
+| Pre-milestone sweep across multiple surfaces                             | `audit` then `polish` per finding                                    | Generate the checklist first, then fix.                                                                                                              |
+| Adding empty states, error states, first-run flows                       | `onboard` then `harden`                                              | Production-readiness pass.                                                                                                                           |
+| Adapting a component for new viewports                                   | `adapt`                                                              | Don't just shrink — redesign for the new context.                                                                                                    |
+| UI feels slow or janky                                                   | `optimize`                                                           | Diagnose before changing.                                                                                                                            |
+| Copy / labels / error message work                                       | `clarify`                                                            | UX writing pass.                                                                                                                                     |
 
 ## Workflow alignment with `svelte-engineer.md`
 
@@ -83,7 +83,7 @@ When you have to pick between sources, this is the order of authority for `svelt
 3. **`PRODUCT.md` + `DESIGN.md` + this file** — win on **visual decisions, copy, component structure**.
 4. **`SKILL.md` + `reference/`** — win on **craft technique** (color theory, type scale, motion curves, AI-slop test).
 5. **`rebuild/docs/best-practises/svelte-best-practises.md` + `rebuild/docs/best-practises/sveltekit-best-practises.md`** — win on **runes, store, TS mechanics**.
-6. **Upstream `src/` patterns** — never authoritative. They are reference for what to *port*, never for what is *correct*.
+6. **Upstream `src/` patterns** — never authoritative. They are reference for what to _port_, never for what is _correct_.
 
 If two of (3) (4) (5) conflict, pick the answer that scores highest on the AI-slop test and the category-reflex check from `SKILL.md`. If that doesn't break the tie, surface the conflict in the handoff message and let the orchestrator decide.
 

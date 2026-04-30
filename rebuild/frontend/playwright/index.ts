@@ -1,4 +1,11 @@
-import '../src/app.css';
+// CT-only stylesheet that re-imports `../src/app.css` and extends the
+// Tailwind v4 scan tree to include the project's `src/` and the test
+// harnesses under `tests/component/`. Without this, the CT bundler's
+// `root: frontend/playwright/` constrains Tailwind's auto-detection
+// to the playwright template dir alone and the role-token utilities
+// (`bg-background-app`, `outline-accent-selection`, ...) never get
+// generated. See `frontend/playwright/index.css` for the full reasoning.
+import './index.css';
 
 // Playwright CT bundles this file for the browser via Vite. The previous
 // version imported `msw/node` here so a Node-side MSW server could

@@ -1,15 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="%theme.id%">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
+    <!--
+      Pre-hydration theme boot. Substituted by hooks.server.ts via
+      transformPageChunk; the IIFE source is exported by
+      src/lib/theme/boot.ts and unit-tested as a pure function. Runs
+      before SvelteKit's head injection slot so it wins the FOUC race
+      when the server-rendered cookie path is missing or stale.
+
+      NOTE: never write the literal token names (sveltekit.head,
+      theme.boot, theme.id wrapped in % delimiters) anywhere in this
+      file outside the real placeholders below. SvelteKit and the
+      transformPageChunk hook both use single-replace semantics, so a
+      stray copy in a comment silently steals the substitution and the
+      real placeholder ships as visible text.
+    -->
+    <script>
+      %theme.boot%
+    </script>
     %sveltekit.head%
   </head>
   <body
     data-sveltekit-preload-data="hover"
-    class="bg-paper-white text-body-ink min-h-svh font-sans antialiased"
+    class="bg-background-app text-ink-body min-h-svh font-sans antialiased"
   >
     <div id="app">%sveltekit.body%</div>
   </body>

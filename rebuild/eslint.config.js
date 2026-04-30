@@ -65,6 +65,13 @@ export default [
   {
     ignores: [
       '.svelte-kit/**',
+      // SvelteKit writes its generated client/server modules into
+      // `frontend/.svelte-kit/` on every dev/build (including the typed
+      // `$app/*` re-exports and the client app entry under
+      // `generated/client/`). Those are auto-generated, not human-authored,
+      // and reference identifiers (e.g. `console`) without a matching
+      // ESLint globals block — so without this entry they flood `no-undef`.
+      'frontend/.svelte-kit/**',
       // adapter-node writes its production artifact to `frontend/build/` per
       // `kit.adapter` in svelte.config.js (co-located with the rest of the
       // frontend tree so the Dockerfile's stage-3 `COPY --from=frontend
@@ -112,6 +119,35 @@ export default [
         document: 'readonly',
         fetch: 'readonly',
         console: 'readonly',
+        // M1 component / E2E specs reach into the page context via
+        // `page.evaluate(() => ...)` and `await harness.locator(...)
+        // .evaluate(el => getComputedStyle(el)...)`. The callback runs
+        // in the browser (where `localStorage` and `getComputedStyle`
+        // are obviously defined), but ESLint sees the source as plain
+        // TS in the worker context. Allow-list the identifiers so
+        // legitimate browser-context evaluate callbacks lint cleanly.
+        localStorage: 'readonly',
+        getComputedStyle: 'readonly',
+        MutationObserver: 'readonly',
+        // Browser DOM interface types used as TypeScript annotations
+        // (`bind:this={el}` callbacks, MediaQueryList listeners, etc.).
+        // ESLint's `no-undef` flags TS interface names the same way it
+        // flags runtime identifiers, so the names must be declared here.
+        HTMLElement: 'readonly',
+        HTMLDivElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLButtonElement: 'readonly',
+        HTMLAnchorElement: 'readonly',
+        MediaQueryList: 'readonly',
+        MediaQueryListEvent: 'readonly',
+        // Document / Location / Storage are referenced by Vitest specs
+        // that drive `Document.prototype.cookie` setters, stub
+        // `window.location` via `as Location`, and stub `localStorage`
+        // via `as Partial<Storage>` (see persistence.spec.ts). Same TS
+        // type-position concern as the HTML* names above.
+        Document: 'readonly',
+        Location: 'readonly',
+        Storage: 'readonly',
         // Node globals available in server modules / configs.
         process: 'readonly',
         URL: 'readonly',
@@ -119,6 +155,19 @@ export default [
         Response: 'readonly',
         RequestInit: 'readonly',
         Headers: 'readonly',
+        Buffer: 'readonly',
+        // Svelte 5 runes — compiler-recognised globals inside `.svelte`
+        // and `*.svelte.ts` files. Declared here so `no-undef` doesn't
+        // flag them in store modules; the Svelte compiler is the real
+        // gate on legitimate use (using `$state` in a plain `.ts` file
+        // is a build-time error there, not a lint concern).
+        $state: 'readonly',
+        $derived: 'readonly',
+        $effect: 'readonly',
+        $props: 'readonly',
+        $bindable: 'readonly',
+        $host: 'readonly',
+        $inspect: 'readonly',
       },
     },
     plugins: { '@typescript-eslint': tsPlugin },
@@ -143,6 +192,30 @@ export default [
     languageOptions: {
       parser: svelteParser,
       parserOptions: { parser: tsParser, ecmaVersion: 2022, sourceType: 'module' },
+      globals: {
+        // Mirror the .ts globals block — the Svelte parser hands the
+        // `<script>` body to the TS parser but the surrounding ESLint
+        // rule context is independent, so `no-undef` re-evaluates the
+        // identifiers from scratch and needs the same allow-list.
+        window: 'readonly',
+        document: 'readonly',
+        fetch: 'readonly',
+        console: 'readonly',
+        HTMLElement: 'readonly',
+        HTMLDivElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLButtonElement: 'readonly',
+        HTMLAnchorElement: 'readonly',
+        MediaQueryList: 'readonly',
+        MediaQueryListEvent: 'readonly',
+        $state: 'readonly',
+        $derived: 'readonly',
+        $effect: 'readonly',
+        $props: 'readonly',
+        $bindable: 'readonly',
+        $host: 'readonly',
+        $inspect: 'readonly',
+      },
     },
     rules: {
       'no-restricted-imports': ['error', restrictedImports],

@@ -12,7 +12,7 @@ The four layers are Vitest (unit), Playwright Component Testing with MSW, Playwr
 
 Non-negotiables:
 
-- Track *critical-path coverage*, not line coverage. Every row in the §8 critical-path table must have at least one passing E2E. New router files or `(app)/` routes without an E2E are a blocker.
+- Track _critical-path coverage_, not line coverage. Every row in the §8 critical-path table must have at least one passing E2E. New router files or `(app)/` routes without an E2E are a blocker.
 - E2E tests assume identity by setting `X-Forwarded-Email` per `BrowserContext` — multi-context Playwright is the only way to test sharing, channels realtime, and `@model` mentions. Use it.
 - Every E2E that touches a model uses a request-hashed cassette under `rebuild/backend/tests/fixtures/llm/<hash>.sse`. First run records, subsequent runs replay byte-for-byte. Cassettes are committed; refresh is a deliberate PR.
 - Visual baselines are captured on the same Linux container as CI to avoid font drift. Use `maxDiffPixels`, never zero-tolerance. Override `prefers-reduced-motion: reduce` and freeze `Date.now`.

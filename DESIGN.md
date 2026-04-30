@@ -25,37 +25,37 @@ colors:
   # named tokens; switching the preset re-points each token. Token names are
   # role-based (background-app, background-sidebar, accent-selection, …) so
   # components never reach for a hex; they reach for a role.
-  background-app: 'oklch(0.235 0.026 270)'              # #1a1b26 — message-pane background
-  background-sidebar: 'oklch(0.205 0.025 268)'          # #16161e — sidebar pane (one ramp step deeper than app)
-  background-topbar: 'oklch(0.255 0.030 270)'           # #1f2335 — top bar (one ramp step lighter than app)
-  background-elevated: 'oklch(0.285 0.034 268)'         # #24283b — popovers, modals, message-input lift
-  background-code: 'oklch(0.190 0.022 268)'             # #13141c — code blocks (deepest, embeds in messages)
-  background-mention: 'oklch(0.310 0.060 240)'          # mention pill fill (cyan-tinted at 30% lightness)
-  hairline: 'oklch(0.330 0.030 268)'                    # #2a2e44 — 1px borders, dividers
-  hairline-strong: 'oklch(0.420 0.034 268)'             # #3b4261 — focused border, hairline on hover
-  ink-placeholder: 'oklch(0.520 0.022 270)'             # #565f89 — placeholder, disabled
-  ink-muted: 'oklch(0.660 0.045 244)'                   # #7aa2f7-derived muted (timestamps, metadata)
-  ink-secondary: 'oklch(0.770 0.030 254)'               # #a9b1d6 — secondary body
-  ink-body: 'oklch(0.840 0.030 252)'                    # #c0caf5 — primary body text
-  ink-strong: 'oklch(0.920 0.022 240)'                  # #d5d6db — emphasis, modal title
-  accent-selection: 'oklch(0.770 0.130 220)'            # #7dcfff — focus ring, selection, primary CTA fill
-  accent-selection-pressed: 'oklch(0.690 0.140 222)'    # #45a4d6 — primary CTA hover/pressed
-  accent-mention: 'oklch(0.770 0.150 245)'              # #7aa2f7 — @-mentions, links
-  accent-headline: 'oklch(0.760 0.165 322)'             # #bb9af7 — markdown H1/H2/H3 inside messages
-  accent-stream: 'oklch(0.820 0.160 145)'               # #9ece6a — live-stream dot, "agent is typing" pulse
-  status-success: 'oklch(0.795 0.155 145)'              # #9ece6a — success badge, positive telemetry
-  status-warning: 'oklch(0.810 0.135 80)'               # #e0af68 — warning badge
-  status-danger: 'oklch(0.690 0.190 24)'                # #f7768e — error badge, destructive confirm
-  status-info: 'oklch(0.755 0.155 245)'                 # #7aa2f7 — info badge
+  background-app: 'oklch(0.235 0.026 270)' # #1a1b26 — message-pane background
+  background-sidebar: 'oklch(0.205 0.025 268)' # #16161e — sidebar pane (one ramp step deeper than app)
+  background-topbar: 'oklch(0.255 0.030 270)' # #1f2335 — top bar (one ramp step lighter than app)
+  background-elevated: 'oklch(0.285 0.034 268)' # #24283b — popovers, modals, message-input lift
+  background-code: 'oklch(0.190 0.022 268)' # #13141c — code blocks (deepest, embeds in messages)
+  background-mention: 'oklch(0.310 0.060 240)' # mention pill fill (cyan-tinted at 30% lightness)
+  hairline: 'oklch(0.330 0.030 268)' # #2a2e44 — 1px borders, dividers
+  hairline-strong: 'oklch(0.420 0.034 268)' # #3b4261 — focused border, hairline on hover
+  ink-placeholder: 'oklch(0.520 0.022 270)' # #565f89 — placeholder, disabled
+  ink-muted: 'oklch(0.660 0.045 244)' # #7aa2f7-derived muted (timestamps, metadata)
+  ink-secondary: 'oklch(0.770 0.030 254)' # #a9b1d6 — secondary body
+  ink-body: 'oklch(0.840 0.030 252)' # #c0caf5 — primary body text
+  ink-strong: 'oklch(0.920 0.022 240)' # #d5d6db — emphasis, modal title
+  accent-selection: 'oklch(0.770 0.130 220)' # #7dcfff — focus ring, selection, primary CTA fill
+  accent-selection-pressed: 'oklch(0.690 0.140 222)' # #45a4d6 — primary CTA hover/pressed
+  accent-mention: 'oklch(0.770 0.150 245)' # #7aa2f7 — @-mentions, links
+  accent-headline: 'oklch(0.760 0.165 322)' # #bb9af7 — markdown H1/H2/H3 inside messages
+  accent-stream: 'oklch(0.820 0.160 145)' # #9ece6a — live-stream dot, "agent is typing" pulse
+  status-success: 'oklch(0.795 0.155 145)' # #9ece6a — success badge, positive telemetry
+  status-warning: 'oklch(0.810 0.135 80)' # #e0af68 — warning badge
+  status-danger: 'oklch(0.690 0.190 24)' # #f7768e — error badge, destructive confirm
+  status-info: 'oklch(0.755 0.155 245)' # #7aa2f7 — info badge
   # Code/mermaid swatches — one per primary syntax token. Mirrored from the
   # Tokyo Night editor palette and used by the Shiki theme + the Mermaid theme
   # block below. Components never read these directly; the highlighter does.
-  syntax-keyword: 'oklch(0.760 0.165 322)'              # #bb9af7
-  syntax-string: 'oklch(0.820 0.160 145)'               # #9ece6a
-  syntax-comment: 'oklch(0.520 0.022 270)'              # #565f89 (= ink-placeholder)
-  syntax-function: 'oklch(0.770 0.150 245)'             # #7aa2f7
-  syntax-number: 'oklch(0.795 0.150 80)'                # #ff9e64
-  syntax-tag: 'oklch(0.690 0.190 24)'                   # #f7768e
+  syntax-keyword: 'oklch(0.760 0.165 322)' # #bb9af7
+  syntax-string: 'oklch(0.820 0.160 145)' # #9ece6a
+  syntax-comment: 'oklch(0.520 0.022 270)' # #565f89 (= ink-placeholder)
+  syntax-function: 'oklch(0.770 0.150 245)' # #7aa2f7
+  syntax-number: 'oklch(0.795 0.150 80)' # #ff9e64
+  syntax-tag: 'oklch(0.690 0.190 24)' # #f7768e
 typography:
   display:
     fontFamily: 'Archivo, Vazirmatn, sans-serif'
@@ -215,7 +215,7 @@ components:
 
 This is a craftsman's bench at night. The surface is where a Canva employee sits down with their **named agents** — picks one up, uses it, puts it back — alongside their tools, history, and context. The room is dim and the work is what is lit. Distinct surfaces (top bar, sidebar, message pane, code block) sit at distinct ramp steps within the chosen palette so the eye reads "rooms" rather than a single flat plane. Density and calm coexist because the colour does the spatial work that uniform padding and walls of cards used to do.
 
-The aesthetic philosophy is **deep dark base, ramped panel surfaces, saturated accents on a budget**. The default palette is **Tokyo Night** ([source](https://github.com/tcmmichaelb139/obsidian-tokyonight)) — a navy/indigo dark base with cyan, magenta, green, orange, and a soft red accent set, all muted by the OKLCH lightness of the base so they read as *informed* rather than *neon*. Four presets ship in M1: **Tokyo Day** (the only light variant; OS-mapped when `prefers-color-scheme: light`), **Tokyo Storm** (slate-blue dark), **Tokyo Moon** (warmer dark), **Tokyo Night** (deepest dark, OS-default for `prefers-color-scheme: dark`).
+The aesthetic philosophy is **deep dark base, ramped panel surfaces, saturated accents on a budget**. The default palette is **Tokyo Night** ([source](https://github.com/tcmmichaelb139/obsidian-tokyonight)) — a navy/indigo dark base with cyan, magenta, green, orange, and a soft red accent set, all muted by the OKLCH lightness of the base so they read as _informed_ rather than _neon_. Four presets ship in M1: **Tokyo Day** (the only light variant; OS-mapped when `prefers-color-scheme: light`), **Tokyo Storm** (slate-blue dark), **Tokyo Moon** (warmer dark), **Tokyo Night** (deepest dark, OS-default for `prefers-color-scheme: dark`).
 
 Colour does three jobs in this system, and only these three:
 
@@ -223,7 +223,7 @@ Colour does three jobs in this system, and only these three:
 2. **Atmosphere** — which room you are in. The sidebar, the top bar, and the message pane each get a distinct ramp step from the same palette; modals and popovers lift to a fourth step.
 3. **Personalisation** — which preset you chose. The four presets are functionally interchangeable (every component renders against the same role-based tokens) but tonally distinct.
 
-This system explicitly rejects ChatGPT's centered-prompt void, model-forward chrome (long slug IDs used as labels), SaaS hero-metric dashboards, crypto-neon (saturated *and* gradient *and* glow — we are saturated *only*), consumer-social warmth (Discord purple, confetti, sparkle emoji), Notion's "everything is a document" flatness when it fights app density, and pure-greyscale "minimalism" (which reads as draft, not restraint). Where other AI surfaces perform excitement, this one performs competence — but it dresses for the work.
+This system explicitly rejects ChatGPT's centered-prompt void, model-forward chrome (long slug IDs used as labels), SaaS hero-metric dashboards, crypto-neon (saturated _and_ gradient _and_ glow — we are saturated _only_), consumer-social warmth (Discord purple, confetti, sparkle emoji), Notion's "everything is a document" flatness when it fights app density, and pure-greyscale "minimalism" (which reads as draft, not restraint). Where other AI surfaces perform excitement, this one performs competence — but it dresses for the work.
 
 **Key Characteristics:**
 
@@ -231,21 +231,21 @@ This system explicitly rejects ChatGPT's centered-prompt void, model-forward chr
 - Distinct ramp step per surface (top bar, sidebar, message pane, elevated) within every preset.
 - Dark-by-default; `prefers-color-scheme` honoured for the page-load default; user's explicit theme always wins.
 - Saturated accents on a budget — five named accent tokens (`selection`, `mention`, `headline`, `stream`, plus the four `status-*` semantic hues). No second-tier decorative colour.
-- Hybrid elevation: flat at rest, blurred-and-lifted for modals and popovers; shadow strength is *low* because the depth comes from the ramp-step contrast.
+- Hybrid elevation: flat at rest, blurred-and-lifted for modals and popovers; shadow strength is _low_ because the depth comes from the ramp-step contrast.
 - Inter as the working face; Archivo for chrome headlines; JetBrainsMono for code; InstrumentSerif held in reserve.
 - Radius language runs from 4px utility up to 32px for modal envelopes — large radii signal "floating," tight radii signal "embedded."
-- Motion is under 200ms, functional, eased out. No bounce, no choreography. Theme switches are *instant* — no fade — so the user reads the palette change as deliberate.
+- Motion is under 200ms, functional, eased out. No bounce, no choreography. Theme switches are _instant_ — no fade — so the user reads the palette change as deliberate.
 
 ## 2. Theme Presets
 
 The four presets are the only theme choices the user sees. Each preset is a complete, self-contained set of values for every token in the `colors:` block above. Components never reach for a preset name; they reach for a role token (`background-sidebar`, `accent-selection`, etc.) and the active preset binds the token.
 
-| Preset | Mode | OS-mapped when | Mood | Typical user |
-|---|---|---|---|---|
-| **Tokyo Day** | light | `prefers-color-scheme: light` | Crisp paper with restrained ink and saturated accents. The only light variant. | Outdoor café day, projector demo. |
-| **Tokyo Storm** | dark | — (explicit choice) | Slate-blue dark; less saturated than Night, more contrast than Moon. | Office monitor in mixed lighting. |
-| **Tokyo Moon** | dark | — (explicit choice) | Warmer dark with a softer ramp; the calmest of the four. | Long focus sessions. |
-| **Tokyo Night** | dark | `prefers-color-scheme: dark` | Deepest dark with the most saturated accents. The default for the dark OS preference. | Late-night work; the brand-canonical look. |
+| Preset          | Mode  | OS-mapped when                | Mood                                                                                  | Typical user                               |
+| --------------- | ----- | ----------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **Tokyo Day**   | light | `prefers-color-scheme: light` | Crisp paper with restrained ink and saturated accents. The only light variant.        | Outdoor café day, projector demo.          |
+| **Tokyo Storm** | dark  | — (explicit choice)           | Slate-blue dark; less saturated than Night, more contrast than Moon.                  | Office monitor in mixed lighting.          |
+| **Tokyo Moon**  | dark  | — (explicit choice)           | Warmer dark with a softer ramp; the calmest of the four.                              | Long focus sessions.                       |
+| **Tokyo Night** | dark  | `prefers-color-scheme: dark`  | Deepest dark with the most saturated accents. The default for the dark OS preference. | Late-night work; the brand-canonical look. |
 
 **Resolution order (canonical, locked by [`rebuild/docs/plans/m1-theming.md`](rebuild/docs/plans/m1-theming.md)):**
 
@@ -257,48 +257,48 @@ The choice is **persisted client-side per device** (a cookie for SSR-correct fir
 
 ## 3. Colour Tokens
 
-Every token below exists in *every* preset. Components ALWAYS reference the role token, never the literal value.
+Every token below exists in _every_ preset. Components ALWAYS reference the role token, never the literal value.
 
 ### Surface ramp (one row = one room)
 
-| Token | Job |
-|---|---|
-| `background-app` | The message pane — the surface where the user is working. |
-| `background-sidebar` | The conversation/channel/automation sidebar. One ramp step deeper than `background-app` so the eye reads a panel. |
-| `background-topbar` | The top bar / page header. One ramp step lighter than `background-app` so the chrome reads as "elevated above" the work. |
-| `background-elevated` | Modals, popovers, the message-input lift, dropdown menus. The "floating" surface. |
-| `background-code` | Code blocks inside chat messages. Deepest of the surface ramp so the code reads as embedded. |
-| `background-mention` | The fill behind `@`-mention pills. Sits at the same lightness as `background-elevated` but tinted toward the `accent-mention` hue. |
+| Token                 | Job                                                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `background-app`      | The message pane — the surface where the user is working.                                                                          |
+| `background-sidebar`  | The conversation/channel/automation sidebar. One ramp step deeper than `background-app` so the eye reads a panel.                  |
+| `background-topbar`   | The top bar / page header. One ramp step lighter than `background-app` so the chrome reads as "elevated above" the work.           |
+| `background-elevated` | Modals, popovers, the message-input lift, dropdown menus. The "floating" surface.                                                  |
+| `background-code`     | Code blocks inside chat messages. Deepest of the surface ramp so the code reads as embedded.                                       |
+| `background-mention`  | The fill behind `@`-mention pills. Sits at the same lightness as `background-elevated` but tinted toward the `accent-mention` hue. |
 
 ### Hairlines and ink
 
-| Token | Job |
-|---|---|
-| `hairline` | 1px borders, dividers, message bubbles, code-block edges. Low contrast against the parent surface. |
-| `hairline-strong` | Modal edge, focused input border, hover'd hairline. One step up from `hairline`. |
-| `ink-placeholder` | Input placeholder, disabled body text. |
-| `ink-muted` | Timestamps, metadata, "shared by" sublines. |
-| `ink-secondary` | Sidebar items at rest, secondary body, supporting UI. |
-| `ink-body` | Default body text. The reading surface. |
-| `ink-strong` | Emphasis, modal titles, button-secondary text, sidebar-item active text. |
+| Token             | Job                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `hairline`        | 1px borders, dividers, message bubbles, code-block edges. Low contrast against the parent surface. |
+| `hairline-strong` | Modal edge, focused input border, hover'd hairline. One step up from `hairline`.                   |
+| `ink-placeholder` | Input placeholder, disabled body text.                                                             |
+| `ink-muted`       | Timestamps, metadata, "shared by" sublines.                                                        |
+| `ink-secondary`   | Sidebar items at rest, secondary body, supporting UI.                                              |
+| `ink-body`        | Default body text. The reading surface.                                                            |
+| `ink-strong`      | Emphasis, modal titles, button-secondary text, sidebar-item active text.                           |
 
 ### Accents (used on a budget — never decorative)
 
-| Token | Job | Allowed surfaces |
-|---|---|---|
-| `accent-selection` | Primary CTA fill, focus ring, selected-row left-edge cap, range selection. | Buttons, focus rings. Never: chrome decoration. |
-| `accent-mention` | `@`-mention pill text, in-prose links, click-targets in markdown. | `@`-mention pills, hyperlinks. Never: button fills. |
-| `accent-headline` | Markdown `#`/`##`/`###` headings *inside chat messages*. | Markdown content only. Never: chrome titles, navigation labels. |
-| `accent-stream` | Live-stream dot, "agent is typing" pulse, the "streaming" SSE animation. | Realtime indicators only. |
+| Token              | Job                                                                        | Allowed surfaces                                                |
+| ------------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `accent-selection` | Primary CTA fill, focus ring, selected-row left-edge cap, range selection. | Buttons, focus rings. Never: chrome decoration.                 |
+| `accent-mention`   | `@`-mention pill text, in-prose links, click-targets in markdown.          | `@`-mention pills, hyperlinks. Never: button fills.             |
+| `accent-headline`  | Markdown `#`/`##`/`###` headings _inside chat messages_.                   | Markdown content only. Never: chrome titles, navigation labels. |
+| `accent-stream`    | Live-stream dot, "agent is typing" pulse, the "streaming" SSE animation.   | Realtime indicators only.                                       |
 
 ### Status hues (semantic, never decorative)
 
-| Token | Job |
-|---|---|
-| `status-success` | Success badge, positive telemetry, completed automation run. |
-| `status-warning` | Warning badge, rate-limit nudge, "you have unsaved changes." |
-| `status-danger` | Error badge, destructive-action confirm, failed automation run. |
-| `status-info` | Info badge, "did you know" tip. |
+| Token            | Job                                                             |
+| ---------------- | --------------------------------------------------------------- |
+| `status-success` | Success badge, positive telemetry, completed automation run.    |
+| `status-warning` | Warning badge, rate-limit nudge, "you have unsaved changes."    |
+| `status-danger`  | Error badge, destructive-action confirm, failed automation run. |
+| `status-info`    | Info badge, "did you know" tip.                                 |
 
 Status hues appear at **20% opacity fill with the same hue at full saturation for the text** (e.g. `bg-{status-success}/20 text-{status-success}`). They are informational, never decorative, and never adjacent to each other.
 
@@ -306,13 +306,13 @@ Status hues appear at **20% opacity fill with the same hue at full saturation fo
 
 **The Role-Token Rule.** Components reference `background-app`, `accent-selection`, `ink-body`. They never reference a Tokyo Night hex value, never reference a preset name. This is what makes the four presets interchangeable.
 
-**The One-Surface-Per-Room Rule.** Top bar, sidebar, message pane, elevated, code each get *one* ramp step. New surfaces map to one of the existing five — they don't introduce a sixth ramp step.
+**The One-Surface-Per-Room Rule.** Top bar, sidebar, message pane, elevated, code each get _one_ ramp step. New surfaces map to one of the existing five — they don't introduce a sixth ramp step.
 
 **The Accent-Budget Rule.** Four accent tokens (`selection`, `mention`, `headline`, `stream`) plus four semantic status hues. That's the entire decorative palette. New "decorative" colour requirements get rejected; the answer is weight, size, ink contrast, or one of the existing accents.
 
 **The Model-Name Exile Rule.** Raw model identifiers (`gpt-4o-2024-08-06`, `claude-3-5-sonnet-*`) must never sit in primary chrome. If a model string is surfaced at all, it is secondary metadata under the agent's name, in `ink-muted` at label scale.
 
-**The No-Greyscale-Default Rule.** Greyscale is *not* the canonical look. Every shipping preset has chroma in its base. Pull-requests that revert a coloured token to a zero-chroma neutral need a documented reason.
+**The No-Greyscale-Default Rule.** Greyscale is _not_ the canonical look. Every shipping preset has chroma in its base. Pull-requests that revert a coloured token to a zero-chroma neutral need a documented reason.
 
 ## 4. Typography
 
@@ -332,7 +332,7 @@ Status hues appear at **20% opacity fill with the same hue at full saturation fo
 - **Body** (Inter 400, 0.875rem / 14px, line-height 1.5, `ink-body`): the dominant UI text size. Chat messages, list rows, form labels. Cap prose at 65–75ch where long-form content appears.
 - **Label** (Inter 500, 0.75rem / 12px, line-height 1.4, letter-spacing 0.02em, `ink-secondary`): badge text (uppercase), metadata, hotkey hints, timestamps.
 - **Code** (JetBrainsMono 400, 0.85em inline / 0.85rem block, line-height 1.5, `ink-body` on `background-code`): inline code spans and fenced code blocks. Syntax highlighting per § 8.
-- **Markdown H1/H2** (`accent-headline`, weights and sizes per the YAML front-matter): markdown heading levels *inside chat messages*. The colour is the differentiator; in Tokyo Night this is the soft magenta `#bb9af7`. H3+ falls back to `ink-strong`.
+- **Markdown H1/H2** (`accent-headline`, weights and sizes per the YAML front-matter): markdown heading levels _inside chat messages_. The colour is the differentiator; in Tokyo Night this is the soft magenta `#bb9af7`. H3+ falls back to `ink-strong`.
 
 ### Named Rules
 
@@ -342,7 +342,7 @@ Status hues appear at **20% opacity fill with the same hue at full saturation fo
 
 **The Scale-Text-Scale Rule.** The app supports `--app-text-scale` on `:root`. Custom line-heights and min-heights declared in pixel units must multiply through this variable. Hard-coding pixel line-heights outside the scale system is forbidden.
 
-**The Markdown-Heading-Hue Rule.** Chat messages render markdown `#` and `##` in `accent-headline`. This is the *only* place an accent hue is used as text colour in body content (mentions and links use `accent-mention`, but those are inline atoms; headings are block-level). The value swaps with the preset.
+**The Markdown-Heading-Hue Rule.** Chat messages render markdown `#` and `##` in `accent-headline`. This is the _only_ place an accent hue is used as text colour in body content (mentions and links use `accent-mention`, but those are inline atoms; headings are block-level). The value swaps with the preset.
 
 ## 5. Elevation
 
@@ -382,7 +382,7 @@ Components feel **tactile and confident**: crisp edges, decisive state changes, 
 ### Cards / Containers
 
 - **Corner Style:** `rounded-xl` (16px) for row-level containers; `rounded-2xl` (20px) for pane-level cards; `rounded-3xl` (24px) for large composing surfaces.
-- **Background:** `background-app` for the primary surface; subcontainers step to `background-elevated`. Sidebar uses `background-sidebar`; top bar uses `background-topbar`. The ramp does the spatial work — adjacent surfaces are *always* one ramp step apart.
+- **Background:** `background-app` for the primary surface; subcontainers step to `background-elevated`. Sidebar uses `background-sidebar`; top bar uses `background-topbar`. The ramp does the spatial work — adjacent surfaces are _always_ one ramp step apart.
 - **Shadow Strategy:** None by default. See § 5 Elevation.
 - **Border:** Inherited from `@layer base` as `hairline` (1px). Cards that need stronger separation use `hairline-strong`. Thick or coloured borders are forbidden — depth comes from the ramp.
 - **Internal Padding:** `px-[11px] py-[6px]` for list rows, `p-4` for compact cards, `px-[1.75rem] py-6` for dialog interior.
@@ -458,7 +458,7 @@ A `mermaid.initialize({ theme: 'base', themeVariables: { … } })` block is gene
 - **Don't** put raw model identifiers (`gpt-4o-…`, `claude-3-5-sonnet-…`) in primary chrome. The model is metadata under the agent's name, in `ink-muted` at label scale.
 - **Don't** recreate the ChatGPT "centered prompt in a void" landing. Sidebar stays. History is structured. Agents are named.
 - **Don't** reach for a **hero-metric dashboard** layout (big number + three stat cards + gradient CTA) when building admin or settings surfaces.
-- **Don't** use **gradient anything**. No gradient text, no gradient buttons, no gradient backgrounds. Tokyo Night is *saturated*; it is not *neon*. Solid colour only.
+- **Don't** use **gradient anything**. No gradient text, no gradient buttons, no gradient backgrounds. Tokyo Night is _saturated_; it is not _neon_. Solid colour only.
 - **Don't** use **side-stripe borders** (`border-left` greater than 1px as a coloured accent) for status. Use full hairlines, background tints, or leading icons instead.
 - **Don't** reach for a **modal as the first thought**. Exhaust inline and progressive disclosure before adding a dialog.
 - **Don't** apply shadows to surfaces that sit in the page flow. Flat-until-floating; ramp-step is the depth.

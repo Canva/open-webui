@@ -12,7 +12,7 @@
 If you only remember five things from this document:
 
 1. **`let` is not reactive any more — use `$state(...)`.** Top-level `let` in a `.svelte` file is just a normal variable in Svelte 5.
-2. **`$derived` is for values, `$effect` is for side effects.** If you find yourself writing `$effect(() => { x = ... })`, you wanted `$derived` and you have a bug. Effects are an *escape hatch*.
+2. **`$derived` is for values, `$effect` is for side effects.** If you find yourself writing `$effect(() => { x = ... })`, you wanted `$derived` and you have a bug. Effects are an _escape hatch_.
 3. **Props are read-only. Don't mutate them.** If you need two-way data flow, use `$bindable` (sparingly) or a callback prop.
 4. **No more `createEventDispatcher`, no more `slot`, no more `on:click`.** Use callback props (`onclick`), `$props`, and `{#snippet}` / `{@render}`.
 5. **Module-level `$state` is a footgun on the server.** For shared state, prefer `setContext` / `getContext` (or `createContext`) over a global `.svelte.ts` module — it scopes per request and survives SSR.
@@ -23,22 +23,22 @@ Each of those is expanded below.
 
 ## 1. Runes — the whole API at a glance
 
-| Rune              | What it does                                                                                          | Reach-for-it when                                                                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `$state(v)`       | Reactive variable. Objects/arrays become deep proxies.                                                | Anything that changes over time and the UI should react to.                                      |
-| `$state.raw(v)`   | Non-proxied state. Mutations don't track; only reassignment does.                                     | Large objects/arrays you replace wholesale (API responses, big lists you re-fetch).              |
-| `$state.snapshot(v)` | Frozen plain-JS clone of a proxy.                                                                  | Passing reactive state to non-Svelte code (`structuredClone`, `JSON.stringify`, third-party libs). |
-| `$derived(expr)`  | Read-only-by-default value computed from other reactive values.                                       | Any value that is a pure function of other state. **This is the default tool**, not `$effect`.   |
-| `$derived.by(fn)` | Same, but with a function body for multi-line derivations.                                            | When the expression is too complex for a single line.                                            |
-| `$effect(fn)`     | Run side-effects after the DOM updates; auto-tracks dependencies; auto-cleanup on teardown.          | DOM imperatively, third-party widgets, analytics, network calls fired *because* state changed.   |
-| `$effect.pre(fn)` | Same as `$effect` but runs **before** DOM updates.                                                    | You need to read DOM measurements before Svelte mutates them (e.g. autoscroll-on-message).       |
-| `$effect.root(fn)`| Standalone effect scope outside a component lifecycle. Returns a `cleanup` fn you must call yourself. | Tests; one-off setup outside any component.                                                      |
-| `$props()`        | Declare component props.                                                                              | Always, in every component that takes input.                                                     |
-| `$props.id()`     | Stable per-instance ID, identical on server and client.                                               | `for` / `aria-labelledby` / `aria-describedby` linking inside a component.                       |
-| `$bindable(v?)`   | Mark a prop as `bind:`-able from the parent.                                                          | Form-control wrappers (`<FancyInput bind:value>`). **Use sparingly.**                            |
-| `$inspect(...)`   | Dev-only deep-reactive `console.log` that re-fires on change.                                         | Debugging only — no-ops in production builds.                                                    |
-| `$inspect.trace()`| Inside an effect or derived: log which dependency caused the latest run.                              | Debugging "why is this rerunning" mysteries.                                                     |
-| `$host()`         | Reference to the host element of a Svelte custom element.                                             | Custom-element components only.                                                                  |
+| Rune                 | What it does                                                                                          | Reach-for-it when                                                                                  |
+| -------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `$state(v)`          | Reactive variable. Objects/arrays become deep proxies.                                                | Anything that changes over time and the UI should react to.                                        |
+| `$state.raw(v)`      | Non-proxied state. Mutations don't track; only reassignment does.                                     | Large objects/arrays you replace wholesale (API responses, big lists you re-fetch).                |
+| `$state.snapshot(v)` | Frozen plain-JS clone of a proxy.                                                                     | Passing reactive state to non-Svelte code (`structuredClone`, `JSON.stringify`, third-party libs). |
+| `$derived(expr)`     | Read-only-by-default value computed from other reactive values.                                       | Any value that is a pure function of other state. **This is the default tool**, not `$effect`.     |
+| `$derived.by(fn)`    | Same, but with a function body for multi-line derivations.                                            | When the expression is too complex for a single line.                                              |
+| `$effect(fn)`        | Run side-effects after the DOM updates; auto-tracks dependencies; auto-cleanup on teardown.           | DOM imperatively, third-party widgets, analytics, network calls fired _because_ state changed.     |
+| `$effect.pre(fn)`    | Same as `$effect` but runs **before** DOM updates.                                                    | You need to read DOM measurements before Svelte mutates them (e.g. autoscroll-on-message).         |
+| `$effect.root(fn)`   | Standalone effect scope outside a component lifecycle. Returns a `cleanup` fn you must call yourself. | Tests; one-off setup outside any component.                                                        |
+| `$props()`           | Declare component props.                                                                              | Always, in every component that takes input.                                                       |
+| `$props.id()`        | Stable per-instance ID, identical on server and client.                                               | `for` / `aria-labelledby` / `aria-describedby` linking inside a component.                         |
+| `$bindable(v?)`      | Mark a prop as `bind:`-able from the parent.                                                          | Form-control wrappers (`<FancyInput bind:value>`). **Use sparingly.**                              |
+| `$inspect(...)`      | Dev-only deep-reactive `console.log` that re-fires on change.                                         | Debugging only — no-ops in production builds.                                                      |
+| `$inspect.trace()`   | Inside an effect or derived: log which dependency caused the latest run.                              | Debugging "why is this rerunning" mysteries.                                                       |
+| `$host()`            | Reference to the host element of a Svelte custom element.                                             | Custom-element components only.                                                                    |
 
 **Rule of thumb:** you will use `$state`, `$derived`, and `$props` constantly. `$effect` should appear maybe once every few hundred lines. Everything else is rare.
 
@@ -59,8 +59,8 @@ Sources: [`$state`](https://svelte.dev/docs/svelte/$state), [`$derived`](https:/
 ```
 
 - **Primitives** are reactive variables. Read and write them like any normal variable (`count++`).
-- **Objects and arrays** are wrapped in a deep `Proxy`. Mutations like `todos.push(...)`, `user.prefs.theme = 'light'`, or `todos[0].done = true` *all* trigger updates.
-- **Class instances** are *not* proxied — see §2.4.
+- **Objects and arrays** are wrapped in a deep `Proxy`. Mutations like `todos.push(...)`, `user.prefs.theme = 'light'`, or `todos[0].done = true` _all_ trigger updates.
+- **Class instances** are _not_ proxied — see §2.4.
 
 ### 2.2 `$state.raw` — when to opt out of deep reactivity
 
@@ -77,6 +77,7 @@ Use `$state.raw` when you have a large object/array that you only ever **replace
 ```
 
 Rule:
+
 - Mutating raw state is a no-op. `apiResponse.foo = 1` will not update the UI.
 - Reach for `$state.raw` for: API payloads you replace, lists with thousands of items you re-fetch, pre-baked tables, anything where deep proxying would cost more than the reactivity is worth.
 
@@ -87,8 +88,7 @@ Source: [`$state` — `$state.raw`](https://svelte.dev/docs/svelte/$state#$state
 When you hand reactive state to something that doesn't expect a `Proxy` (`structuredClone`, `postMessage`, `IndexedDB`, a chart library that hates proxies):
 
 ```svelte
-const plain = $state.snapshot(user);
-worker.postMessage(plain);
+const plain = $state.snapshot(user); worker.postMessage(plain);
 ```
 
 ### 2.4 Classes with `$state` fields
@@ -101,8 +101,12 @@ export class Counter {
   count = $state(0);
   doubled = $derived(this.count * 2);
 
-  increment = () => { this.count += 1; }; // arrow → safe to pass as event handler
-  reset() { this.count = 0; }              // method → caller must preserve `this`
+  increment = () => {
+    this.count += 1;
+  }; // arrow → safe to pass as event handler
+  reset() {
+    this.count = 0;
+  } // method → caller must preserve `this`
 }
 ```
 
@@ -122,8 +126,12 @@ export const ui = $state({ sidebarOpen: true, theme: 'dark' });
 
 // ✅ Pattern B — keep the variable private, expose getter/setter
 let count = $state(0);
-export function getCount() { return count; }
-export function increment() { count += 1; }
+export function getCount() {
+  return count;
+}
+export function increment() {
+  count += 1;
+}
 
 // ❌ Silently breaks — count is exported as the underlying signal object
 let count = $state(0);
@@ -137,8 +145,8 @@ Sources: [Passing state across modules](https://svelte.dev/docs/svelte/$state#Pa
 ### 2.6 Destructuring kills reactivity
 
 ```svelte
-let { name } = user;          // ❌ snapshot at this moment, no longer reactive
-let name = $derived(user.name); // ✅ stays in sync
+let {name} = user; // ❌ snapshot at this moment, no longer reactive let name = $derived(user.name); //
+✅ stays in sync
 ```
 
 Same applies to function arguments — JavaScript is pass-by-value, so a function that takes `count` gets the value at call time, not a live binding. Wrap in a getter or pass the parent object if the function needs a live read.
@@ -147,7 +155,7 @@ Same applies to function arguments — JavaScript is pass-by-value, so a functio
 
 ## 3. `$derived` vs `$effect` — the most important section in this file
 
-> **If you remember nothing else: `$derived` is for *values*, `$effect` is for *side effects*. Reach for `$derived` first. Always.**
+> **If you remember nothing else: `$derived` is for _values_, `$effect` is for _side effects_. Reach for `$derived` first. Always.**
 
 ### 3.1 Use `$derived` for everything you can
 
@@ -168,6 +176,7 @@ Same applies to function arguments — JavaScript is pass-by-value, so a functio
 ```
 
 Properties of `$derived`:
+
 - **Lazy and cached.** Recomputed only when read after a dependency changed.
 - **Push-pull.** Dependents are notified eagerly that the value is dirty; the recomputation only runs when something actually reads it.
 - **Referentially-equal short-circuit.** If the new value `===` the old value, downstream effects/derived don't re-run.
@@ -217,11 +226,11 @@ $inspect(count);
 
 ### 3.3 The (small) list of legitimate `$effect` uses
 
-You *should* reach for `$effect` for:
+You _should_ reach for `$effect` for:
 
 1. **Imperative DOM work** Svelte can't express declaratively (canvas drawing, manual focus management, IntersectionObserver wiring).
 2. **Synchronising with a third-party library** that owns its own DOM (D3, MapLibre, Monaco, ChartJS) — and even then, prefer `{@attach ...}` (see §10).
-3. **Network calls fired *because* state changed** (search-as-you-type, but debounce!).
+3. **Network calls fired _because_ state changed** (search-as-you-type, but debounce!).
 4. **Non-DOM browser APIs** that need reactive input (WebSocket subscriptions, `localStorage` writes).
 5. **Logging / analytics** that must observe state.
 
@@ -236,18 +245,18 @@ Even then, prefer `createSubscriber` (from `svelte/reactivity`) for "external th
 
   $effect(() => {
     const id = setInterval(() => count++, ms);
-    return () => clearInterval(id);  // runs before each re-run AND on unmount
+    return () => clearInterval(id); // runs before each re-run AND on unmount
   });
 </script>
 ```
 
-- **Dependencies are tracked synchronously inside the effect body.** Anything read after an `await` or inside a `setTimeout` is *not* tracked.
-- An effect that reads an object `state` does *not* re-run when `state.value` changes — it re-runs only if `state` itself is reassigned.
+- **Dependencies are tracked synchronously inside the effect body.** Anything read after an `await` or inside a `setTimeout` is _not_ tracked.
+- An effect that reads an object `state` does _not_ re-run when `state.value` changes — it re-runs only if `state` itself is reassigned.
 - Effects do **not** run on the server. **Never** wrap effect contents in `if (browser) { ... }` — it's always client-only by design.
 
 ### 3.5 Avoiding infinite loops
 
-If you must read and write the same state inside an effect, wrap the *entire write operation* in `untrack`:
+If you must read and write the same state inside an effect, wrap the _entire write operation_ in `untrack`:
 
 ```svelte
 import { untrack } from 'svelte';
@@ -260,7 +269,7 @@ $effect(() => {
 });
 ```
 
-`untrack` operates on *executed code*, not on the variable name — `untrack(() => arr).push(x)` does **not** work, because `.push` itself reads `length`. Wrap the whole call.
+`untrack` operates on _executed code_, not on the variable name — `untrack(() => arr).push(x)` does **not** work, because `.push` itself reads `length`. Wrap the whole call.
 
 Sources: [`$effect`](https://svelte.dev/docs/svelte/$effect), [Best practices — `$effect`](https://svelte.dev/docs/svelte/best-practices#$effect).
 
@@ -284,6 +293,7 @@ Sources: [`$effect`](https://svelte.dev/docs/svelte/$effect), [Best practices �
 ```
 
 Pattern rules:
+
 - **Always destructure** unless you genuinely need the whole object (e.g. forwarding via spread).
 - **Always type props** with an `interface Props` annotation, not `$props<Props>()`. Generic syntax on `$props()` is deliberately not supported.
 - **Default values via destructuring**: `let { count = 0 } = $props();`.
@@ -295,6 +305,7 @@ Pattern rules:
   // Reserved word rename
   let { class: klass, ...rest } = $props();
 </script>
+
 <button class={klass} {...rest}>...</button>
 ```
 
@@ -304,6 +315,7 @@ Pattern rules:
 <script>
   const uid = $props.id();
 </script>
+
 <label for="{uid}-name">Name</label>
 <input id="{uid}-name" />
 ```
@@ -361,14 +373,17 @@ Two-way binding is the exception, not the rule. The default is **props down, cal
 <script>
   let { value = $bindable(''), ...rest } = $props();
 </script>
+
 <input bind:value {...rest} />
 ```
 
 Parents may, but don't have to, bind:
 
 ```svelte
-<FancyInput bind:value={message} />   <!-- two-way -->
-<FancyInput value={initial} />        <!-- one-way; child can override locally -->
+<FancyInput bind:value={message} />
+<!-- two-way -->
+<FancyInput value={initial} />
+<!-- one-way; child can override locally -->
 ```
 
 Don't reach for `$bindable` because it "feels easier" than threading a callback. Two-way bindings are harder to reason about; use them where the alternative is clearly worse.
@@ -382,7 +397,7 @@ Source: [`$bindable`](https://svelte.dev/docs/svelte/$bindable).
 ### 6.1 File layout
 
 - **`Foo.svelte`** — presentational and stateful UI components.
-- **`foo.svelte.ts`** / **`foo.svelte.js`** — modules that use runes (state, derived, classes). The `.svelte.` infix is *required* for the compiler to recognise the runes.
+- **`foo.svelte.ts`** / **`foo.svelte.js`** — modules that use runes (state, derived, classes). The `.svelte.` infix is _required_ for the compiler to recognise the runes.
 - **`foo.ts`** — pure utilities, types, constants. No runes.
 - **Per-route**: SvelteKit `+page.svelte`, `+page.ts`, `+layout.svelte`, etc.
 
@@ -425,8 +440,12 @@ export class Cart {
   items = $state<Item[]>([]);
   total = $derived(this.items.reduce((s, i) => s + i.price, 0));
 
-  add = (item: Item) => { this.items.push(item); };
-  clear = () => { this.items = []; };
+  add = (item: Item) => {
+    this.items.push(item);
+  };
+  clear = () => {
+    this.items = [];
+  };
 }
 
 export const [getCart, setCart] = createContext<Cart>();
@@ -439,6 +458,7 @@ export const [getCart, setCart] = createContext<Cart>();
   setCart(new Cart());
   let { children } = $props();
 </script>
+
 {@render children()}
 ```
 
@@ -448,8 +468,8 @@ export const [getCart, setCart] = createContext<Cart>();
   import { getCart } from '$lib/stores/cart.svelte';
   const cart = getCart();
 </script>
-<button onclick={() => cart.add(item)}>Add</button>
-<p>Total: {cart.total}</p>
+
+<button onclick={() => cart.add(item)}>Add</button><p>Total: {cart.total}</p>
 ```
 
 **Rules for context state:**
@@ -485,7 +505,14 @@ Sources: [Context](https://svelte.dev/docs/svelte/context), [Best practices — 
 
 ```svelte
 <!-- ✅ -->
-<form onsubmit={(e) => { e.preventDefault(); doSubmit(); }}>...</form>
+<form
+  onsubmit={(e) => {
+    e.preventDefault();
+    doSubmit();
+  }}
+>
+  ...
+</form>
 ```
 
 For `passive`, you need an action (or now an `{@attach ...}`) — they're a binding-time concern, not a handler one.
@@ -510,6 +537,7 @@ For `passive`, you need an action (or now an `{@attach ...}`) — they're a bind
 ```
 
 Conventions:
+
 - **Name handlers `onfoo`** (lowercase, no separator) so they look like DOM event attributes.
 - **Pass plain values, not `CustomEvent`s.** No more `event.detail` round-tripping.
 - **Mark required** by typing the prop as `(arg: T) => void` (no `?`); optional callbacks get `?` and are called as `onsave?.(payload)`.
@@ -556,6 +584,7 @@ The implicit "default slot" is now a normal prop called `children`:
 <script>
   let { header, footer, children } = $props();
 </script>
+
 <article>
   <header>{@render header?.()}</header>
   <div>{@render children()}</div>
@@ -576,12 +605,18 @@ The implicit "default slot" is now a normal prop called `children`:
 <!-- List.svelte -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  interface Props<T> { items: T[]; row: Snippet<[T]>; empty?: Snippet; }
+  interface Props<T> {
+    items: T[];
+    row: Snippet<[T]>;
+    empty?: Snippet;
+  }
   let { items, row, empty }: Props<unknown> = $props();
 </script>
 
 {#if items.length}
-  <ul>{#each items as item (item.id)}<li>{@render row(item)}</li>{/each}</ul>
+  <ul>
+    {#each items as item (item.id)}<li>{@render row(item)}</li>{/each}
+  </ul>
 {:else}
   {@render empty?.()}
 {/if}
@@ -599,7 +634,7 @@ The implicit "default slot" is now a normal prop called `children`:
 
 ### 8.4 Reuse within a component
 
-Snippets DRY up repeated markup *inside* a single component — defining once and `{@render}`ing in multiple places — without needing a separate file.
+Snippets DRY up repeated markup _inside_ a single component — defining once and `{@render}`ing in multiple places — without needing a separate file.
 
 ### 8.5 Typing snippets
 
@@ -607,9 +642,9 @@ Snippets DRY up repeated markup *inside* a single component — defining once an
 import type { Snippet } from 'svelte';
 
 interface Props {
-  children: Snippet;                  // no params
-  row: Snippet<[Item]>;               // one param
-  cell: Snippet<[Item, number]>;      // multiple params
+  children: Snippet; // no params
+  row: Snippet<[Item]>; // one param
+  cell: Snippet<[Item, number]>; // multiple params
 }
 ```
 
@@ -632,17 +667,25 @@ Plain `new Map()` and `new Set()` are **not** reactive — Svelte can't proxy a 
 
 ```svelte
 <script>
-  import { SvelteMap, SvelteSet, SvelteDate, SvelteURL, SvelteURLSearchParams, MediaQuery } from 'svelte/reactivity';
+  import {
+    SvelteMap,
+    SvelteSet,
+    SvelteDate,
+    SvelteURL,
+    SvelteURLSearchParams,
+    MediaQuery,
+  } from 'svelte/reactivity';
 
-  const board = new SvelteMap();        // reactive Map
-  const tags  = new SvelteSet();        // reactive Set
-  const now   = new SvelteDate();       // re-reads in $derived/$effect on update
-  const url   = new SvelteURL(location); // reactive URL with reactive .searchParams
+  const board = new SvelteMap(); // reactive Map
+  const tags = new SvelteSet(); // reactive Set
+  const now = new SvelteDate(); // re-reads in $derived/$effect on update
+  const url = new SvelteURL(location); // reactive URL with reactive .searchParams
   const isWide = new MediaQuery('min-width: 800px'); // .current is reactive
 </script>
 ```
 
 Notes:
+
 - `SvelteMap` / `SvelteSet` track `.has`, `.get`, `.size`, iteration, etc. **Their values are not deeply reactive**, only the collection's structure is.
 - `MediaQuery.current` is the bool you read in templates; it updates when the query matches.
 - Building your own external-to-reactive bridge? Use `createSubscriber` from `svelte/reactivity` — it deduplicates, handles teardown, and works with multiple consumers.
@@ -665,7 +708,7 @@ Actions (`use:tooltip={content}`) are deprecated in favour of **attachments** (`
   function tooltip(text: string): Attachment {
     return (element) => {
       const tip = tippy(element, { content: text });
-      return tip.destroy;     // cleanup on re-run / unmount
+      return tip.destroy; // cleanup on re-run / unmount
     };
   }
 </script>
@@ -675,6 +718,7 @@ Actions (`use:tooltip={content}`) are deprecated in favour of **attachments** (`
 ```
 
 Why attachments, not actions:
+
 - **Reactive parameters** — re-run automatically when `content` changes (actions needed an `update` callback).
 - Can be **inline**, **factories**, or **conditional** (`{@attach enabled && fn}`).
 - Work on **components** too (when the component spreads props onto an element).
@@ -700,13 +744,13 @@ The `$store` auto-subscribe sigil still works in Svelte 5; it is the only reason
 
 For everything else, prefer:
 
-| Was a store…                   | Use instead                                  |
-| ------------------------------ | -------------------------------------------- |
-| `writable(0)` for a counter    | `$state(0)`                                  |
-| `derived(a, ($a) => $a * 2)`   | `$derived(a * 2)`                            |
-| Cross-component shared state   | Class + context (§6.2)                       |
-| Subscriptions to external APIs | `createSubscriber` (in `svelte/reactivity`)  |
-| Read-only computed             | `$derived` (it's read-only by default)       |
+| Was a store…                   | Use instead                                 |
+| ------------------------------ | ------------------------------------------- |
+| `writable(0)` for a counter    | `$state(0)`                                 |
+| `derived(a, ($a) => $a * 2)`   | `$derived(a * 2)`                           |
+| Cross-component shared state   | Class + context (§6.2)                      |
+| Subscriptions to external APIs | `createSubscriber` (in `svelte/reactivity`) |
+| Read-only computed             | `$derived` (it's read-only by default)      |
 
 Source: [Stores — When to use stores](https://svelte.dev/docs/svelte/stores#When-to-use-stores).
 
@@ -716,19 +760,21 @@ Source: [Stores — When to use stores](https://svelte.dev/docs/svelte/stores#Wh
 
 Svelte 5 has **two** lifecycle moments: mount and destroy. There is no `beforeUpdate` / `afterUpdate` — those are deprecated and unavailable inside runes-mode components.
 
-| Need                                | Do                                             |
-| ----------------------------------- | ---------------------------------------------- |
-| Run code after mount                | `onMount(() => { ... })` *or* `$effect(...)`   |
-| Run code before each DOM update     | `$effect.pre(() => { ... })`                   |
-| Run code after each DOM update      | `$effect(() => { ... })`                       |
-| Cleanup on unmount                  | Return a function from the effect / `onMount`  |
-| Wait until the DOM has updated      | `await tick();`                                |
+| Need                            | Do                                            |
+| ------------------------------- | --------------------------------------------- |
+| Run code after mount            | `onMount(() => { ... })` _or_ `$effect(...)`  |
+| Run code before each DOM update | `$effect.pre(() => { ... })`                  |
+| Run code after each DOM update  | `$effect(() => { ... })`                      |
+| Cleanup on unmount              | Return a function from the effect / `onMount` |
+| Wait until the DOM has updated  | `await tick();`                               |
 
 `onMount`:
+
 - Runs on the client only (not during SSR).
 - The teardown return must come from a **synchronous** function. `onMount(async () => ... return cleanup)` won't work — wrap async work inside, or use `$effect`.
 
 `$effect` is generally a better default than `onMount` for new code:
+
 - Auto-tracks dependencies.
 - Same teardown semantics.
 - Works inside non-component contexts (e.g. inside a class field).
@@ -748,11 +794,11 @@ Source: [Lifecycle hooks](https://svelte.dev/docs/svelte/lifecycle-hooks).
 ### 13.2 Typing runes
 
 ```ts
-let count   = $state(0);              // inferred number
-let user    = $state<User | null>(null);
-let raw     = $state.raw<Item[]>([]); // generic on $state.raw too
+let count = $state(0); // inferred number
+let user = $state<User | null>(null);
+let raw = $state.raw<Item[]>([]); // generic on $state.raw too
 
-let doubled = $derived(count * 2);    // inferred
+let doubled = $derived(count * 2); // inferred
 
 interface Props {
   title: string;
@@ -795,6 +841,7 @@ For wrappers around native elements, import the typed interface from `svelte/ele
   import type { HTMLButtonAttributes } from 'svelte/elements';
   let { children, ...rest }: HTMLButtonAttributes = $props();
 </script>
+
 <button {...rest}>{@render children?.()}</button>
 ```
 
@@ -892,35 +939,35 @@ In rough order of how often we see them:
 13. **`bind:this={el}` + `$effect`** for DOM work → `{@attach}` (cleanup is automatic, re-runs follow deps).
 14. **Storing a `$derived` result in `$state` "for perf".** It's already cached.
 15. **Index-based `{#each}` keys.** Always key by stable identity.
-16. **`tick()` to "wait for state to update".** State is synchronous; `tick()` waits for the *DOM*.
+16. **`tick()` to "wait for state to update".** State is synchronous; `tick()` waits for the _DOM_.
 17. **Class methods used as event handlers without arrow form.** `onclick={obj.method}` loses `this`. Use arrow-class-fields or `() => obj.method()`.
 
 ---
 
 ## 17. Quick conversion table — Svelte 4 → Svelte 5
 
-| Svelte 4                                  | Svelte 5                                                  |
-| ----------------------------------------- | --------------------------------------------------------- |
-| `let count = 0;` (top-level, reactive)    | `let count = $state(0);`                                  |
-| `$: doubled = count * 2;`                 | `let doubled = $derived(count * 2);`                      |
-| `$: { sideEffect(count); }`               | `$effect(() => { sideEffect(count); });`                  |
-| `export let foo;`                         | `let { foo } = $props();`                                 |
-| `export let foo = 'bar';`                 | `let { foo = 'bar' } = $props();`                         |
-| `export { klass as class };`              | `let { class: klass } = $props();`                        |
-| `$$props`, `$$restProps`                  | `let props = $props();` / `let { ...rest } = $props();`   |
-| `createEventDispatcher` + `dispatch('x')` | callback prop `onx`                                       |
-| `on:click={fn}`                           | `onclick={fn}`                                            |
-| `on:click|preventDefault={fn}`            | `onclick={(e) => { e.preventDefault(); fn(e); }}`         |
-| `<slot />`                                | `{@render children?.()}`                                  |
-| `<slot name="foo" prop={x} />`            | `{@render foo?.(x)}` + `{#snippet foo(x)}…{/snippet}`     |
-| `let:item` on slotted content             | `{#snippet row(item)}…{/snippet}`                         |
+| Svelte 4                                  | Svelte 5                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------- |
+| `let count = 0;` (top-level, reactive)    | `let count = $state(0);`                                         |
+| `$: doubled = count * 2;`                 | `let doubled = $derived(count * 2);`                             |
+| `$: { sideEffect(count); }`               | `$effect(() => { sideEffect(count); });`                         |
+| `export let foo;`                         | `let { foo } = $props();`                                        |
+| `export let foo = 'bar';`                 | `let { foo = 'bar' } = $props();`                                |
+| `export { klass as class };`              | `let { class: klass } = $props();`                               |
+| `$$props`, `$$restProps`                  | `let props = $props();` / `let { ...rest } = $props();`          |
+| `createEventDispatcher` + `dispatch('x')` | callback prop `onx`                                              |
+| `on:click={fn}`                           | `onclick={fn}`                                                   |
+| `on:click                                 | preventDefault={fn}`                                             | `onclick={(e) => { e.preventDefault(); fn(e); }}` |
+| `<slot />`                                | `{@render children?.()}`                                         |
+| `<slot name="foo" prop={x} />`            | `{@render foo?.(x)}` + `{#snippet foo(x)}…{/snippet}`            |
+| `let:item` on slotted content             | `{#snippet row(item)}…{/snippet}`                                |
 | `use:foo={bar}`                           | `{@attach foo(bar)}` (or `{@attach fromAction(foo, () => bar)}`) |
-| `new Component({ target, props })`        | `mount(Component, { target, props })`                     |
-| `writable(0)`                             | `$state(0)` (and remove `$store` sigils)                  |
-| `derived(a, ($a) => $a * 2)`              | `$derived(a * 2)`                                         |
-| `beforeUpdate(fn)`                        | `$effect.pre(fn)`                                         |
-| `afterUpdate(fn)`                         | `$effect(fn)`                                             |
-| `class:active={isActive}`                 | `class={['btn', isActive && 'active']}`                   |
+| `new Component({ target, props })`        | `mount(Component, { target, props })`                            |
+| `writable(0)`                             | `$state(0)` (and remove `$store` sigils)                         |
+| `derived(a, ($a) => $a * 2)`              | `$derived(a * 2)`                                                |
+| `beforeUpdate(fn)`                        | `$effect.pre(fn)`                                                |
+| `afterUpdate(fn)`                         | `$effect(fn)`                                                    |
+| `class:active={isActive}`                 | `class={['btn', isActive && 'active']}`                          |
 
 For automation: run `npx sv migrate svelte-5`. It converts the mechanical things; it **does not** convert `createEventDispatcher` or `beforeUpdate`/`afterUpdate` — those need human judgement.
 
@@ -931,6 +978,7 @@ Source: [Svelte 5 migration guide](https://svelte.dev/docs/svelte/v5-migration-g
 ## 18. References
 
 Official:
+
 - [Svelte 5 docs index](https://svelte.dev/docs/svelte/overview)
 - [Best practices](https://svelte.dev/docs/svelte/best-practices) ← read this; everything in §0-§5 here is opinionated commentary on it
 - [v5 migration guide](https://svelte.dev/docs/svelte/v5-migration-guide)
@@ -941,6 +989,7 @@ Official:
 - Tooling: [TypeScript](https://svelte.dev/docs/svelte/typescript) · [Testing](https://svelte.dev/docs/svelte/testing)
 
 Community write-ups consulted for opinions and anti-patterns:
+
 - "Different ways to share state in Svelte 5" — joyofcode.xyz
 - "OOP as State Management: What Svelte 5 Runes Made Obvious" — medium.com/@igortosic
 - "Svelte 5 attachments vs actions: complete migration guide" — sveltetalk.com

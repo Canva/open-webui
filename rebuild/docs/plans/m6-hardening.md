@@ -551,6 +551,21 @@ A standalone job in Canva's existing synthetics platform (Datadog/Pingdom-shaped
 
 Failures page the on-call rotation. Five-minute cadence is balanced against budget; finer granularity comes from the dashboard.
 
+### Visual-regression CI
+
+The visual-regression layer from `rebuild.md` § 8 Layer 4 spans every milestone — M1 ships 15 chrome + smoke baselines under `tests/visual-baselines/m1/`, M2 / M4 / M5 / M6 each add their own — so M6 owns the cross-milestone npm scripts, Makefile targets, and Buildkite wiring rather than each milestone re-inventing the workflow.
+
+**npm scripts (`rebuild/package.json`).** Two new scripts complement the existing `test:e2e:smoke`:
+
+- `test:visual` runs `playwright test --grep @visual` (matches every milestone's `@visual-m{n}` tag — M1's `visual-m1.spec.ts` already authors `@visual-m1`; M2 / M4 / M5 / M6 follow the same convention).
+- `test:visual:update` runs `playwright test --grep @visual --update-snapshots` for the manual baseline refresh workflow (Git LFS-tracked PNGs under `tests/visual-baselines/**`).
+
+**Makefile targets (`rebuild/Makefile`).** `make test-visual` and `make test-visual-update` delegate to the two npm scripts so the rebuild's command surface stays consistent with the M0 `test-unit` / `test-component` / `test-e2e-smoke` shape.
+
+**Buildkite wiring.** A new path-filtered `:playwright: visual` step in `rebuild/.buildkite/rebuild.yml` (`if: build.changed_files =~ /^rebuild\/(frontend|backend)\//`) runs `make test-visual` against the deterministic compose stack — same shape as the existing `e2e-smoke` step, separate label so a baseline diff doesn't masquerade as a smoke failure. The step is **gating** for PRs that touch `rebuild/frontend/src/**` or `rebuild/frontend/tests/visual-baselines/**`; it remains informational (non-gating) for backend-only PRs to avoid spurious failures from incidental rendering noise on chrome the change can't have affected.
+
+**Baseline refresh (manual workflow).** Per `rebuild.md` § 8 Layer 4 ("baselines updated via a manual workflow only"), `test:visual:update` is **never** auto-run by CI. The workflow is a Buildkite manual-trigger step (`block: "Refresh visual baselines"` in `rebuild.yml`) that runs `make test-visual-update` inside the CI Linux container image, commits the regenerated PNGs on a feature branch via Git LFS, and opens a PR titled `chore(visual): refresh baselines for {milestone}`. Reviewers diff the PNGs in GitHub's image-diff view; baselines never auto-merge. This same workflow is what M1 uses to backfill the 15 deferred PNGs under `tests/visual-baselines/m1/` (see [m1-theming.md § Visual regression](m1-theming.md)) and what every later milestone uses to refresh its own surfaces.
+
 ## Acceptance criteria
 
 - [ ] OTel traces appear in Canva's tracing UI for FastAPI, SQLAlchemy, asyncmy, httpx, python-socketio, and APScheduler events, with `traceparent` correctly propagated across HTTP and through scheduler-originated calls.
@@ -573,6 +588,12 @@ Failures page the on-call rotation. Five-minute cadence is balanced against budg
 - [ ] Cutover runbook reviewed and dry-run on staging once before cutover day.
 - [ ] In-product banner copy ships before T-0 and auto-disables 14 days later.
 - [ ] Visual-regression baselines `error-banner.png` and `rate-limited-toast.png` captured under `rebuild/frontend/tests/visual-baselines/m5/` (Git LFS) covering the M6-introduced error/banner surfaces; the smoke pack consumes the same baselines.
+
+## M1 follow-ups
+
+The M1 plan deferred a single UX item that has no good earlier landing zone (M0 ships no command palette, M2 ships no command palette, M3–M5 introduce no global keyboard surface). It lands here as polish, not as a correctness gate.
+
+- **Theme picker command-palette entry.** M1 ships the picker UI in Settings plus the `themeStore.setTheme(id)` / `themeStore.clearChoice()` actions; per [m1-theming.md § Deliverables](m1-theming.md) the picker's docstring carries a `Cmd-K`-shaped TODO awaiting a host palette. If a command palette is introduced in M6 (as part of the polish surface) or in any later milestone, wire it to expose the picker as `Theme: Tokyo Day | Storm | Moon | Night | Match system`, dispatching to the same M1 store actions — no separate code path; the M1 deliverable bullet is already written against this contract. Theme switching from Settings continues to work without it; this is a discoverability improvement, not a correctness gate. If no command palette ships in M6 either, the TODO carries forward into post-M6 polish work and the M1 docstring stays the canonical reminder.
 
 ## Out of scope
 

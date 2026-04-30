@@ -1,6 +1,19 @@
 @import 'tailwindcss';
 
 /*
+ * Per-preset CSS variable bindings. One [data-theme="..."] block per
+ * shipping preset. Generated from src/lib/theme/presets.ts via
+ * src/lib/theme/vite-emit-tokens.ts; the file is committed so reviewers
+ * see the diff when a preset changes. Do not hand-edit.
+ *
+ * Selector is intentionally NOT scoped to :root — the M1 ThemePicker
+ * mounts each tile with `data-theme="tokyo-{id}"` to preview that
+ * preset in isolation, which only works if the role-token vars cascade
+ * from any element carrying the attribute, not just <html>.
+ */
+@import './lib/theme/tokens.css';
+
+/*
  * Design tokens for the Open WebUI (Canva fork). Pinned in M0 once and
  * inherited by every later milestone. Source of truth:
  *
@@ -11,13 +24,20 @@
  * DESIGN.json first. Tailwind 4's @theme directive lifts these CSS
  * variables into utility-class generators (bg-paper-white, text-body-ink,
  * rounded-3xl, font-display, ...).
+ *
+ * The M0 zero-chroma neutral ramp below is the static palette M2+ may
+ * still reach for outside the role-token vocabulary (e.g. the agent
+ * avatar fallback). New surfaces should reach for the M1 role tokens
+ * (bg-background-app, text-ink-body, ...) declared in the @theme inline
+ * block further down.
  */
 @theme {
   /* Color: zero-chroma neutral ramp (Ink-and-Paper Palette). */
   --color-paper-white: oklch(0.98 0 0);
   --color-page-fill: oklch(0.94 0 0);
   --color-divider: oklch(0.92 0 0);
-  --color-hairline: oklch(0.85 0 0);
+  /* `--color-hairline` is owned by the M1 role-token vocabulary in the
+   * @theme inline { ... } block below; do not redeclare it here. */
   --color-placeholder: oklch(0.77 0 0);
   --color-muted-ink: oklch(0.69 0 0);
   --color-secondary-ink: oklch(0.51 0 0);
@@ -59,6 +79,60 @@
 
   /* Motion: ease-out-quart, all functional, all sub-200ms. */
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * M1 role-token vocabulary lifted into Tailwind 4 utilities. The
+ * `inline` keyword instructs Tailwind to emit utilities that REFERENCE
+ * the runtime CSS variable (e.g. `bg-background-app { background-color:
+ * var(--background-app); }`) rather than baking the resolved value at
+ * build time. Switching `data-theme` on <html> re-points every variable
+ * in one DOM mutation and the browser repaints in one frame.
+ *
+ * The variables are defined per-preset in `lib/theme/tokens.css`
+ * (imported above). When a new role token is added in `presets.ts`, the
+ * Vite plugin regenerates `tokens.css` automatically; the corresponding
+ * line MUST be added here by hand so the Tailwind utility surface
+ * matches.
+ */
+@theme inline {
+  /* Surface ramp */
+  --color-background-app: var(--background-app);
+  --color-background-sidebar: var(--background-sidebar);
+  --color-background-topbar: var(--background-topbar);
+  --color-background-elevated: var(--background-elevated);
+  --color-background-code: var(--background-code);
+  --color-background-mention: var(--background-mention);
+
+  /* Hairlines and ink */
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-ink-placeholder: var(--ink-placeholder);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-body: var(--ink-body);
+  --color-ink-strong: var(--ink-strong);
+
+  /* Accents */
+  --color-accent-selection: var(--accent-selection);
+  --color-accent-selection-pressed: var(--accent-selection-pressed);
+  --color-accent-mention: var(--accent-mention);
+  --color-accent-headline: var(--accent-headline);
+  --color-accent-stream: var(--accent-stream);
+
+  /* Status */
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-danger: var(--status-danger);
+  --color-status-info: var(--status-info);
+
+  /* Syntax (consumed by Shiki, not directly by chrome utilities). */
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-comment: var(--syntax-comment);
+  --color-syntax-function: var(--syntax-function);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-tag: var(--syntax-tag);
 }
 
 /*

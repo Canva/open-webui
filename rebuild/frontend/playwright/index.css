@@ -1,0 +1,22 @@
+/*
+ * Playwright Component Testing-only stylesheet.
+ *
+ * The CT bundler sets its Vite `root` to `frontend/playwright/` (see
+ * `node_modules/@playwright/experimental-ct-core/lib/viteUtils.js`
+ * `createConfig`), and Tailwind v4's auto-content-detection is anchored
+ * relative to that root. Without explicit `@source` directives, the
+ * Tailwind scan only walks the playwright template dir and skips the
+ * actual project source — every utility used inside the picker / store /
+ * harness (`bg-background-app`, `outline-accent-selection`, ...) ends
+ * up unmaterialised, and computed-style assertions in the picker specs
+ * see `rgba(0,0,0,0)` for the swatch background.
+ *
+ * The fix is purely test-side: import the production `app.css` and
+ * extend the scan tree with explicit `@source "../../{src,tests}/..."`
+ * lines. The production stylesheet is left untouched.
+ */
+
+@import '../src/app.css';
+
+@source '../src/**/*.{svelte,ts}';
+@source '../tests/component/**/*.{svelte,ts}';

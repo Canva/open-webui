@@ -9,24 +9,24 @@ You are the orchestrator. Your job is to turn a written milestone plan (or a sco
 
 ## Available subagents (anchor these names exactly)
 
-| Subagent | Owns | Read order | Best-practises file(s) it loads |
-|---|---|---|---|
-| `plan-keeper` | `rebuild.md`, milestone plans, best-practises files (read-only) | First (scope check), last (drift sweep) | All four (curator of the canonical files) |
-| `db-architect` | SQLAlchemy models, Alembic revisions, indexes, constraints | Phase 1 | `rebuild/docs/best-practises/database-best-practises.md` (+ `rebuild/docs/plans/MYSQL_FEATURE_AUDIT.md`) |
-| `fastapi-engineer` | Routers, schemas, services, dependencies | Phase 2 | `rebuild/docs/best-practises/FastAPI-best-practises.md` |
-| `realtime-engineer` | SSE, `StreamRegistry`, socket.io + Redis adapter, webhooks | Phase 2 (parallel with fastapi when independent) | `rebuild/docs/best-practises/FastAPI-best-practises.md` (sections A.2, A.7, A.8, B.6) |
-| `svelte-engineer` | SvelteKit routes, runes stores, Tailwind 4 components, **design quality (impeccable)** | Phase 3 | `rebuild/docs/best-practises/svelte-best-practises.md`, `rebuild/docs/best-practises/sveltekit-best-practises.md`, **plus** the `impeccable` skill |
-| `test-author` | Vitest unit, Playwright CT/E2E, visual baselines, MSW, LLM cassettes | Phase 4 (and proactively per layer) | The same best-practises file(s) as the layer being tested |
-| `verifier` | Runs lint/typecheck/test gates and grep checks | Final phase (read-only, fast model) | The same best-practises file(s) as the layer being verified |
+| Subagent            | Owns                                                                                   | Read order                                       | Best-practises file(s) it loads                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plan-keeper`       | `rebuild.md`, milestone plans, best-practises files (read-only)                        | First (scope check), last (drift sweep)          | All four (curator of the canonical files)                                                                                                          |
+| `db-architect`      | SQLAlchemy models, Alembic revisions, indexes, constraints                             | Phase 1                                          | `rebuild/docs/best-practises/database-best-practises.md` (+ `rebuild/docs/plans/MYSQL_FEATURE_AUDIT.md`)                                           |
+| `fastapi-engineer`  | Routers, schemas, services, dependencies                                               | Phase 2                                          | `rebuild/docs/best-practises/FastAPI-best-practises.md`                                                                                            |
+| `realtime-engineer` | SSE, `StreamRegistry`, socket.io + Redis adapter, webhooks                             | Phase 2 (parallel with fastapi when independent) | `rebuild/docs/best-practises/FastAPI-best-practises.md` (sections A.2, A.7, A.8, B.6)                                                              |
+| `svelte-engineer`   | SvelteKit routes, runes stores, Tailwind 4 components, **design quality (impeccable)** | Phase 3                                          | `rebuild/docs/best-practises/svelte-best-practises.md`, `rebuild/docs/best-practises/sveltekit-best-practises.md`, **plus** the `impeccable` skill |
+| `test-author`       | Vitest unit, Playwright CT/E2E, visual baselines, MSW, LLM cassettes                   | Phase 4 (and proactively per layer)              | The same best-practises file(s) as the layer being tested                                                                                          |
+| `verifier`          | Runs lint/typecheck/test gates and grep checks                                         | Final phase (read-only, fast model)              | The same best-practises file(s) as the layer being verified                                                                                        |
 
 The four best-practises files plus the impeccable skill:
 
-| Source | Path |
-|---|---|
-| FastAPI best practises | `rebuild/docs/best-practises/FastAPI-best-practises.md` |
-| Database best practises | `rebuild/docs/best-practises/database-best-practises.md` |
-| Svelte 5 best practises | `rebuild/docs/best-practises/svelte-best-practises.md` |
-| SvelteKit best practises | `rebuild/docs/best-practises/sveltekit-best-practises.md` |
+| Source                    | Path                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| FastAPI best practises    | `rebuild/docs/best-practises/FastAPI-best-practises.md`                         |
+| Database best practises   | `rebuild/docs/best-practises/database-best-practises.md`                        |
+| Svelte 5 best practises   | `rebuild/docs/best-practises/svelte-best-practises.md`                          |
+| SvelteKit best practises  | `rebuild/docs/best-practises/sveltekit-best-practises.md`                       |
 | Impeccable (design craft) | `.cursor/skills/impeccable/SKILL.md` (+ `PROJECT.md`, `project/`, `reference/`) |
 
 Always name the relevant source(s) in every subagent dispatch (see Phase 3, step 4).
@@ -53,30 +53,30 @@ Run these phases in order. Do not skip.
 
 Map every actionable item from the plan to exactly one subagent. Use this rubric:
 
-| Plan content | Subagent |
-|---|---|
-| New table, new column, new index, new constraint, new Alembic revision | `db-architect` |
-| New router, new endpoint, new Pydantic schema, new service, new dependency, route renames | `fastapi-engineer` |
-| SSE generator, `StreamRegistry`, socket.io event/room, webhook delivery, presence/typing/read receipts | `realtime-engineer` |
-| New SvelteKit route, new component, new store (`*.svelte.ts`), Tailwind work, legacy port with dead-import strip, design polish on existing surface | `svelte-engineer` |
-| Unit test, component test, E2E test, multi-context test, visual baseline, MSW handler, LLM cassette | `test-author` |
-| Acceptance-criteria sweep, regression-first gate enforcement, grep checks for non-negotiables | `verifier` |
-| Plan edit (data-model row, API surface row, deliverable bullet) | `plan-keeper` |
+| Plan content                                                                                                                                        | Subagent            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| New table, new column, new index, new constraint, new Alembic revision                                                                              | `db-architect`      |
+| New router, new endpoint, new Pydantic schema, new service, new dependency, route renames                                                           | `fastapi-engineer`  |
+| SSE generator, `StreamRegistry`, socket.io event/room, webhook delivery, presence/typing/read receipts                                              | `realtime-engineer` |
+| New SvelteKit route, new component, new store (`*.svelte.ts`), Tailwind work, legacy port with dead-import strip, design polish on existing surface | `svelte-engineer`   |
+| Unit test, component test, E2E test, multi-context test, visual baseline, MSW handler, LLM cassette                                                 | `test-author`       |
+| Acceptance-criteria sweep, regression-first gate enforcement, grep checks for non-negotiables                                                       | `verifier`          |
+| Plan edit (data-model row, API surface row, deliverable bullet)                                                                                     | `plan-keeper`       |
 
 For every `svelte-engineer` row in the dispatch plan, name the **impeccable command** the subagent should run. Pick from the routing table in `.cursor/skills/impeccable/PROJECT.md` § Command routing for `svelte-engineer`:
 
-| Work shape | Impeccable command |
-|---|---|
-| Net-new visually-significant route or component | `craft` (run `shape` first) |
-| Net-new small variation of an existing component | `polish` |
-| Legacy port from `src/lib/components/{chat,channel,automations}/` | `polish` then `harden` |
-| Style refresh on existing rebuild surface | `polish` (or `bolder` / `quieter` / `distill` if briefed) |
-| Bug fix with no visual delta | none |
-| Pre-milestone sweep across multiple surfaces | `audit` then `polish` per finding |
-| Empty / loading / error / first-run states | `onboard` then `harden` |
-| Adapt for a new viewport | `adapt` |
-| UI feels slow or janky | `optimize` |
-| Copy / labels / errors | `clarify` |
+| Work shape                                                        | Impeccable command                                        |
+| ----------------------------------------------------------------- | --------------------------------------------------------- |
+| Net-new visually-significant route or component                   | `craft` (run `shape` first)                               |
+| Net-new small variation of an existing component                  | `polish`                                                  |
+| Legacy port from `src/lib/components/{chat,channel,automations}/` | `polish` then `harden`                                    |
+| Style refresh on existing rebuild surface                         | `polish` (or `bolder` / `quieter` / `distill` if briefed) |
+| Bug fix with no visual delta                                      | none                                                      |
+| Pre-milestone sweep across multiple surfaces                      | `audit` then `polish` per finding                         |
+| Empty / loading / error / first-run states                        | `onboard` then `harden`                                   |
+| Adapt for a new viewport                                          | `adapt`                                                   |
+| UI feels slow or janky                                            | `optimize`                                                |
+| Copy / labels / errors                                            | `clarify`                                                 |
 
 A port is **never** `craft`. If the user asked for what looks like a `craft` on a port, surface the conflict before dispatching — that is scope creep into redesign and the user must confirm.
 
@@ -172,6 +172,6 @@ Phase 5: report.
 - **Do not skip `verifier`.** Even on a "tiny" change. The whole point of the regression-first strategy is that nothing ships without the gate.
 - **Do not parallelise across dependency edges.** Schema before code-that-queries-it, API before UI. Parallelism only inside a phase.
 - **Do not let an implementation subagent edit `rebuild/docs/plans/`.** Only `plan-keeper` touches plans.
-- **Do not silently rescope.** If you implemented less than the user asked, the final report's *Deferred* section names every gap.
+- **Do not silently rescope.** If you implemented less than the user asked, the final report's _Deferred_ section names every gap.
 - **Do not strip the impeccable command from a `svelte-engineer` dispatch.** Even on a "tiny port", it still gets `polish`. The whole point of layering impeccable into `svelte-engineer` is that no visual change escapes the design loop. The only legal value for "no impeccable" is `none`, reserved for bug fixes with zero visual delta.
 - **Do not let `verifier` substitute for design self-critique.** `verifier` checks lint, types, and tests. It does not check whether a surface looks like AI slop, whether tokens were used, or whether copy has em dashes. The design self-critique from `svelte-engineer` is the orthogonal gate; both must pass.

@@ -1,6 +1,8 @@
 import type { Handle, HandleFetch } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import type { User } from '$lib/types/user';
+import { isThemeId, resolveTheme, type ThemeId } from '$lib/theme/presets';
+import { BOOT_SCRIPT_SOURCE } from '$lib/theme/boot';
 
 const BACKEND_URL = env.BACKEND_URL ?? 'http://app:8080';
 
@@ -15,8 +17,21 @@ const BACKEND_URL = env.BACKEND_URL ?? 'http://app:8080';
  * `app.core.auth.get_user` dep: `X-Forwarded-Email` is required (case-
  * insensitive); `X-Forwarded-Name` is optional. A 401 from `/api/me` is
  * surfaced to downstream code as `event.locals.user = null`.
+ *
+ * M1 extends this hook with the theme cookie path:
+ *   1. Read `theme` cookie; validate against `THEME_IDS`; drop unknown.
+ *   2. Resolve to a final `ThemeId` via the brand-canonical fallback
+ *      (`tokyo-night`) when no valid cookie is present. Server has no
+ *      reliable signal for `prefers-color-scheme` (the
+ *      `Sec-CH-Prefers-Color-Scheme` request header is not universally
+ *      emitted), so the inline boot script in `app.html` corrects the
+ *      DOM before hydration if the server picked the wrong fallback.
+ *   3. Emit on `<html data-theme="...">` AND substitute the boot IIFE
+ *      via `transformPageChunk` so the network response carries the
+ *      correct theme without an extra round trip.
  */
 export const handle: Handle = async ({ event, resolve }) => {
+  // ----- auth populate -----
   const email = event.request.headers.get('x-forwarded-email');
   if (email) {
     try {
@@ -33,7 +48,28 @@ export const handle: Handle = async ({ event, resolve }) => {
   } else {
     event.locals.user = null;
   }
-  return resolve(event);
+
+  // ----- theme populate -----
+  const cookieValue = event.cookies.get('theme');
+  let resolvedTheme: ThemeId;
+  let themeSource: 'explicit' | 'fallback';
+  if (isThemeId(cookieValue)) {
+    resolvedTheme = cookieValue;
+    themeSource = 'explicit';
+  } else {
+    // No reliable OS signal on the server in M1; the inline boot
+    // script reconciles client-side before hydration. Fall back to
+    // the brand-canonical default.
+    resolvedTheme = resolveTheme({});
+    themeSource = 'fallback';
+  }
+  event.locals.theme = resolvedTheme;
+  event.locals.themeSource = themeSource;
+
+  return resolve(event, {
+    transformPageChunk: ({ html }) =>
+      html.replace('%theme.id%', resolvedTheme).replace('%theme.boot%', BOOT_SCRIPT_SOURCE),
+  });
 };
 
 /**

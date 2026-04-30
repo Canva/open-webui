@@ -29,6 +29,12 @@ steps:
       - cd rebuild && npm ci
       - cd rebuild && npm run -s lint
       - cd rebuild && npm run -s check
+      # M1 § Acceptance criteria: hex literals are banned in any .svelte
+      # file outside src/lib/theme/. Components reach for the role-token
+      # vocabulary (bg-background-app, text-ink-body, ...) instead. The
+      # M0 grep gate in `lint:grep` covers Svelte 4 idioms; this one
+      # covers the M1 token-first styling rule.
+      - "! grep -RInE '#[0-9a-fA-F]{6}' frontend/src --include='*.svelte' | grep -v 'frontend/src/lib/theme/'"
     timeout_in_minutes: 5
 
   - label: ':pytest: unit'

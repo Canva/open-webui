@@ -28,10 +28,16 @@ const fixtureUser: User = {
   created_at: 1_704_067_200_000,
 };
 
-test.describe('+layout.svelte', () => {
+// M1 expanded `data` with theme + themeSource. The harness mounts the
+// (app)/+layout.svelte; passing `theme: 'tokyo-night'` / `themeSource:
+// 'fallback'` mirrors what the SSR path emits when no cookie is set,
+// which is the M0-baseline assumption these tests were written under.
+const baselineThemeData = { theme: 'tokyo-night' as const, themeSource: 'fallback' as const };
+
+test.describe('(app)/+layout.svelte', () => {
   test('renders the email when data.user is hydrated', async ({ mount }) => {
     const component = await mount(LayoutHarness, {
-      props: { data: { user: fixtureUser } },
+      props: { data: { user: fixtureUser, ...baselineThemeData } },
     });
 
     await expect(component).toContainText('alice@canva.com');
@@ -41,7 +47,7 @@ test.describe('+layout.svelte', () => {
 
   test('renders fallback copy and not raw "null" when data.user is null', async ({ mount }) => {
     const component = await mount(LayoutHarness, {
-      props: { data: { user: null } },
+      props: { data: { user: null, ...baselineThemeData } },
     });
 
     // The fallback copy. The shipped layout uses "No proxy header on this
