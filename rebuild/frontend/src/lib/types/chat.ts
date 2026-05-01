@@ -59,7 +59,7 @@ export interface ChatParams {
 
 export interface MessageSend {
   content: string;
-  model: string;
+  agent_id: string;
   parent_id?: string | null;
   params?: ChatParams;
 }

@@ -7,8 +7,8 @@ The MySQL container is the same session-scoped one the M0 ``client`` /
 ``m2_client``) wipes ``chat`` / ``folder`` / ``user`` between tests so
 the suite doesn't bleed state.
 
-The cassette LLM mock backs ``GET /api/models`` and the title-helper
-endpoint — both via ``cassette_provider`` + ``cassette_models_cache``
+The cassette LLM mock backs ``GET /api/agents`` and the title-helper
+endpoint — both via ``cassette_provider`` + ``cassette_agents_cache``
 fixtures wired in ``integration/conftest.py``.
 
 Plan reference: ``rebuild/docs/plans/m2-conversations.md`` § Chat CRUD
@@ -143,8 +143,8 @@ async def test_get_chat_returns_full_history_after_update(
                 "role": "user",
                 "content": "Hello",
                 "timestamp": 1700000000,
-                "model": None,
-                "modelName": None,
+                "agent_id": None,
+                "agentName": None,
                 "done": True,
                 "error": None,
                 "cancelled": False,
@@ -157,8 +157,8 @@ async def test_get_chat_returns_full_history_after_update(
                 "role": "assistant",
                 "content": "Hi there",
                 "timestamp": 1700000001,
-                "model": "gpt-4o",
-                "modelName": "gpt-4o",
+                "agent_id": "gpt-4o",
+                "agentName": "gpt-4o",
                 "done": True,
                 "error": None,
                 "cancelled": False,
@@ -356,8 +356,8 @@ async def test_list_chats_q_param_matches_content_via_json_search(
                 "role": "user",
                 "content": "Tell me about quokkas",
                 "timestamp": 1700000000,
-                "model": None,
-                "modelName": None,
+                "agent_id": None,
+                "agentName": None,
                 "done": True,
                 "error": None,
                 "cancelled": False,

@@ -25,9 +25,9 @@
   import type { Snippet } from 'svelte';
 
   import { provideActiveChat } from '$lib/stores/active-chat.svelte';
+  import { provideAgents } from '$lib/stores/agents.svelte';
   import { provideChats } from '$lib/stores/chats.svelte';
   import { provideFolders } from '$lib/stores/folders.svelte';
-  import { provideModels } from '$lib/stores/models.svelte';
   import { provideToast } from '$lib/stores/toast.svelte';
   import { THEME_CONTEXT_KEY, ThemeStore } from '$lib/stores/theme.svelte';
   import { resolveTheme } from '$lib/theme/presets';
@@ -63,7 +63,7 @@
   untrack(() => {
     provideChats(data.chats ?? null);
     provideFolders(data.folders ?? []);
-    provideModels(data.models ?? []);
+    provideAgents(data.agents ?? []);
     provideActiveChat();
     provideToast();
   });

@@ -1,18 +1,17 @@
-"""Integration tests for ``GET /api/models`` and the in-process cache.
+"""Integration tests for ``GET /api/agents`` and the in-process cache.
 
-Bridges the cassette LLM mock (``GET /v1/models``) and the
-:class:`app.services.models_cache.ModelsCache` 5-minute TTL contract to
-the HTTP route exposed by ``app/routers/models.py``.
+Bridges the cassette LLM mock (``GET /v1/models`` upstream wire path)
+and the :class:`app.services.agents_cache.AgentsCache` 5-minute TTL
+contract to the HTTP route exposed by ``app/routers/agents.py``.
 
 The tests rebuild the cache with a known starting state per case
-(``cassette_models_cache`` from ``integration/conftest.py`` is pre-warmed
-for the default model list) and use a counting wrapper around
-``provider.list_models`` to confirm the cache only hits the upstream
+(``cassette_agents_cache`` from ``integration/conftest.py`` is pre-warmed
+for the default agent list) and use a counting wrapper around
+``provider.list_agents`` to confirm the cache only hits the upstream
 when expected.
 
-Plan reference: ``rebuild/docs/plans/m2-conversations.md`` § Models, §
-Tests (line 1071 enumerates ``test_models_cache.py``), § Acceptance
-criteria (the cache TTL bullet).
+Plan reference: ``rebuild/docs/plans/m2-conversations.md`` § Agents, §
+Tests, § Acceptance criteria (the cache TTL bullet).
 """
 
 from __future__ import annotations
@@ -39,9 +38,9 @@ class _CountingProvider:
         self._inner = inner
         self.calls = 0
 
-    async def list_models(self) -> Any:
+    async def list_agents(self) -> Any:
         self.calls += 1
-        return await self._inner.list_models()
+        return await self._inner.list_agents()
 
     async def stream(self, **kwargs: Any) -> Any:
         async for delta in self._inner.stream(**kwargs):
@@ -61,7 +60,7 @@ async def counted_provider(cassette_provider: Any) -> AsyncIterator[Any]:
 
 
 @pytest_asyncio.fixture
-async def models_client(
+async def agents_client(
     engine: Any,
     _truncate_m2_tables: None,
     counted_provider: Any,
@@ -69,20 +68,20 @@ async def models_client(
     stream_registry: Any,
 ) -> AsyncIterator[Any]:
     """A :class:`m2_client`-shaped fixture, but with a fresh
-    (unwarmed) :class:`ModelsCache` and a counted provider so tests can
+    (unwarmed) :class:`AgentsCache` and a counted provider so tests can
     observe the cache's upstream-call cadence.
     """
     from app.core.db import AsyncSessionLocal, get_session
     from app.core.deps import (
-        get_models_cache,
+        get_agents_cache,
         get_provider,
         get_redis,
         get_stream_registry,
     )
     from app.main import app
-    from app.services.models_cache import ModelsCache
+    from app.services.agents_cache import AgentsCache
 
-    cache = ModelsCache(counted_provider)
+    cache = AgentsCache(counted_provider)
 
     async def _session_override() -> AsyncIterator[Any]:
         async with AsyncSessionLocal() as session:
@@ -90,7 +89,7 @@ async def models_client(
 
     app.dependency_overrides[get_session] = _session_override
     app.dependency_overrides[get_provider] = lambda: counted_provider
-    app.dependency_overrides[get_models_cache] = lambda: cache
+    app.dependency_overrides[get_agents_cache] = lambda: cache
     app.dependency_overrides[get_redis] = lambda: fake_redis
     app.dependency_overrides[get_stream_registry] = lambda: stream_registry
 
@@ -105,30 +104,30 @@ async def models_client(
 # ---------------------------------------------------------------------------
 
 
-async def test_get_models_returns_cached_list(
-    models_client: tuple[Any, Any, Any],
+async def test_get_agents_returns_cached_list(
+    agents_client: tuple[Any, Any, Any],
     alice_headers: dict[str, str],
 ) -> None:
     """First call populates the cache by hitting the upstream once;
     second call within TTL re-uses it without a second upstream hit.
     """
-    client, _cache, counted = models_client
+    client, _cache, counted = agents_client
 
-    first = await client.get("/api/models", headers=alice_headers)
+    first = await client.get("/api/agents", headers=alice_headers)
     assert first.status_code == 200
     items = first.json()["items"]
     ids = {item["id"] for item in items}
     assert ids == {"gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet-20241022"}
     assert counted.calls == 1
 
-    second = await client.get("/api/models", headers=alice_headers)
+    second = await client.get("/api/agents", headers=alice_headers)
     assert second.status_code == 200
     assert second.json() == first.json()
     assert counted.calls == 1  # served from cache
 
 
-async def test_get_models_refresh_after_ttl(
-    models_client: tuple[Any, Any, Any],
+async def test_get_agents_refresh_after_ttl(
+    agents_client: tuple[Any, Any, Any],
     alice_headers: dict[str, str],
 ) -> None:
     """Forcing the cache's ``_loaded_at`` past the TTL window triggers a
@@ -136,22 +135,22 @@ async def test_get_models_refresh_after_ttl(
     measures freshness with ``time.monotonic`` — making real wall-clock
     time pass would slow the suite.
     """
-    client, cache, counted = models_client
+    client, cache, counted = agents_client
 
-    await client.get("/api/models", headers=alice_headers)
+    await client.get("/api/agents", headers=alice_headers)
     assert counted.calls == 1
 
     # Walk ``_loaded_at`` back by ``ttl + 1`` so the next get() considers
     # the cache stale and refreshes under the single-flight lock.
     cache._loaded_at -= cache._ttl_seconds + 1  # noqa: SLF001 — test seam
 
-    response = await client.get("/api/models", headers=alice_headers)
+    response = await client.get("/api/agents", headers=alice_headers)
     assert response.status_code == 200
     assert counted.calls == 2
 
 
-async def test_get_models_502_on_provider_error(
-    models_client: tuple[Any, Any, Any],
+async def test_get_agents_502_on_provider_error(
+    agents_client: tuple[Any, Any, Any],
     alice_headers: dict[str, str],
     cassette_mock_app: Any,
 ) -> None:
@@ -174,18 +173,18 @@ async def test_get_models_502_on_provider_error(
 
     cassette_mock_app.get("/v1/models")(boom)
 
-    response = await models_client[0].get("/api/models", headers=alice_headers)
+    response = await agents_client[0].get("/api/agents", headers=alice_headers)
     assert response.status_code == 502
 
 
-async def test_get_models_504_on_provider_timeout(
-    models_client: tuple[Any, Any, Any],
+async def test_get_agents_504_on_provider_timeout(
+    agents_client: tuple[Any, Any, Any],
     alice_headers: dict[str, str],
     cassette_mock_app: Any,
     counted_provider: Any,
 ) -> None:
     """An :class:`APITimeoutError` from the SDK is mapped to
-    :class:`ProviderError(504)` — but :func:`list_models` only catches
+    :class:`ProviderError(504)` — but :func:`list_agents` only catches
     :class:`APIStatusError` / :class:`APIError`. ``APITimeoutError`` IS
     an ``APIError`` (it inherits from it), so the same handler maps it
     to 502 in the upstream's path. Assert the actually-shipped contract:
@@ -199,27 +198,27 @@ async def test_get_models_504_on_provider_timeout(
         api_key="t", base_url="http://nowhere-that-exists/v1", max_retries=0
     )
 
-    response = await models_client[0].get("/api/models", headers=alice_headers)
+    response = await agents_client[0].get("/api/agents", headers=alice_headers)
     assert response.status_code == 502
 
 
-async def test_get_models_round_trips_label(
-    models_client: tuple[Any, Any, Any],
+async def test_get_agents_round_trips_label(
+    agents_client: tuple[Any, Any, Any],
     alice_headers: dict[str, str],
     cassette_mock_app: Any,
 ) -> None:
-    """A ``/v1/models`` entry that ships both ``id`` and a non-OpenAI
+    """An upstream entry that ships both ``id`` and a non-OpenAI
     ``label`` field round-trips the friendly label all the way through
-    to the rebuild's ``/api/models`` response.
+    to the rebuild's ``/api/agents`` response.
 
     Without the ``getattr(m, "label", None) or m.id`` shim in
     :class:`OpenAICompatibleProvider`, the ``label`` would silently
     equal ``id`` and the dropdown would render ``dev`` instead of
     ``Dev (Qwen 2.5, 0.5B)``. See
-    ``rebuild/docs/plans/feature-llm-models.md`` § Deliverables.
+    ``rebuild/docs/plans/feature-llm-agents.md`` § Deliverables.
 
     Mirrors the per-test mock mutation pattern from
-    :func:`test_get_models_502_on_provider_error` — the cassette mock
+    :func:`test_get_agents_502_on_provider_error` — the cassette mock
     is per-test and direct route-table mutation is OK.
     """
     from fastapi.responses import JSONResponse
@@ -247,8 +246,8 @@ async def test_get_models_round_trips_label(
 
     cassette_mock_app.get("/v1/models")(with_label)
 
-    client, _cache, _counted = models_client
-    response = await client.get("/api/models", headers=alice_headers)
+    client, _cache, _counted = agents_client
+    response = await client.get("/api/agents", headers=alice_headers)
     assert response.status_code == 200
     items = response.json()["items"]
     assert len(items) == 1
@@ -256,13 +255,13 @@ async def test_get_models_round_trips_label(
     assert items[0]["label"] == "Dev (Qwen 2.5, 0.5B)"
 
 
-async def test_get_models_label_falls_back_to_id_when_upstream_omits(
-    models_client: tuple[Any, Any, Any],
+async def test_get_agents_label_falls_back_to_id_when_upstream_omits(
+    agents_client: tuple[Any, Any, Any],
     alice_headers: dict[str, str],
     cassette_mock_app: Any,
 ) -> None:
-    """When the upstream's ``/v1/models`` entries don't carry a ``label``
-    field (today's prod gateway behaviour), ``getattr(m, "label", None)``
+    """When the upstream's entries don't carry a ``label`` field
+    (today's prod gateway behaviour), ``getattr(m, "label", None)``
     returns ``None`` and the shim falls through to ``m.id``.
 
     Locks the "production behaviour unchanged" half of the
@@ -293,8 +292,8 @@ async def test_get_models_label_falls_back_to_id_when_upstream_omits(
 
     cassette_mock_app.get("/v1/models")(without_label)
 
-    client, _cache, _counted = models_client
-    response = await client.get("/api/models", headers=alice_headers)
+    client, _cache, _counted = agents_client
+    response = await client.get("/api/agents", headers=alice_headers)
     assert response.status_code == 200
     items = response.json()["items"]
     assert len(items) == 1

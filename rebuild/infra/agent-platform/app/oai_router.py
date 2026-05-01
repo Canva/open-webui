@@ -108,9 +108,19 @@ async def list_models(request: Request) -> ModelListResponse:
 
 @router.post("/chat/completions")
 async def chat_completions(body: ChatCompletionRequest, request: Request):
+    """OpenAI-compatible chat-completions endpoint.
+
+    The wire body keeps the OpenAI field name ``model`` so the
+    OpenAI SDK on the rebuild's side serialises cleanly; internally
+    we look that id up in the agents registry built by
+    :func:`build_agents`.
+    """
     agents: dict[str, AgentEntry] = request.app.state.agents
     entry = agents.get(body.model)
     if entry is None:
+        # Wire-format error message: the field is ``model`` on the
+        # OpenAI request body, even though our registry calls each
+        # entry an agent.
         raise HTTPException(status_code=404, detail=f"unknown model: {body.model}")
 
     history, user_prompt = _seed_history(body.messages)
@@ -205,8 +215,9 @@ async def _stream_response(
     except asyncio.CancelledError:
         # Re-raise so Starlette can tear down the upstream connection
         # cleanly. We log it for dev-loop visibility; cancellation is
-        # routine on user-driven stop, not an error.
-        log.info("client disconnected mid-stream for model %s", model_id)
+        # routine on user-driven stop, not an error. ``model_id`` is
+        # the wire-format name; in-process this is an agent id.
+        log.info("client disconnected mid-stream for agent %s", model_id)
         raise
 
     yield (

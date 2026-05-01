@@ -37,10 +37,10 @@ def _build_test_agent_dict(
 ) -> dict[str, AgentEntry]:
     """Construct the agents map with a ``TestModel``-backed agent.
 
-    Single ``ModelDef`` (the platform default), single agent — the
+    Single ``AgentDef`` (the platform default), single agent — the
     minimum surface needed to exercise ``_stream_response``.
     """
-    defn = settings.models[0]
+    defn = settings.agents[0]
     agent: Agent[None, str] = Agent(
         model=TestModel(custom_output_text=output_text),
         output_type=str,

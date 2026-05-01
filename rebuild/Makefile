@@ -200,9 +200,9 @@ verify-stack:
 	  echo "==> GET /readyz"  ; curl -fsS http://localhost:8080/readyz  ; echo ; \
 	  echo "==> GET /api/me (trusted-header bootstrap)" ; \
 	  curl -fsS -H "X-Forwarded-Email: verifier@canva.com" http://localhost:8080/api/me ; echo ; \
-	  echo "==> GET /api/models (must return non-empty)" ; \
-	  curl -fsS -H "X-Forwarded-Email: verifier@canva.com" http://localhost:8080/api/models \
-	    | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"items\"), \"no models returned\"; print(\"models: \" + \",\".join(m[\"id\"] for m in d[\"items\"]))" ; \
+	  echo "==> GET /api/agents (must return non-empty)" ; \
+	  curl -fsS -H "X-Forwarded-Email: verifier@canva.com" http://localhost:8080/api/agents \
+	    | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get(\"items\"), \"no agents returned\"; print(\"agents: \" + \",\".join(a[\"id\"] for a in d[\"items\"]))" ; \
 	  echo "==> alembic head" ; \
 	  docker exec rebuild_mysql mysql -urebuild -prebuild rebuild -sNe "SELECT version_num FROM alembic_version" 2>/dev/null ; \
 	  echo "verify-stack OK"'

@@ -4,9 +4,17 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class ModelDef(BaseModel):
-    """A surfaced model. ``id`` is the stable alias the rebuild sees;
-    ``ollama_tag`` is what the platform pulls + asks Ollama to run.
+class AgentDef(BaseModel):
+    """A surfaced agent. ``id`` is the stable alias the rebuild sees;
+    ``ollama_tag`` is the underlying model the platform pulls + asks
+    Ollama to run.
+
+    The rebuild's product domain calls each surfaced entry an "agent"
+    (each agent has a preselected underlying model). The OpenAI-
+    compatible wire format keeps the legacy field name "model" on the
+    response objects and on the ``/v1/models`` path — see
+    :mod:`app.oai_models` — so downstream OpenAI SDK clients still
+    deserialise it cleanly.
     """
 
     id: str
@@ -17,7 +25,7 @@ class ModelDef(BaseModel):
 
 class Settings(BaseSettings):
     # PEP 8 attribute names with case_sensitive=False so the canonical
-    # UPPER_SNAKE env-var keys (OLLAMA_BASE_URL, MODELS, ...) keep
+    # UPPER_SNAKE env-var keys (OLLAMA_BASE_URL, AGENTS, ...) keep
     # populating the lowercase Python attribute. See
     # rebuild/docs/plans/m0-foundations.md § Settings(BaseSettings)
     # "Casing convention (locked)".
@@ -28,10 +36,10 @@ class Settings(BaseSettings):
     port: int = 8081
     log_level: str = "INFO"
 
-    # Default catalog. Override at compose-time via the MODELS env var
-    # holding a JSON list of ModelDef shapes.
-    models: list[ModelDef] = [
-        ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
+    # Default catalogue. Override at compose-time via the AGENTS env
+    # var holding a JSON list of AgentDef shapes.
+    agents: list[AgentDef] = [
+        AgentDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
     ]
 
 

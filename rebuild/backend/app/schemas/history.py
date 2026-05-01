@@ -41,8 +41,8 @@ class HistoryMessage(StrictModel):
     role: Literal["user", "assistant", "system"]
     content: str
     timestamp: int
-    model: str | None = None
-    modelName: str | None = None
+    agent_id: str | None = None
+    agentName: str | None = None
     done: bool = True
     error: dict[str, Any] | None = None
     cancelled: bool = False

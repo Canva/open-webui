@@ -6,7 +6,7 @@
    * Locked by `rebuild/docs/plans/m3-sharing.md` § Frontend route:
    *   - Title + "Shared by {name} {relative time}" subline.
    *   - Body uses M2's `MessageList` + `Message` components in
-   *     read-only mode (no composer, no regen, no model selector,
+   *     read-only mode (no composer, no regen, no agent selector,
    *     no scroll-to-bottom-on-stream).
    *   - Max-width matches the conversation thread (`max-w-3xl`).
    *   - Long histories keep the M2 `content-visibility: auto`

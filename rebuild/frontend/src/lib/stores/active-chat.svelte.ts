@@ -69,7 +69,7 @@ export type StreamingPhase = 'idle' | 'sending' | 'streaming' | 'cancelling';
 /** Argument shape for `send()`. Mirrors the relevant slice of `MessageSend`. */
 export interface SendInput {
   content: string;
-  model: string;
+  agent_id: string;
   params?: ChatParams;
   /** Defaults to `chat.history.currentId` on the wire. */
   parent_id?: string | null;
@@ -201,8 +201,8 @@ export class ActiveChatStore {
       role: 'user',
       content: input.content,
       timestamp: now,
-      model: null,
-      modelName: null,
+      agent_id: null,
+      agentName: null,
       done: true,
       error: null,
       cancelled: false,
@@ -215,8 +215,8 @@ export class ActiveChatStore {
       role: 'assistant',
       content: '',
       timestamp: now,
-      model: input.model,
-      modelName: null,
+      agent_id: input.agent_id,
+      agentName: null,
       done: false,
       error: null,
       cancelled: false,
@@ -234,7 +234,7 @@ export class ActiveChatStore {
     this.error = null;
     const body: MessageSend = {
       content: input.content,
-      model: input.model,
+      agent_id: input.agent_id,
       ...(input.params !== undefined ? { params: input.params } : {}),
       ...(parentId !== null ? { parent_id: parentId } : {}),
     };
@@ -420,20 +420,20 @@ export class ActiveChatStore {
 
   /**
    * Edit a message and resend it as a sibling under the same parent,
-   * picking up the model/params from the most recent assistant in the
+   * picking up the agent/params from the most recent assistant in the
    * current branch (so the user doesn't have to re-pick).
    *
    * Throws (so the caller can surface a toast) when:
    * - The message id is unknown.
-   * - There is no prior assistant turn to inherit model/params from
+   * - There is no prior assistant turn to inherit agent/params from
    *   AND the caller didn't supply an override. Callers can pass an
-   *   explicit `model` to break the dependency on prior history (the
-   *   first-message edit case in an empty chat).
+   *   explicit `agent_id` to break the dependency on prior history
+   *   (the first-message edit case in an empty chat).
    */
   editAndResend = async (
     messageId: string,
     newContent: string,
-    overrides?: { model?: string; params?: ChatParams },
+    overrides?: { agent_id?: string; params?: ChatParams },
   ): Promise<void> => {
     if (this.chat === null) {
       throw new Error('ActiveChatStore.editAndResend: no chat loaded');
@@ -443,20 +443,20 @@ export class ActiveChatStore {
       throw new Error(`ActiveChatStore.editAndResend: unknown message ${messageId}`);
     }
     const parentId = target.parentId;
-    // Pick "last model" from the most recent assistant in the linear
+    // Pick "last agent" from the most recent assistant in the linear
     // thread that ends at the target's parent (the new sibling lives
     // under the same parent so we walk from there, not from the
     // target itself).
     const lastAssistant = parentId !== null ? findLastAssistant(this.chat.history, parentId) : null;
-    const model = overrides?.model ?? lastAssistant?.model ?? null;
-    if (model === null) {
+    const agentId = overrides?.agent_id ?? lastAssistant?.agent_id ?? null;
+    if (agentId === null) {
       throw new Error(
-        'ActiveChatStore.editAndResend: no prior assistant message to inherit model from; pass overrides.model',
+        'ActiveChatStore.editAndResend: no prior assistant message to inherit agent from; pass overrides.agent_id',
       );
     }
     await this.send({
       content: newContent,
-      model,
+      agent_id: agentId,
       ...(overrides?.params !== undefined ? { params: overrides.params } : {}),
       parent_id: parentId,
     });

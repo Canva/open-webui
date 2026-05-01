@@ -1,29 +1,29 @@
 /**
- * Per-request models store. Constructed in `(app)/+layout.svelte`
- * via `provideModels(data.models)` (Phase 3d wires this) and consumed
- * by the model selector + the `ActiveChatStore` (which validates that
- * the selected model is in the catalog before opening the stream).
+ * Per-request agents store. Constructed in `(app)/+layout.svelte`
+ * via `provideAgents(data.agents)` and consumed by the agent
+ * selector + the `ActiveChatStore` (which validates that the
+ * selected agent is in the catalogue before opening the stream).
  *
  * Locked by `rebuild/docs/plans/m2-conversations.md` § Stores and
  * state — the canonical example block on lines 949-994 is the shape
  * for every M2 store; this file matches it verbatim with the typed
- * `models.list()` client call instead of a raw `fetch`.
+ * `agents.list()` client call instead of a raw `fetch`.
  *
  * Refresh strategy: `maybeRefresh(maxAgeMs = 30_000)` is called from
- * the model dropdown's open handler; the backend already caches for
+ * the agent dropdown's open handler; the backend already caches for
  * 5 minutes so this is mostly a "freshen on first open after the
  * cache window" gesture, not a high-RPS poll.
  */
 
 import { getContext, setContext } from 'svelte';
 
-import { ApiError, models as modelsApi } from '$lib/api/client';
-import type { ModelInfo } from '$lib/types/model';
+import { ApiError, agents as agentsApi } from '$lib/api/client';
+import type { AgentInfo } from '$lib/types/agent';
 
-const KEY = Symbol('models');
+const KEY = Symbol('agents');
 
-export class ModelsStore {
-  items = $state<ModelInfo[]>([]);
+export class AgentsStore {
+  items = $state<AgentInfo[]>([]);
   loaded = $state(false);
   loading = $state(false);
   error: string | null = $state(null);
@@ -36,7 +36,7 @@ export class ModelsStore {
    */
   #lastRefreshed = 0;
 
-  constructor(initial: ModelInfo[] = []) {
+  constructor(initial: AgentInfo[] = []) {
     this.items = initial;
     this.loaded = initial.length > 0;
     if (this.loaded) {
@@ -45,7 +45,7 @@ export class ModelsStore {
   }
 
   /**
-   * Force-fetch the catalog. Resets `loading` / `error` regardless of
+   * Force-fetch the catalogue. Resets `loading` / `error` regardless of
    * outcome so the UI always reflects the latest attempt. Errors are
    * captured into the store's `error` field; the caller may also
    * surface a toast if it has access to the `ToastStore` (the
@@ -55,7 +55,7 @@ export class ModelsStore {
   refresh = async (): Promise<void> => {
     this.loading = true;
     try {
-      const list = await modelsApi.list();
+      const list = await agentsApi.list();
       this.items = list.items;
       this.loaded = true;
       this.error = null;
@@ -80,20 +80,20 @@ export class ModelsStore {
   };
 
   /** Lookup helper for `ActiveChatStore.send` — returns the label, or `null`. */
-  labelFor = (modelId: string): string | null => {
-    const found = this.items.find((m) => m.id === modelId);
+  labelFor = (agentId: string): string | null => {
+    const found = this.items.find((a) => a.id === agentId);
     return found?.label ?? null;
   };
 }
 
-export function provideModels(initial: ModelInfo[] = []): ModelsStore {
-  const store = new ModelsStore(initial);
+export function provideAgents(initial: AgentInfo[] = []): AgentsStore {
+  const store = new AgentsStore(initial);
   setContext(KEY, store);
   return store;
 }
 
-export function useModels(): ModelsStore {
-  return getContext<ModelsStore>(KEY);
+export function useAgents(): AgentsStore {
+  return getContext<AgentsStore>(KEY);
 }
 
-export const MODELS_CONTEXT_KEY = KEY;
+export const AGENTS_CONTEXT_KEY = KEY;

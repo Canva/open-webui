@@ -27,7 +27,7 @@ Non-negotiables:
 - Connect-time auth reads `X-Forwarded-Email` from the handshake. No second auth path.
 - Channel rooms are `channel:{id}`; user rooms are `user:{id}`. Reuse the legacy event names from `rebuild.md` §6 reuse map. Do not invent new room shapes.
 - Webhook tokens are stored as `CHAR(64)` SHA-256 hex (`token_hash`). Plaintext is shown only at creation and never persisted.
-- Per-channel `@model` reply has a concurrency cap and supports cancellation via the same `StreamRegistry`.
+- Per-channel `@agent` reply has a concurrency cap and supports cancellation via the same `StreamRegistry`.
 
 When invoked:
 

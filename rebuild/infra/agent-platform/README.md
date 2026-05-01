@@ -5,7 +5,14 @@ front of a local [Ollama](https://ollama.com/) daemon and exposes an
 OpenAI-compatible HTTP surface (`/v1/models`, `/v1/chat/completions` with SSE
 streaming). It exists so the rebuild's `OpenAICompatibleProvider` has a real
 upstream to talk to in the dev compose stack — the same wire shape it speaks
-to the production internal model gateway.
+to the production internal agent gateway.
+
+> **Terminology.** The rebuild's product domain calls each surfaced entry an
+> *agent* (each agent has a preselected underlying model). Externally this
+> service still speaks the OpenAI wire format — the path is `/v1/models` and
+> the response body uses the OpenAI field name `model` — so OpenAI SDK clients
+> deserialise unchanged. Internally the catalogue type is `AgentDef` and the
+> registry is `app.state.agents`.
 
 The full design lives in
 [`rebuild/docs/plans/feature-llm-models.md`](../../docs/plans/feature-llm-models.md);
@@ -14,7 +21,7 @@ this README is the operational quick reference.
 ## Why this exists
 
 Without this service, a developer running `make dev` for the first time
-sees an empty model dropdown and a 401 from `https://api.openai.com/v1`.
+sees an empty agent dropdown and a 401 from `https://api.openai.com/v1`.
 With it, the dropdown is populated by `dev` (backed by `qwen2.5:0.5b`) and
 streaming chat works end-to-end against a real LLM — no token, no quota,
 no external dependency.
@@ -32,18 +39,18 @@ Frontend Vitest / Playwright suites use the MSW handlers at
 Mixing real LLM output into CI would make the suite non-deterministic
 and slow; the platform stays out of the test path on purpose.
 
-## How to swap or add models
+## How to swap or add agents
 
 Two options:
 
-1. **Compose-time override (no rebuild).** Set `MODELS` on the
+1. **Compose-time override (no rebuild).** Set `AGENTS` on the
    `agent-platform` service in `rebuild/infra/docker-compose.yml`
    to a JSON list of `{id, label, ollama_tag, owned_by}` objects.
    Pydantic-Settings parses the JSON automatically. Example:
 
    ```yaml
    environment:
-     MODELS: >-
+     AGENTS: >-
        [{"id":"dev","label":"Dev (Qwen 2.5, 0.5B)","ollama_tag":"qwen2.5:0.5b"},
         {"id":"dev-coder","label":"Dev Coder (Qwen 2.5 Coder, 1.5B)","ollama_tag":"qwen2.5-coder:1.5b"}]
    ```
@@ -52,9 +59,9 @@ Two options:
    (its entrypoint wrapper hardcodes `qwen2.5:0.5b` today; add another
    `ollama pull <tag>` line and extend the healthcheck `grep`).
 
-2. **Source edit.** Adjust the default `MODELS` list in
-   [`app/config.py`](app/config.py). Useful when the new model belongs
-   in the canonical default catalog rather than a per-developer override.
+2. **Source edit.** Adjust the default `agents` list in
+   [`app/config.py`](app/config.py). Useful when the new agent belongs
+   in the canonical default catalogue rather than a per-developer override.
 
 ## Cold-start cost
 
@@ -66,7 +73,7 @@ agent platform's startup gates on ollama-healthy.
 Subsequent boots reuse the named volume `ollama_models` and the
 service is healthy in seconds.
 
-## Refreshing the model cache
+## Refreshing the agent catalogue
 
 ```bash
 make dev-rebuild-models
@@ -75,18 +82,20 @@ make dev-rebuild-models
 Recreates the `ollama` container so its entrypoint wrapper re-runs
 `ollama pull` on next boot. `ollama pull` is idempotent on cache hit,
 so this is mostly useful when the named volume has been wiped or a
-model spec changed.
+backing model tag changed.
 
 ## Endpoints
 
 - `GET /healthz` — liveness probe (used by the Docker healthcheck and
   by the rebuild's `agent-platform: { condition: service_healthy }`).
-- `GET /v1/models` — returns the configured catalog as the OpenAI
-  `models.list` shape, with one non-OpenAI extension (`label`) that the
+- `GET /v1/models` — returns the configured catalogue in OpenAI
+  `models.list` shape (path and field names retained for SDK
+  compatibility), with one non-OpenAI extension (`label`) that the
   rebuild reads via `getattr(m, "label", None)`.
-- `POST /v1/chat/completions` — accepts the OpenAI request shape;
-  `stream=true` returns SSE chunks terminated by `data: [DONE]\n\n`,
-  `stream=false` returns a single JSON envelope.
+- `POST /v1/chat/completions` — accepts the OpenAI request shape
+  (the wire field is still `model`); `stream=true` returns SSE chunks
+  terminated by `data: [DONE]\n\n`, `stream=false` returns a single
+  JSON envelope.
 
 ## Pointers
 

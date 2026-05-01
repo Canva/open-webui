@@ -23,32 +23,33 @@
    * No em dashes anywhere; commas / periods / colons only.
    */
   import { goto } from '$app/navigation';
+  import { useAgents } from '$lib/stores/agents.svelte';
   import { useChats } from '$lib/stores/chats.svelte';
-  import { useModels } from '$lib/stores/models.svelte';
   import { useToast } from '$lib/stores/toast.svelte';
-  import ModelSelector from '$lib/components/chat/ModelSelector.svelte';
+  import AgentSelector from '$lib/components/chat/AgentSelector.svelte';
 
   const chats = useChats();
-  const models = useModels();
+  const agents = useAgents();
   const toast = useToast();
 
   const PENDING_KEY = 'rebuild:pending-first-message';
 
   let prompt = $state('');
-  let model = $state('');
+  let agentId = $state('');
   let sending = $state(false);
   let textarea: HTMLTextAreaElement | null = $state(null);
 
   const recent = $derived(chats.byPinnedThenUpdated.slice(0, 5));
-  const canSend = $derived(prompt.trim().length > 0 && model !== '' && !sending);
+  const canSend = $derived(prompt.trim().length > 0 && agentId !== '' && !sending);
 
-  // Hydrate a default model from the catalog. The composer is unusable
-  // without one, so picking the first available item is preferable to
-  // forcing the user to open the dropdown to start typing.
+  // Hydrate a default agent from the catalogue. The composer is
+  // unusable without one, so picking the first available item is
+  // preferable to forcing the user to open the dropdown to start
+  // typing.
   $effect(() => {
-    if (model === '' && models.items.length > 0) {
-      const first = models.items[0];
-      if (first) model = first.id;
+    if (agentId === '' && agents.items.length > 0) {
+      const first = agents.items[0];
+      if (first) agentId = first.id;
     }
   });
 
@@ -72,7 +73,10 @@
       // finishes. Using sessionStorage instead of a query parameter
       // keeps the URL clean and the body out of any browser history /
       // server access logs.
-      sessionStorage.setItem(PENDING_KEY, JSON.stringify({ chatId: created.id, content, model }));
+      sessionStorage.setItem(
+        PENDING_KEY,
+        JSON.stringify({ chatId: created.id, content, agent_id: agentId }),
+      );
       prompt = '';
       await goto(`/c/${created.id}`);
     } catch (err) {
@@ -122,7 +126,7 @@
         class="text-ink-strong placeholder:text-ink-placeholder block w-full resize-none border-none bg-transparent px-3 py-2 text-sm/[1.5] outline-none"
       ></textarea>
       <div class="border-hairline mt-2 flex items-center justify-between gap-2 border-t pt-2">
-        <ModelSelector bind:value={model} />
+        <AgentSelector bind:value={agentId} />
         <button
           type="submit"
           disabled={!canSend}

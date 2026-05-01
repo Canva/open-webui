@@ -55,8 +55,8 @@ export function msg(
     role: overrides.role,
     content: overrides.content ?? '',
     timestamp: overrides.timestamp ?? FIXTURE_NOW,
-    model: overrides.model ?? null,
-    modelName: overrides.modelName ?? null,
+    agent_id: overrides.agent_id ?? null,
+    agentName: overrides.agentName ?? null,
     done: overrides.done ?? true,
     error: overrides.error ?? null,
     cancelled: overrides.cancelled ?? false,
@@ -81,8 +81,8 @@ export function defaultSnapshotFixture(
     parentId: 'u-1',
     content:
       'Here is a tidier version:\n\n```ts\nconst sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);\n```',
-    model: 'gpt-4o',
-    modelName: 'GPT-4o',
+    agent_id: 'gpt-4o',
+    agentName: 'GPT-4o',
   });
   const history: History = {
     messages: { 'u-1': userMsg, 'a-1': assistantMsg },

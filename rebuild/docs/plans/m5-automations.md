@@ -2,7 +2,7 @@
 
 ## Goal
 
-Deliver scheduled, server-side prompt execution for the slim rebuild: users define an automation as a name + prompt + model + RRULE recurrence + a single target (chat or channel), and a single in-process APScheduler worker fires due automations every 30 seconds, executes them through the same `OpenAICompatibleProvider` introduced in M2, and persists the assistant response either as an appended assistant message on the target chat or as a new `channel_message` carrying the M4 `bot_id` column (no synthetic user row, per M4's design). The milestone closes the "set it and forget it" use case while strictly reusing the streaming, persistence, and socket layers already built — automations add scheduling, not a parallel runtime.
+Deliver scheduled, server-side prompt execution for the slim rebuild: users define an automation as a name + prompt + agent + RRULE recurrence + a single target (chat or channel), and a single in-process APScheduler worker fires due automations every 30 seconds, executes them through the same `OpenAICompatibleProvider` introduced in M2, and persists the assistant response either as an appended assistant message on the target chat or as a new `channel_message` carrying the M4 `bot_id` column (no synthetic user row, per M4's design). The milestone closes the "set it and forget it" use case while strictly reusing the streaming, persistence, and socket layers already built — automations add scheduling, not a parallel runtime.
 
 ## Deliverables
 
@@ -66,7 +66,7 @@ class Automation(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    model_id: Mapped[str] = mapped_column(String(128), nullable=False)  # width matches channel_message.bot_id (M4) so the channel-target write path never overflows; 128 chars covers every gateway model id observed in the wild
+    agent_id: Mapped[str] = mapped_column(String(128), nullable=False)  # width matches channel_message.bot_id (M4) so the channel-target write path never overflows; 128 chars covers every agent id observed in the wild
     rrule: Mapped[str] = mapped_column(Text, nullable=False)
 
     # ondelete=CASCADE (not SET NULL) is mandatory: the table-level
@@ -165,7 +165,7 @@ class AutomationRun(Base):
 
 The `(target_chat_id IS NOT NULL) <> (target_channel_id IS NOT NULL)` CHECK is the XOR enforcement: it rejects rows where both are null and rows where both are set. MySQL 8.0 enforces CHECK constraints natively. The same constraint is duplicated as a Pydantic root validator on `AutomationCreate`/`AutomationUpdate` so callers get a 422 instead of an opaque DB error.
 
-`AutomationCreate.model_id` is also length-bounded with `Annotated[str, Field(min_length=1, max_length=128)]` to mirror the column width and the M4 `channel_message.bot_id` width — without this, a 200-character `model_id` would round-trip OK through `POST /api/automations` and only blow up at execute time when the channel-target write tried to populate `channel_message.bot_id` (`String(128)`). The 128-char ceiling matches every model id observed in the wild (longest known: `meta-llama/Meta-Llama-3.1-405B-Instruct-FP8` at ~52 chars) with comfortable headroom.
+`AutomationCreate.agent_id` is also length-bounded with `Annotated[str, Field(min_length=1, max_length=128)]` to mirror the column width and the M4 `channel_message.bot_id` width — without this, a 200-character `agent_id` would round-trip OK through `POST /api/automations` and only blow up at execute time when the channel-target write tried to populate `channel_message.bot_id` (`String(128)`). The 128-char ceiling matches every agent id observed in the wild (longest known: `meta-llama/Meta-Llama-3.1-405B-Instruct-FP8` at ~52 chars) with comfortable headroom.
 
 All three relationships on `Automation` (`user`, `target_chat`, `target_channel`) are one-way; no reverse-side `back_populates` is required on `User`, `Chat`, or `Channel`, so M0/M2/M4 models are untouched by this milestone. M5 never traverses `user.automations`, `chat.automations`, or `channel.automations` — the only "list automations for this user" query lives in the M5 router and is a direct `select(Automation).where(...)`.
 
@@ -348,10 +348,10 @@ Given an `automation_id` and `run_id`, `_execute` does:
    - **Chat target.** Load `Chat.history` (the M2 JSON blob) and walk the `messages` tree from `currentId` back to root, in chronological order. The result is `[{role, content}, ...]` matching what the M2 SSE endpoint sends to the provider.
    - **Channel target.** No prior context — channel automations are stateless posts. The "context" is the empty list.
 4. Build the prompt list: `[{"role": "system", "content": automation.prompt}] + context`. The automation's `prompt` is treated as the system instruction; for channel posts where there is no context, this is the entire input.
-5. Call `provider.stream(messages=…, model=automation.model_id, params={})` — the same `OpenAICompatibleProvider` instance from M2, exposed via `app.state.provider`. Iterate the SSE chunks and accumulate the full assistant text into a single string. We are not relaying tokens to a browser here, so there is no need to spool through the M2 SSE adapter — we read the chunks and concatenate.
+5. Call `provider.stream(messages=…, agent_id=automation.agent_id, params={})` — the same `OpenAICompatibleProvider` instance from M2, exposed via `app.state.provider`. Iterate the SSE chunks and accumulate the full assistant text into a single string. We are not relaying tokens to a browser here, so there is no need to spool through the M2 SSE adapter — we read the chunks and concatenate.
 6. Persist the result based on target:
-   - **Chat target.** Call the M2-owned helper `app.services.chat_writer.append_assistant_message(session, *, chat_id=automation.target_chat_id, parent_message_id=chat.history["currentId"], model=automation.model_id, content=full_response, status="complete")`. The helper atomically updates `chat.history.messages[<id>]`, sets `chat.history.currentId`, bumps `chat.updated_at`, and returns the new message id. The message structure (parentId, childrenIds, role, model, timestamp) matches what the M2 streaming endpoint produces, so the chat displays identically whether the response came from the user's browser or from a scheduled run. The `automation_run.chat_id` is set to the existing chat id.
-   - **Channel target.** Call the M4-owned helper `app.services.channels.messages.create_bot_message(session, *, channel_id=automation.target_channel_id, bot_id=automation.model_id, content=ChannelMessageContent(text=full_response, mentions=[], attachments=[], embeds=[], edited=False, automation_id=automation.id, automation_owner_name=user.name), parent_id=None) -> ChannelMessage`. The helper does the DB insert (honouring the `(user_id IS NOT NULL) + (bot_id IS NOT NULL) + (webhook_id IS NOT NULL) = 1` CHECK), updates `channel.last_message_at`, and dispatches the realtime `message:create` emit through `app.realtime.events.emit_message_create`. **M5 does not call `sio.emit` directly and does not insert `channel_message` rows directly** — going through the M4 service is the only way to keep the persistence/realtime pairing consistent (M4 §Dependencies on other milestones). `automation_id` and `automation_owner_name` are part of the M4 `ChannelMessageContent` schema (M4 §3.4); the strict validator accepts them. The `automation_run.chat_id` is left `NULL`.
+   - **Chat target.** Call the M2-owned helper `app.services.chat_writer.append_assistant_message(session, *, chat_id=automation.target_chat_id, parent_message_id=chat.history["currentId"], agent_id=automation.agent_id, content=full_response, status="complete")`. The helper atomically updates `chat.history.messages[<id>]`, sets `chat.history.currentId`, bumps `chat.updated_at`, and returns the new message id. The message structure (parentId, childrenIds, role, agent_id, timestamp) matches what the M2 streaming endpoint produces, so the chat displays identically whether the response came from the user's browser or from a scheduled run. The `automation_run.chat_id` is set to the existing chat id.
+   - **Channel target.** Call the M4-owned helper `app.services.channels.messages.create_bot_message(session, *, channel_id=automation.target_channel_id, bot_id=automation.agent_id, content=ChannelMessageContent(text=full_response, mentions=[], attachments=[], embeds=[], edited=False, automation_id=automation.id, automation_owner_name=user.name), parent_id=None) -> ChannelMessage`. The helper does the DB insert (honouring the `(user_id IS NOT NULL) + (bot_id IS NOT NULL) + (webhook_id IS NOT NULL) = 1` CHECK), updates `channel.last_message_at`, and dispatches the realtime `message:create` emit through `app.realtime.events.emit_message_create`. **M5 does not call `sio.emit` directly and does not insert `channel_message` rows directly** — going through the M4 service is the only way to keep the persistence/realtime pairing consistent (M4 §Dependencies on other milestones). `automation_id` and `automation_owner_name` are part of the M4 `ChannelMessageContent` schema (M4 §3.4); the strict validator accepts them. The `automation_run.chat_id` is left `NULL`.
 7. In a final transaction, set `automation.last_run_at = now_ms()`, recompute `automation.next_run_at` (epoch ms), set `automation_run.status='success'` and `automation_run.finished_at = now_ms()`.
 
 ### Error handling
@@ -389,11 +389,11 @@ except Exception as exc:
         )
 ```
 
-Crucially, on error we **still advance** `last_run_at` and `next_run_at`. This prevents retry storms: a permanently-failing automation (bad model id, prompt that always trips a content filter, deleted target channel) records one error per RRULE interval, not one error per 30-second tick.
+Crucially, on error we **still advance** `last_run_at` and `next_run_at`. This prevents retry storms: a permanently-failing automation (bad agent id, prompt that always trips a content filter, deleted target channel) records one error per RRULE interval, not one error per 30-second tick.
 
 ### Cancellation and timeouts
 
-Each `_execute` is wrapped in `asyncio.wait_for(..., timeout=settings.automation_timeout_seconds)` with a default of 120 seconds. A timeout is treated as an error with `error="timeout after Ns"`. This caps the worst-case impact of a misbehaving model on the scheduler.
+Each `_execute` is wrapped in `asyncio.wait_for(..., timeout=settings.automation_timeout_seconds)` with a default of 120 seconds. A timeout is treated as an error with `error="timeout after Ns"`. This caps the worst-case impact of a misbehaving agent on the scheduler.
 
 ### Run-now path
 
@@ -412,8 +412,8 @@ M5 extends the M0 `Settings` class with three new fields. The casing convention 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `AUTOMATION_BATCH_SIZE` | `int` | `25` | LIMIT applied to the `SELECT … FOR UPDATE SKIP LOCKED` claim query in the scheduler tick. Caps how many automations a single tick can claim and execute concurrently per replica. Raise cautiously — the executor budget is `AUTOMATION_BATCH_SIZE × AUTOMATION_TIMEOUT_SECONDS` worst-case wall time for a tick. |
-| `AUTOMATION_TIMEOUT_SECONDS` | `int` | `120` | `asyncio.wait_for` timeout around `_execute`. Caps the worst-case impact of a misbehaving model on the scheduler. Independent of `SSE_STREAM_TIMEOUT_SECONDS` (M2) because the executor accumulates the response server-side and does not relay tokens to a browser. |
-| `AUTOMATION_MIN_INTERVAL_SECONDS` | `int` | `300` | Floor on RRULE effective interval, validated on `POST /api/automations`. The 5-minute default exists to cap fan-out into the model gateway and to keep the scheduler tick budget tractable. The E2E suite lowers this to `60` so `FREQ=MINUTELY` rules can be tested without waiting; production must not lower it without re-running the M4/M5 load benchmark from `m6-hardening.md`. |
+| `AUTOMATION_TIMEOUT_SECONDS` | `int` | `120` | `asyncio.wait_for` timeout around `_execute`. Caps the worst-case impact of a misbehaving agent on the scheduler. Independent of `SSE_STREAM_TIMEOUT_SECONDS` (M2) because the executor accumulates the response server-side and does not relay tokens to a browser. |
+| `AUTOMATION_MIN_INTERVAL_SECONDS` | `int` | `300` | Floor on RRULE effective interval, validated on `POST /api/automations`. The 5-minute default exists to cap fan-out into the agent gateway and to keep the scheduler tick budget tractable. The E2E suite lowers this to `60` so `FREQ=MINUTELY` rules can be tested without waiting; production must not lower it without re-running the M4/M5 load benchmark from `m6-hardening.md`. |
 
 ## API surface
 
@@ -421,8 +421,8 @@ All endpoints are mounted at `/api/automations`, require the trusted-header user
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/automations` | List the calling user's automations. Response: `{items: AutomationListItem[]}` where each item carries `id, name, model_id, rrule, target_chat_id, target_channel_id, is_active, last_run_at, next_run_at, last_run_status`. Paginated only if needed (per-user count is small); cursor=`updated_at,id`. |
-| `POST` | `/api/automations` | Create. Body: `AutomationCreate` (`name, prompt, model_id, rrule, target_chat_id?, target_channel_id?, is_active?`). 201 with full `AutomationDetail`. Validation: RRULE valid for the user's timezone; exactly one target set; target row exists and is owned by the user (chat) or membership-visible (channel). |
+| `GET` | `/api/automations` | List the calling user's automations. Response: `{items: AutomationListItem[]}` where each item carries `id, name, agent_id, rrule, target_chat_id, target_channel_id, is_active, last_run_at, next_run_at, last_run_status`. Paginated only if needed (per-user count is small); cursor=`updated_at,id`. |
+| `POST` | `/api/automations` | Create. Body: `AutomationCreate` (`name, prompt, agent_id, rrule, target_chat_id?, target_channel_id?, is_active?`). 201 with full `AutomationDetail`. Validation: RRULE valid for the user's timezone; exactly one target set; target row exists and is owned by the user (chat) or membership-visible (channel). |
 | `GET` | `/api/automations/{id}` | Details + last 10 runs. Response: `AutomationDetail` with `runs: AutomationRun[]` (length ≤ 10) and `next_runs: datetime[]` (length 5, computed on the fly via `preview`). |
 | `PATCH` | `/api/automations/{id}` | Partial update of any field. Re-validates RRULE if changed; recomputes `next_run_at` if `rrule` or `is_active` changed. If `is_active` flips false-to-true, `next_run_at` is recomputed from now; if true-to-false, `next_run_at` is set to `NULL`. |
 | `DELETE` | `/api/automations/{id}` | 204. Cascade-deletes all `automation_run` rows. |
@@ -442,7 +442,7 @@ Routes under `rebuild/frontend/src/routes/(app)/automations/`:
 Components under `rebuild/frontend/src/lib/components/automations/`, all ported and trimmed from the legacy `src/lib/components/automations/*` tree:
 
 - **`AutomationList.svelte`** — table of name, target (chat link or channel name), `next_run_at` formatted relatively, `last_run_status` badge, active toggle. Click row → editor. Empty state with "Create your first automation" CTA.
-- **`AutomationEditor.svelte`** — form with name, prompt (textarea), `<ModelDropdown>` (reuses M2's model selector), `<RRulePicker>`, `<TargetSelector>`, active toggle, save/delete/run-now buttons. State is the loaded automation; edits are local until "Save". Save sends `PATCH` (or `POST` if id === "new"). Run-now button posts and then begins polling `GET /api/automations/{id}/runs?limit=1` every 1.5s for up to 60s, replacing the latest run row in `<RunHistory>` as its status transitions `pending → running → success|error`. The polling lifecycle (interval registration + cleanup, plus a 60s deadline `setTimeout`) is owned by a single `$effect` inside `<AutomationEditor>` so it auto-cleans on unmount or on a second run-now click — per [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting), rule 3, this must not be `onMount` + `onDestroy` and must not live at module scope:
+- **`AutomationEditor.svelte`** — form with name, prompt (textarea), `<AgentDropdown>` (reuses M2's agent selector), `<RRulePicker>`, `<TargetSelector>`, active toggle, save/delete/run-now buttons. State is the loaded automation; edits are local until "Save". Save sends `PATCH` (or `POST` if id === "new"). Run-now button posts and then begins polling `GET /api/automations/{id}/runs?limit=1` every 1.5s for up to 60s, replacing the latest run row in `<RunHistory>` as its status transitions `pending → running → success|error`. The polling lifecycle (interval registration + cleanup, plus a 60s deadline `setTimeout`) is owned by a single `$effect` inside `<AutomationEditor>` so it auto-cleans on unmount or on a second run-now click — per [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting), rule 3, this must not be `onMount` + `onDestroy` and must not live at module scope:
   ```svelte
   let polling = $state<{ runId: string } | null>(null);
   $effect(() => {
@@ -490,14 +490,14 @@ The legacy `TerminalDropdown.svelte` is **not** ported. Terminals are out of sco
 
 - `tests/e2e/automation-minutely.spec.ts`:
   1. Sign in via the `X-Forwarded-Email` header, navigate to `/automations/new`.
-  2. Fill in name, prompt (deterministic so the cassette matches), pick a model, pick `FREQ=MINUTELY;INTERVAL=5` in the picker (E2E env lowers the min-interval floor to 60s, so this is accepted).
+  2. Fill in name, prompt (deterministic so the cassette matches), pick an agent, pick `FREQ=MINUTELY;INTERVAL=5` in the picker (E2E env lowers the min-interval floor to 60s, so this is accepted).
   3. Set target to a freshly-created chat. Save.
   4. `await request.post("/test/scheduler/tick")`.
   5. Poll `GET /api/automations/{id}/runs` until length ≥ 1 and `status === "success"` (max 5 seconds).
   6. Open the chat, assert the assistant message body equals the cassette body.
   7. Repeat steps 4–5 with a channel-target automation (created in a separate test) and assert the new `channel_message` arrives in a second `BrowserContext` via the M4 socket.io listener.
 
-A single recorded SSE cassette `tests/fixtures/llm/automation_minutely.sse` covers the deterministic prompt for both the chat and channel cases; the request hash includes `model`, `messages`, and `stream=true` so the same cassette is used regardless of target.
+A single recorded SSE cassette `tests/fixtures/llm/automation_minutely.sse` covers the deterministic prompt for both the chat and channel cases; the request hash includes the OpenAI wire fields `model`, `messages`, and `stream=true` (the OpenAI SDK keeps the `model=` keyword on the wire — internally this is the agent id) so the same cassette is used regardless of target.
 
 ## User journeys
 
@@ -507,7 +507,7 @@ Every click-path a real user takes on M5-owned surfaces. Each row binds the thre
 |---------|---------------------------|-------------------------------|-----------------------------|
 | Open `/automations` → list of automations (name, target, next run, last status badge, active toggle) | `automation-list.png` | `tests/component/AutomationList-geometry.spec.ts` — table columns don't overflow at narrow widths, status badge stays inside its column, active toggle does not collide with row chrome | sign-off required |
 | Open `/automations` → empty state, "Create your first automation" CTA | `automation-list-empty.png` | covered by `AutomationList-geometry.spec.ts` — empty-state copy not clipped, CTA stays inside the viewport | sign-off required |
-| Open `/automations/new` → empty editor: name, prompt, model picker, RRULE picker (Once tab), target selector | `automation-editor-empty.png` | `tests/component/AutomationEditor-geometry.spec.ts` — every form field stays inside the editor card, model-picker popover doesn't collide with prompt textarea | sign-off required |
+| Open `/automations/new` → empty editor: name, prompt, agent picker, RRULE picker (Once tab), target selector | `automation-editor-empty.png` | `tests/component/AutomationEditor-geometry.spec.ts` — every form field stays inside the editor card, agent-picker popover doesn't collide with prompt textarea | sign-off required |
 | RRULE picker → Daily tab with hour/minute pickers + weekday picker (where applicable) | `rrule-picker-daily.png` | `tests/component/RRulePicker-geometry.spec.ts` — frequency tabs fit in one row at the editor's widest width, hour/minute pickers don't overlap the weekday picker at narrower widths, "Next 5 runs" preview rows not text-clipped | sign-off required |
 | RRULE picker → Custom tab with raw-rule textarea and live validation error | `rrule-picker-custom-error.png` | same `RRulePicker-geometry.spec.ts` — validation error text stays inside the custom-rule panel, does not push the tab row out of view | sign-off required |
 | Target selector → "Chat" → chat-picker search results | `target-selector-chat.png` | `tests/component/TargetSelector-geometry.spec.ts` — search results list stays inside the target panel, titles truncate with ellipsis not hard-clip | sign-off required |
@@ -518,7 +518,7 @@ Every click-path a real user takes on M5-owned surfaces. Each row binds the thre
 ## Dependencies on other milestones
 
 - **Hard dependency on M0** — Alembic baseline, async session factory, settings, `/healthz`, trusted-header auth, FastAPI lifespan plumbing.
-- **Hard dependency on M2** — `OpenAICompatibleProvider`, `Chat` table, `chat.history` JSON shape, the `app.services.chat_writer.append_assistant_message` helper (declared in M2 §Deliverables), and the `models` discovery used by the editor's model picker.
+- **Hard dependency on M2** — `OpenAICompatibleProvider`, `Chat` table, `chat.history` JSON shape, the `app.services.chat_writer.append_assistant_message` helper (declared in M2 §Deliverables), and the `agents` discovery used by the editor's agent picker.
 - **Hard dependency on M4** — channel target uses the `channel`, `channel_member`, `channel_message` tables, the `channel_message.bot_id` column (M4's design — no synthetic user is inserted; the row carries a non-null `bot_id` and null `user_id`/`webhook_id`), the optional `automation_id` / `automation_owner_name` fields on `channel_message.content` (M4 §3.4), and the M4-owned service helper `app.services.channels.messages.create_bot_message(...)` which performs the DB insert and the realtime `message:create` broadcast. M5 must call this helper rather than emitting socket events directly. **M4 must land before M5's Alembic revision applies**, because M5's `automation` model declares an inline FK from `target_channel_id` to `channel.id` — without `channel`, the migration fails at apply time. The milestone ordering in `rebuild.md` §0 (M4 → M5) already enforces this; do not attempt a "chat-only mode" workaround that defers the FK, because the inline declaration makes that incoherent. If a hard deadline ever forced M5 first, the right path would be to split M5 into M4a (chat-only, drops the `target_channel_id` column entirely) and M4b (adds the column + FK + UI in a follow-up revision once M4 lands), not to feature-flag a half-built schema.
 
 ## Acceptance criteria
@@ -533,7 +533,7 @@ Every click-path a real user takes on M5-owned surfaces. Each row binds the thre
 - [ ] Two concurrent processes against the same DB never produce duplicate `automation_run` rows for the same `(automation_id, tick)` window (verified by the integration test).
 - [ ] Killing the worker process mid-`_execute` (`kill -9` simulated by `CancelledError`) does **not** advance `next_run_at`, and the next tick re-claims the automation. The orphaned `pending`/`running` row is swept to `error` on next API boot.
 - [ ] A successfully-executed chat-target automation appends an assistant message visible in the chat UI with no manual reload.
-- [ ] A successfully-executed channel-target automation produces a new `channel_message` with `bot_id=automation.model_id`, `user_id IS NULL`, `webhook_id IS NULL`, that arrives in connected sockets within the test's 200ms window.
+- [ ] A successfully-executed channel-target automation produces a new `channel_message` with `bot_id=automation.agent_id`, `user_id IS NULL`, `webhook_id IS NULL`, that arrives in connected sockets within the test's 200ms window.
 - [ ] `POST /api/automations/{id}/run-now` returns synchronously with the final run status; the scheduler is not involved.
 - [ ] An automation that errors does so exactly once per RRULE interval (no retry storm).
 - [ ] FK CASCADE on `automation.target_chat_id` and `automation.target_channel_id`: deleting the parent `chat` (or `channel`) row cascades to delete every automation pointing at it, and onward to every `automation_run` belonging to those automations. Verified by an integration test that creates an automation against a chat, runs it once to populate `automation_run`, deletes the chat, and asserts both `automation` and `automation_run` rows are gone — and asserts the `ck_automation_exactly_one_target` CHECK is **never** violated mid-cascade (the test would otherwise see an `IntegrityError` from MySQL aborting the parent delete).
@@ -556,12 +556,12 @@ Every click-path a real user takes on M5-owned surfaces. Each row binds the thre
 - Automation marketplace, sharing automations across users, public automation templates.
 - Per-automation rate limiting beyond the global RRULE min-interval floor.
 - Retries with backoff. The scheduler runs the rule on its schedule; if a run fails, the next attempt is the next scheduled fire, not an immediate retry.
-- Tools, terminals, function-calling, code-interpreter, web-search, image-generation. The legacy executor's tool/feature/filter resolution path is not ported. Automations call the model with the user's prompt and nothing else.
+- Tools, terminals, function-calling, code-interpreter, web-search, image-generation. The legacy executor's tool/feature/filter resolution path is not ported. Automations call the agent with the user's prompt and nothing else.
 - Admin-level views, cross-user run dashboards, usage analytics.
 - Pause-all / kill-switch for automations beyond the per-row `is_active` toggle.
 
 ## Open questions
 
 - **Run-now concurrency.** Should `run-now` be allowed while a scheduled run is already in flight for the same automation? Current decision: yes (both runs proceed independently, each producing a chat assistant message or channel post). If product testing surfaces user confusion, we add a 409 conflict guard at run-now time. No code work needed up front.
-- **Channel target authorship.** The post carries `bot_id=automation.model_id` (per M4) plus the `automation_owner_name` field in `content` so the UI can render "via @sam's automation 'Daily standup'". Confirm copy with design before launch.
+- **Channel target authorship.** The post carries `bot_id=automation.agent_id` (per M4) plus the `automation_owner_name` field in `content` so the UI can render "via @sam's automation 'Daily standup'". Confirm copy with design before launch.
 - **Editor preview endpoint.** `POST /api/automations/preview-rrule` is a small helper that exists purely for the live "next 5 runs" UI. It is non-mutating and cheap. Acceptable, or fold into a query parameter on `GET /api/automations`? Keeping it as a separate endpoint for clarity unless review pushes back.

@@ -1,8 +1,8 @@
 import { http, HttpResponse } from 'msw';
 import type { User } from '$lib/types/user';
 import type { ChatList, ChatRead, ChatSummary } from '$lib/types/chat';
+import type { AgentInfo } from '$lib/types/agent';
 import type { FolderRead } from '$lib/types/folder';
-import type { ModelInfo } from '$lib/types/model';
 import type { ShareCreateResponse, SharedChatSnapshot } from '$lib/types/share';
 
 /**
@@ -42,8 +42,13 @@ const fixtureUser: User = {
  */
 const EMPTY_CHAT_LIST: ChatList = { items: [], next_cursor: null };
 
-/** Default deterministic models fixture — the three models the legacy fork shipped. */
-const DEFAULT_MODELS: ModelInfo[] = [
+/**
+ * Default deterministic agents fixture — the three ids the rebuild's
+ * agent-platform exposes by default. Each agent has a preselected
+ * underlying model on the platform; the upstream OpenAI-compatible
+ * `/v1/models` payload uses these same ids verbatim.
+ */
+const DEFAULT_AGENTS: AgentInfo[] = [
   { id: 'gpt-4o', label: 'GPT-4o', owned_by: 'openai' },
   { id: 'gpt-4o-mini', label: 'GPT-4o mini', owned_by: 'openai' },
   { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', owned_by: 'anthropic' },
@@ -91,9 +96,11 @@ export function sseFrame(event: string, data: unknown): string {
 
 /**
  * Default deterministic SSE stream for `POST /api/chats/{id}/messages`.
- * Mirrors the cassette the M2 plan promises for `(model="gpt-4o",
- * messages=[{role: "user", content: "Hello"}])`: tokens render in
- * order, then a `usage` block, then `done`.
+ * Mirrors the cassette the M2 plan promises for `(agent_id="gpt-4o",
+ * messages=[{role: "user", content: "Hello"}])` — the rebuild's
+ * `MessageSend` body carries `agent_id`, while the upstream OpenAI
+ * SDK call still uses `model=`. Tokens render in order, then a
+ * `usage` block, then `done`.
  */
 function defaultStreamBody(): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -153,9 +160,12 @@ export const handlers = [
   http.get('*/api/folders', () => HttpResponse.json([] as FolderRead[])),
 
   // -------------------------------------------------------------------
-  // M2 models passthrough.
+  // M2 agents passthrough. Hits the rebuild's `/api/agents` route;
+  // the FastAPI handler in turn calls the upstream OpenAI-compatible
+  // `/v1/models` endpoint and translates each entry to the rebuild's
+  // `AgentInfo` shape.
   // -------------------------------------------------------------------
-  http.get('*/api/models', () => HttpResponse.json({ items: DEFAULT_MODELS })),
+  http.get('*/api/agents', () => HttpResponse.json({ items: DEFAULT_AGENTS })),
 
   // -------------------------------------------------------------------
   // M2 streaming. Default cassette: deterministic "Hi there!" reply.
@@ -224,4 +234,4 @@ export const SAMPLE_CHAT_SUMMARY: ChatSummary = {
   updated_at: 1_735_689_600_000,
 };
 
-export const SAMPLE_MODELS: ModelInfo[] = DEFAULT_MODELS;
+export const SAMPLE_AGENTS: AgentInfo[] = DEFAULT_AGENTS;

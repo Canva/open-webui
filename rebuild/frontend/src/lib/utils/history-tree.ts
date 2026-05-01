@@ -65,9 +65,9 @@ export function buildLinearThread(history: History, leafId: string): HistoryMess
  * at `leafId`. Returns `null` if no assistant message exists in the
  * branch (e.g. the user is editing the very first message).
  *
- * Used by `ActiveChatStore.editAndResend` to pick "last model" /
+ * Used by `ActiveChatStore.editAndResend` to pick "last agent" /
  * "last params" — falling back to the values the user already saw is
- * less surprising than asking them to re-pick a model in the editor.
+ * less surprising than asking them to re-pick an agent in the editor.
  */
 export function findLastAssistant(history: History, leafId: string): HistoryMessage | null {
   const linear = buildLinearThread(history, leafId);

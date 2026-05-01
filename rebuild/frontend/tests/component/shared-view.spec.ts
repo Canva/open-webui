@@ -6,10 +6,10 @@
  *     renders +page.svelte against a fixture snapshot covering
  *     markdown, code blocks, and math, asserting it uses the same
  *     Message component as the conversation view (no input box,
- *     no regen controls, no model selector). Includes a long-history
+ *     no regen controls, no agent selector). Includes a long-history
  *     fixture (200+ messages) to exercise virtualization."
  *   - § Frontend route (lines 205-216): the read-only contract —
- *     no composer, no model selector, no regen, no scroll-to-
+ *     no composer, no agent selector, no regen, no scroll-to-
  *     bottom-on-stream; the M2 `MessageList` + `Message` components
  *     in `readonly` mode; max-width matches the conversation view.
  *   - § User journeys row 4: the recipient opens `/s/{token}` and
@@ -20,7 +20,7 @@
  *     harness file's docstring for why we don't import the route
  *     `+page.svelte` directly into CT). The behavioural assertions
  *     here pin the read-only contract; the geometric invariants
- *     (negative containment for composer / model-selector / regen)
+ *     (negative containment for composer / agent-selector / regen)
  *     live in the sibling `SharedView-geometry.spec.ts`.
  */
 
@@ -68,8 +68,8 @@ test.describe('SharedView — happy-path snapshot rendering', () => {
 
     // No composer (compose textbox is the user-facing affordance).
     await expect(component.getByRole('textbox', { name: 'Compose a message' })).toHaveCount(0);
-    // No model selector — the share view never instantiates one.
-    await expect(component.getByRole('button', { name: /Model/ })).toHaveCount(0);
+    // No agent selector — the share view never instantiates one.
+    await expect(component.getByRole('button', { name: /Agent/ })).toHaveCount(0);
   });
 
   test('renders the dead-link panel when snapshot is null', async ({ mount }) => {

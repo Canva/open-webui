@@ -39,22 +39,22 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.agents import AgentEntry, build_agents
-from app.config import ModelDef, Settings
+from app.config import AgentDef, Settings
 from app.oai_router import router as oai_router
 
 
 @pytest.fixture
 def app_settings() -> Settings:
-    """A :class:`Settings` instance with the platform default catalog.
+    """A :class:`Settings` instance with the platform default catalogue.
 
     Constructed explicitly (rather than relying on the module-level
     ``settings = Settings()`` import side-effect in ``app/config.py``)
-    so a future test can pass a different ``models=[...]`` list without
+    so a future test can pass a different ``agents=[...]`` list without
     fighting environment leakage from a previous test.
     """
     return Settings(
-        models=[
-            ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
+        agents=[
+            AgentDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
         ]
     )
 

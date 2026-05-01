@@ -4,7 +4,7 @@
   Phase 3d swapped the M0 identity-demo card for the real M2 chat shell
   (sidebar, conversation slot, toaster, mobile drawer). The (app)
   layout still owns the ThemeStore wiring AND now also constructs every
-  M2 store (`provideChats`, `provideFolders`, `provideModels`,
+  M2 store (`provideChats`, `provideFolders`, `provideAgents`,
   `provideActiveChat`, `provideToast`) inline from the `data` prop —
   see `routes/(app)/+layout.svelte` for the canonical setup. This
   harness therefore ONLY needs to forward `data`; the layout itself is

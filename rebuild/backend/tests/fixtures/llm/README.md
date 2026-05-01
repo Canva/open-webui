@@ -62,7 +62,7 @@ OpenAI SDK expects. When recording is implemented, it will:
 
 1. Detect `LLM_RECORD=1` at app startup.
 2. Proxy any cassette-miss request to the real
-   `MODEL_GATEWAY_BASE_URL` upstream.
+   `AGENT_GATEWAY_BASE_URL` upstream.
 3. Stream the response back to the SDK while writing it to disk under
    the computed hash.
 4. On the next test run (without `LLM_RECORD`), the cassette is

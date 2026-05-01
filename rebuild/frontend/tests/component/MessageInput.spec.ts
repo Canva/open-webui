@@ -2,15 +2,15 @@
  * Component-level driver for `lib/components/chat/MessageInput.svelte`.
  *
  * Locked by `rebuild/docs/plans/m2-conversations.md`:
- *   - § Tests § Frontend (line 1065): "MessageInput.spec.ts — Enter
- *     sends, Shift+Enter newlines, Esc fires cancel, model dropdown
- *     shows the populated `models` store."
- *   - § Frontend components (line 887): "MessageInput — single
- *     textarea, auto-grows, Enter sends, Shift+Enter newlines,
- *     Esc cancels in-flight stream."
+ *   - § Tests § Frontend: "MessageInput.spec.ts — Enter sends,
+ *     Shift+Enter newlines, Esc fires cancel, agent dropdown shows
+ *     the populated `agents` store."
+ *   - § Frontend components: "MessageInput — single textarea,
+ *     auto-grows, Enter sends, Shift+Enter newlines, Esc cancels
+ *     in-flight stream."
  *
  * Layer choice: Playwright CT — the component reads three contexts
- * and composes the `<ModelSelector>` recursively. The harness
+ * and composes the `<AgentSelector>` recursively. The harness
  * (`MessageInputHarness.svelte`) constructs each store and exposes
  * recording stubs for `send`/`cancel` so the spec asserts on the
  * input's contract WITHOUT needing MSW inside the CT bundle.
@@ -18,12 +18,12 @@
 
 import { test, expect } from '@playwright/experimental-ct-svelte';
 import MessageInputHarness from './MessageInputHarness.svelte';
-import type { ModelInfo } from '../../src/lib/types/model';
+import type { AgentInfo } from '../../src/lib/types/agent';
 
 test.describe('MessageInput — keyboard contract', () => {
   test('Enter sends the message and clears the textarea', async ({ mount, page }) => {
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'gpt-4o' },
+      props: { initialAgentId: 'gpt-4o' },
     });
 
     const textarea = component.getByRole('textbox', { name: 'Compose a message' });
@@ -43,7 +43,7 @@ test.describe('MessageInput — keyboard contract', () => {
 
   test('Shift+Enter inserts a newline without sending', async ({ mount, page }) => {
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'gpt-4o' },
+      props: { initialAgentId: 'gpt-4o' },
     });
 
     const textarea = component.getByRole('textbox', { name: 'Compose a message' });
@@ -66,7 +66,7 @@ test.describe('MessageInput — keyboard contract', () => {
 
   test('Esc fires cancel when streaming is in flight', async ({ mount, page }) => {
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'gpt-4o' },
+      props: { initialAgentId: 'gpt-4o' },
     });
 
     // Flip streaming to 'streaming' via the exposed store handle so
@@ -95,7 +95,7 @@ test.describe('MessageInput — disabled state during streaming', () => {
     page,
   }) => {
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'gpt-4o' },
+      props: { initialAgentId: 'gpt-4o' },
     });
 
     // While idle the send button is enabled once the user has typed.
@@ -105,8 +105,8 @@ test.describe('MessageInput — disabled state during streaming', () => {
     await expect(sendButton).toBeEnabled();
 
     // Flip to 'sending' — the component swaps the send button for the
-    // cancel button (the M2 spec at line 161 in MessageInput.svelte
-    // checks `isStreaming` to choose between the two affordances).
+    // cancel button (the M2 spec checks `isStreaming` to choose
+    // between the two affordances).
     await page.evaluate(() => {
       (
         window as unknown as { __activeChatStore: { streaming: string } }
@@ -119,45 +119,47 @@ test.describe('MessageInput — disabled state during streaming', () => {
   });
 });
 
-test.describe('MessageInput — model dropdown population', () => {
-  test('the model dropdown shows the populated models store (≤10 = native select)', async ({
+test.describe('MessageInput — agent dropdown population', () => {
+  test('the agent dropdown shows the populated agents store (≤10 = native select)', async ({
     mount,
   }) => {
-    const models: ModelInfo[] = [
+    const agents: AgentInfo[] = [
       { id: 'gpt-4o', label: 'GPT-4o', owned_by: 'openai' },
       { id: 'gpt-4o-mini', label: 'GPT-4o mini', owned_by: 'openai' },
       { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', owned_by: 'anthropic' },
     ];
 
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'gpt-4o', models },
+      props: { initialAgentId: 'gpt-4o', agents },
     });
 
-    // The ModelSelector renders a native <select> when there are ≤10
-    // models. Each model id must appear as an <option>.
+    // The AgentSelector renders a native <select> when there are ≤10
+    // agents. Each agent id must appear as an <option>.
     const select = component.locator('select');
     await expect(select).toBeVisible();
 
-    for (const m of models) {
-      await expect(select.locator(`option[value="${m.id}"]`)).toHaveCount(1);
+    for (const a of agents) {
+      await expect(select.locator(`option[value="${a.id}"]`)).toHaveCount(1);
     }
   });
 
-  test('the model dropdown switches to a popover when there are >10 models', async ({ mount }) => {
-    // 11 models forces the popover branch (`POPOVER_THRESHOLD = 10`).
-    const models: ModelInfo[] = Array.from({ length: 11 }, (_, i) => ({
-      id: `model-${i}`,
-      label: `Model ${i}`,
+  test('the agent dropdown switches to a popover when there are >10 agents', async ({
+    mount,
+  }) => {
+    // 11 agents forces the popover branch (`POPOVER_THRESHOLD = 10`).
+    const agents: AgentInfo[] = Array.from({ length: 11 }, (_, i) => ({
+      id: `agent-${i}`,
+      label: `Agent ${i}`,
       owned_by: 'openai',
     }));
 
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'model-0', models },
+      props: { initialAgentId: 'agent-0', agents },
     });
 
     // No native <select>; instead the trigger button is exposed.
     await expect(component.locator('select')).toHaveCount(0);
-    await expect(component.getByRole('button', { name: /Model 0|Select model/ })).toBeVisible();
+    await expect(component.getByRole('button', { name: /Agent 0|Select agent/ })).toBeVisible();
   });
 });
 
@@ -166,7 +168,7 @@ test.describe('MessageInput — system + temperature disclosure', () => {
     mount,
   }) => {
     const component = await mount(MessageInputHarness, {
-      props: { initialModel: 'gpt-4o' },
+      props: { initialAgentId: 'gpt-4o' },
     });
 
     // Closed by default — the temperature input is not in the DOM.

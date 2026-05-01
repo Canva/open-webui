@@ -3,41 +3,41 @@
    * The bottom-pinned composer. Owns:
    *   - The auto-grow textarea.
    *   - Enter to send / Shift+Enter newline / Esc cancel.
-   *   - The model selector + send/cancel toggle.
+   *   - The agent selector + send/cancel toggle.
    *   - A `<details>` disclosure for `temperature` + `system` so the
    *     advanced knobs stay collapsed by default.
    *
    * Pinned by `rebuild/docs/plans/m2-conversations.md` § Frontend
-   * components (line 887): "MessageInput — single textarea, auto-
-   * grows, Enter sends, Shift+Enter newlines, Esc cancels in-flight
-   * stream. ModelSelector + temperature/system disclosure beneath."
+   * components: "MessageInput — single textarea, auto-grows, Enter
+   * sends, Shift+Enter newlines, Esc cancels in-flight stream.
+   * AgentSelector + temperature/system disclosure beneath."
    * LOC budget ≤ 200.
    *
    * Defaults pulled from previous user state by the consumer
    * (`ConversationView`) so the input does not have to reach into
-   * `ActiveChatStore` for "what model was last used here" — that's
+   * `ActiveChatStore` for "what agent was last used here" — that's
    * the parent's call, this component just binds to props.
    */
   import { untrack } from 'svelte';
   import { useActiveChat } from '$lib/stores/active-chat.svelte';
   import { useToast } from '$lib/stores/toast.svelte';
-  import ModelSelector from './ModelSelector.svelte';
+  import AgentSelector from './AgentSelector.svelte';
 
   interface Props {
-    /** Initial model id; the selector is bindable so the user can change it. */
-    initialModel?: string;
+    /** Initial agent id; the selector is bindable so the user can change it. */
+    initialAgentId?: string;
   }
 
-  let { initialModel = '' }: Props = $props();
+  let { initialAgentId = '' }: Props = $props();
 
   const activeChat = useActiveChat();
   const toast = useToast();
 
   let content = $state('');
-  // `untrack` so we explicitly seed `model` from the initial prop value
+  // `untrack` so we explicitly seed `agentId` from the initial prop value
   // without making it reactive to subsequent prop changes — the user
   // owns the selection from this point on.
-  let model = $state(untrack(() => initialModel));
+  let agentId = $state(untrack(() => initialAgentId));
   let temperature = $state<number | null>(null);
   let system = $state('');
   let showAdvanced = $state(false);
@@ -45,7 +45,7 @@
 
   const streaming = $derived(activeChat.streaming);
   const isStreaming = $derived(streaming === 'streaming' || streaming === 'sending');
-  const canSend = $derived(content.trim().length > 0 && model !== '' && streaming === 'idle');
+  const canSend = $derived(content.trim().length > 0 && agentId !== '' && streaming === 'idle');
 
   // Auto-grow up to 12 lines (`24 * 12 = 288px`); after that the
   // textarea scrolls internally. The effect runs on every keystroke
@@ -70,7 +70,7 @@
     try {
       await activeChat.send({
         content: body,
-        model,
+        agent_id: agentId,
         ...(Object.keys(params).length > 0 ? { params } : {}),
       });
     } catch (err) {
@@ -147,7 +147,7 @@
 
   <div class="border-hairline mt-2 flex items-center justify-between gap-2 border-t pt-2">
     <div class="flex items-center gap-2">
-      <ModelSelector bind:value={model} />
+      <AgentSelector bind:value={agentId} />
       <button
         type="button"
         onclick={() => (showAdvanced = !showAdvanced)}

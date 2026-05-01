@@ -1,7 +1,7 @@
-"""The single model-gateway transport.
+"""The single agent-gateway transport.
 
 A thin wrapper around the OpenAI Python SDK pointed at
-``settings.model_gateway_base_url``. M2 ships exactly one provider class —
+``settings.agent_gateway_base_url``. M2 ships exactly one provider class —
 no provider matrix, no LiteLLM, no second class — per
 ``rebuild/docs/best-practises/FastAPI-best-practises.md`` § B.4.
 
@@ -25,11 +25,18 @@ lifespan-per-process model. Rationale lives in
 (the block following the class definition).
 
 The OpenAI SDK's secret/token surface uses :class:`pydantic.SecretStr` on
-the rebuild's ``Settings`` (``MODEL_GATEWAY_API_KEY``) so the value never
+the rebuild's ``Settings`` (``AGENT_GATEWAY_API_KEY``) so the value never
 appears in logs or repr output. The constructor below calls
 ``.get_secret_value()`` immediately before handing the key to
 ``AsyncOpenAI`` — the plan's code block predates the SecretStr decision,
 so this is the documented divergence.
+
+Wire-format note: the OpenAI-compatible upstream still calls its
+catalogue ``/v1/models`` and uses ``model:`` on chat completion bodies.
+The rebuild's domain calls each entry an **agent** (each agent has a
+preselected underlying model on the agent platform). This module is the
+translation layer: it accepts ``agent_id`` from the rebuild and emits
+``model=`` to the OpenAI SDK.
 """
 
 from __future__ import annotations
@@ -49,7 +56,7 @@ log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-class Model:
+class Agent:
     id: str
     label: str
     owned_by: str | None
@@ -73,8 +80,8 @@ class ProviderError(Exception):
 
 
 class OpenAICompatibleProvider:
-    """The only provider. Reads ``MODEL_GATEWAY_BASE_URL`` /
-    ``MODEL_GATEWAY_API_KEY`` from the central :class:`app.core.config.Settings`.
+    """The only provider. Reads ``AGENT_GATEWAY_BASE_URL`` /
+    ``AGENT_GATEWAY_API_KEY`` from the central :class:`app.core.config.Settings`.
 
     Exactly one instance per worker; constructed in ``lifespan`` and stored
     on ``app.state.provider``. Routes / services receive it via the
@@ -84,12 +91,12 @@ class OpenAICompatibleProvider:
 
     def __init__(self) -> None:
         api_key = (
-            settings.model_gateway_api_key.get_secret_value()
-            if settings.model_gateway_api_key is not None
+            settings.agent_gateway_api_key.get_secret_value()
+            if settings.agent_gateway_api_key is not None
             else "unused"
         )
         self._client = AsyncOpenAI(
-            base_url=settings.model_gateway_base_url,
+            base_url=settings.agent_gateway_base_url,
             api_key=api_key,
             timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
             max_retries=0,
@@ -99,37 +106,50 @@ class OpenAICompatibleProvider:
         """Release the underlying httpx pool. Called from ``lifespan`` shutdown."""
         await self._client.close()
 
-    async def list_models(self) -> list[Model]:
+    async def list_agents(self) -> list[Agent]:
+        """Fetch the agent catalogue.
+
+        The OpenAI-compatible upstream still serves this at ``/v1/models``;
+        we translate each entry into the rebuild's :class:`Agent` shape
+        (the rebuild's UI never exposes the underlying model id).
+        """
         try:
             page = await self._client.models.list()
         except (APIStatusError, APIError) as e:
-            raise ProviderError(f"gateway list_models failed: {e}", status_code=502) from e
+            raise ProviderError(f"gateway list_agents failed: {e}", status_code=502) from e
 
-        out: list[Model] = []
+        out: list[Agent] = []
         for m in page.data:
             out.append(
-                Model(
+                Agent(
                     id=m.id,
                     label=getattr(m, "label", None) or m.id,
                     owned_by=getattr(m, "owned_by", None),
                 )
             )
-        out.sort(key=lambda m: m.id)
+        out.sort(key=lambda a: a.id)
         return out
 
     async def stream(
         self,
         *,
         messages: list[dict[str, Any]],
-        model: str,
+        agent_id: str,
         params: dict[str, Any],
     ) -> AsyncIterator[StreamDelta]:
+        """Open a streaming chat completion against the upstream gateway.
+
+        ``agent_id`` is the rebuild-domain identifier the user picked; the
+        OpenAI SDK still wants it in the ``model=`` slot on the wire, so
+        we forward it there verbatim. The agent platform on the other end
+        owns the agent → underlying model mapping.
+        """
         msgs = list(messages)
         if params.get("system"):
             msgs.insert(0, {"role": "system", "content": params["system"]})
 
         kwargs: dict[str, Any] = {
-            "model": model,
+            "model": agent_id,
             "messages": msgs,
             "stream": True,
             "stream_options": {"include_usage": True},

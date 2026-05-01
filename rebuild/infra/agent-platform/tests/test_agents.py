@@ -3,8 +3,8 @@
 Locks the alias→tag mapping that the platform's ``GET /v1/models``
 exposes and ``POST /v1/chat/completions`` dispatches against. The
 registry is the only place that knows about the underlying Ollama
-tag (``qwen2.5:0.5b``) — every other surface deals in stable aliases
-(``dev``).
+tag (``qwen2.5:0.5b``) — every other surface deals in stable agent
+aliases (``dev``).
 
 Plan reference: ``rebuild/docs/plans/feature-llm-models.md`` § Tests
 → Unit tests (``test_agents.py``) and ``app/agents.py``.
@@ -15,13 +15,13 @@ from __future__ import annotations
 from pydantic_ai import Agent
 
 from app.agents import build_agents
-from app.config import ModelDef, Settings
+from app.config import AgentDef, Settings
 
 
-def test_build_agents_default_catalog_returns_single_dev_entry() -> None:
+def test_build_agents_default_catalogue_returns_single_dev_entry() -> None:
     settings = Settings(
-        models=[
-            ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
+        agents=[
+            AgentDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
         ]
     )
 
@@ -38,11 +38,11 @@ def test_build_agents_default_catalog_returns_single_dev_entry() -> None:
     assert isinstance(entry.agent, Agent)
 
 
-def test_build_agents_multi_model_catalog_keeps_each_alias() -> None:
+def test_build_agents_multi_agent_catalogue_keeps_each_alias() -> None:
     settings = Settings(
-        models=[
-            ModelDef(id="a", label="A", ollama_tag="t1"),
-            ModelDef(id="b", label="B", ollama_tag="t2"),
+        agents=[
+            AgentDef(id="a", label="A", ollama_tag="t1"),
+            AgentDef(id="b", label="B", ollama_tag="t2"),
         ]
     )
 
@@ -59,8 +59,8 @@ def test_build_agents_unknown_alias_returns_none() -> None:
     for unknown aliases so the router's 404 branch can fire cleanly.
     """
     settings = Settings(
-        models=[
-            ModelDef(id="dev", label="Dev", ollama_tag="qwen2.5:0.5b"),
+        agents=[
+            AgentDef(id="dev", label="Dev", ollama_tag="qwen2.5:0.5b"),
         ]
     )
     agents = build_agents(settings)

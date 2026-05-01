@@ -4,7 +4,7 @@
   `MessageInput.svelte` reads three contexts:
     - `useActiveChat()` for `send()` / `cancel()` / `streaming`.
     - `useToast()` for failure surfacing.
-    - The transitive `<ModelSelector>` reaches `useModels()`.
+    - The transitive `<AgentSelector>` reaches `useAgents()`.
 
   Per the M2 plan § Stores and state, all three are constructed in
   `(app)/+layout.svelte` via `provide*()`; this harness mirrors
@@ -28,22 +28,22 @@
     ACTIVE_CHAT_CONTEXT_KEY,
     type SendInput,
   } from '$lib/stores/active-chat.svelte';
-  import { ModelsStore, MODELS_CONTEXT_KEY } from '$lib/stores/models.svelte';
+  import { AgentsStore, AGENTS_CONTEXT_KEY } from '$lib/stores/agents.svelte';
   import { ToastStore, TOAST_CONTEXT_KEY } from '$lib/stores/toast.svelte';
   import MessageInput from '$lib/components/chat/MessageInput.svelte';
   import type { ChatRead } from '$lib/types/chat';
-  import type { ModelInfo } from '$lib/types/model';
+  import type { AgentInfo } from '$lib/types/agent';
 
   interface Props {
-    /** Optional initial model id forwarded into the component. */
-    initialModel?: string;
-    /** Optional models catalogue (defaults to a single GPT-4o). */
-    models?: ModelInfo[];
+    /** Optional initial agent id forwarded into the component. */
+    initialAgentId?: string;
+    /** Optional agents catalogue (defaults to a single GPT-4o). */
+    agents?: AgentInfo[];
     /** Optional pre-loaded chat — without one, `send()` throws. */
     chat?: ChatRead | null;
   }
 
-  const DEFAULT_MODELS: ModelInfo[] = [{ id: 'gpt-4o', label: 'GPT-4o', owned_by: 'openai' }];
+  const DEFAULT_AGENTS: AgentInfo[] = [{ id: 'gpt-4o', label: 'GPT-4o', owned_by: 'openai' }];
 
   const STUB_CHAT: ChatRead = {
     id: 'chat-1',
@@ -57,18 +57,22 @@
     share_id: null,
   };
 
-  let { initialModel = 'gpt-4o', models = DEFAULT_MODELS, chat = STUB_CHAT }: Props = $props();
+  let {
+    initialAgentId = 'gpt-4o',
+    agents = DEFAULT_AGENTS,
+    chat = STUB_CHAT,
+  }: Props = $props();
 
-  const initialModelSnapshot = untrack(() => initialModel);
-  const modelsSnapshot = untrack(() => models);
+  const initialAgentIdSnapshot = untrack(() => initialAgentId);
+  const agentsSnapshot = untrack(() => agents);
   const chatSnapshot = untrack(() => chat);
 
   const activeChatStore = new ActiveChatStore();
   if (chatSnapshot) activeChatStore.chat = chatSnapshot;
-  const modelsStore = new ModelsStore(modelsSnapshot);
+  const agentsStore = new AgentsStore(agentsSnapshot);
   const toastStore = new ToastStore();
   setContext(ACTIVE_CHAT_CONTEXT_KEY, activeChatStore);
-  setContext(MODELS_CONTEXT_KEY, modelsStore);
+  setContext(AGENTS_CONTEXT_KEY, agentsStore);
   setContext(TOAST_CONTEXT_KEY, toastStore);
 
   // Recording stubs (keep the original signatures so the
@@ -85,17 +89,17 @@
   if (typeof window !== 'undefined') {
     const w = window as unknown as {
       __activeChatStore: ActiveChatStore;
-      __modelsStore: ModelsStore;
+      __agentsStore: AgentsStore;
       __toastStore: ToastStore;
       __sendCalls: SendInput[];
       __cancelCalls: number[];
     };
     w.__activeChatStore = activeChatStore;
-    w.__modelsStore = modelsStore;
+    w.__agentsStore = agentsStore;
     w.__toastStore = toastStore;
     w.__sendCalls = sendCalls;
     w.__cancelCalls = cancelCalls;
   }
 </script>
 
-<MessageInput initialModel={initialModelSnapshot} />
+<MessageInput initialAgentId={initialAgentIdSnapshot} />

@@ -38,8 +38,8 @@ function msg(overrides: Partial<HistoryMessage> & Pick<HistoryMessage, 'id'>): H
     role: overrides.role ?? 'assistant',
     content: overrides.content ?? '',
     timestamp: overrides.timestamp ?? 0,
-    model: overrides.model ?? null,
-    modelName: overrides.modelName ?? null,
+    agent_id: overrides.agent_id ?? null,
+    agentName: overrides.agentName ?? null,
     done: overrides.done ?? true,
     error: overrides.error ?? null,
     cancelled: overrides.cancelled ?? false,
@@ -93,8 +93,8 @@ test.describe('Message — user vs assistant rendering', () => {
       role: 'assistant',
       content: '**bold** and `code`',
       done: true,
-      model: 'gpt-4o',
-      modelName: 'GPT-4o',
+      agent_id: 'gpt-4o',
+      agentName: 'GPT-4o',
     });
 
     const component = await mount(MessageHarness, {
@@ -203,15 +203,15 @@ test.describe('Message — terminal status surfaces', () => {
   });
 });
 
-test.describe('Message — model + usage footer', () => {
-  test('renders the model name in the footer when message.model is set', async ({ mount }) => {
+test.describe('Message — agent + usage footer', () => {
+  test('renders the agent name in the footer when message.agent_id is set', async ({ mount }) => {
     const assistantMsg = msg({
       id: 'a1',
       role: 'assistant',
       content: 'hi',
       done: true,
-      model: 'gpt-4o',
-      modelName: 'GPT-4o',
+      agent_id: 'gpt-4o',
+      agentName: 'GPT-4o',
     });
 
     const component = await mount(MessageHarness, {
@@ -227,8 +227,8 @@ test.describe('Message — model + usage footer', () => {
       role: 'assistant',
       content: 'hi',
       done: true,
-      model: 'gpt-4o',
-      modelName: 'GPT-4o',
+      agent_id: 'gpt-4o',
+      agentName: 'GPT-4o',
       usage: { prompt_tokens: 12, completion_tokens: 87, total_tokens: 99 },
     });
 

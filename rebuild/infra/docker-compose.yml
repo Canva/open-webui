@@ -86,7 +86,7 @@ services:
 
   # Pydantic-AI wrapper that surfaces an OpenAI-compatible /v1/models +
   # /v1/chat/completions on port 8081. The rebuild's `app` service points
-  # MODEL_GATEWAY_BASE_URL at it for the dev loop. See
+  # AGENT_GATEWAY_BASE_URL at it for the dev loop. See
   # rebuild/infra/agent-platform/ for the service source.
   agent-platform:
     build:
@@ -116,7 +116,7 @@ services:
       ENV: dev
       DATABASE_URL: mysql+asyncmy://rebuild:rebuild@mysql:3306/rebuild?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
-      MODEL_GATEWAY_BASE_URL: http://agent-platform:8081/v1
+      AGENT_GATEWAY_BASE_URL: http://agent-platform:8081/v1
       TRUSTED_EMAIL_HEADER: X-Forwarded-Email
       CORS_ALLOW_ORIGINS: http://localhost:5173
     # Run alembic before uvicorn so `docker compose up -d --wait` produces a

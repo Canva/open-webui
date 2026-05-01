@@ -13,11 +13,11 @@ Skipped by default. Two gates have to be satisfied for this test to run:
 
 The test exercises the rebuild's HTTP surface, **not** the platform's
 own ``/v1/models`` — the goal is to verify the end-to-end path the
-acceptance criteria call out (rebuild app → MODEL_GATEWAY_BASE_URL →
+acceptance criteria call out (rebuild app → AGENT_GATEWAY_BASE_URL →
 agent-platform → ollama). The streaming chat half is deferred to a
 follow-up: creating a chat through the rebuild requires folder
 plumbing that is heavyweight to wire from a smoke test, and the
-``/api/models`` curl is the minimum viable signal called out in the
+``/api/agents`` curl is the minimum viable signal called out in the
 plan's § Acceptance criteria first bullet.
 
 Plan reference: ``rebuild/docs/plans/feature-llm-models.md`` § Tests
@@ -42,14 +42,14 @@ pytestmark = [
 ]
 
 
-def test_rebuild_app_lists_dev_model_through_agent_platform() -> None:
-    """Compose is up: the rebuild's ``/api/models`` includes ``dev``.
+def test_rebuild_app_lists_dev_agent_through_agent_platform() -> None:
+    """Compose is up: the rebuild's ``/api/agents`` includes ``dev``.
 
     Identity is established via the trusted-proxy header
     ``X-Forwarded-Email`` per the rebuild's ``get_user`` dependency.
     """
     response = httpx.get(
-        "http://localhost:8080/api/models",
+        "http://localhost:8080/api/agents",
         headers={"X-Forwarded-Email": "smoke@canva.com"},
         timeout=30.0,
     )

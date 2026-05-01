@@ -46,8 +46,8 @@ export interface HistoryMessage {
   content: string;
   /** epoch milliseconds */
   timestamp: number;
-  model: string | null;
-  modelName: string | null;
+  agent_id: string | null;
+  agentName: string | null;
   done: boolean;
   error: HistoryMessageError | null;
   cancelled: boolean;

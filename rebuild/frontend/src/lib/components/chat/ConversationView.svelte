@@ -56,10 +56,10 @@
 
   /**
    * Empty-state handoff captured synchronously at construction time so
-   * the composer can hydrate with the model the user picked on `/`
+   * the composer can hydrate with the agent the user picked on `/`
    * before any `$effect` runs. The dispatch effect below still owns
    * the actual `send()` call and clears sessionStorage to prevent
-   * replay; this snapshot just exposes the model to `<MessageInput>`'s
+   * replay; this snapshot just exposes the agent to `<MessageInput>`'s
    * initial render. SSR-safe via the `typeof window` guard, and
    * scoped to this chat id so a stale entry from another chat doesn't
    * leak into the wrong composer. `untrack` makes the "snapshot
@@ -68,7 +68,7 @@
    * svelte/state_referenced_locally — same pattern used in the M2
    * `(app)/+layout.svelte` for store seeding.
    */
-  let pendingHandoff = $state<{ content: string; model: string } | null>(
+  let pendingHandoff = $state<{ content: string; agent_id: string } | null>(
     untrack(() => (typeof window === 'undefined' ? null : readPendingHandoff(serverChat.id))),
   );
 
@@ -77,31 +77,31 @@
   // token mutations); the SSR'd `serverChat` is the seed.
   const chat = $derived(activeChat.chat ?? serverChat);
   /**
-   * The model id the composer should default to. Walks history for
-   * the most recent assistant turn (so follow-ups inherit the model
+   * The agent id the composer should default to. Walks history for
+   * the most recent assistant turn (so follow-ups inherit the agent
    * the conversation has been using); falls back to the empty-state
    * handoff so a fresh chat continues with whatever the user picked
    * on `/` instead of going back to nothing. Returns `''` when both
    * are absent — `<MessageInput>` then surfaces an empty selector
-   * and `<ModelSelector>`'s "No models available" empty state if the
-   * catalog is also empty.
+   * and `<AgentSelector>`'s "No agents available" empty state if the
+   * catalogue is also empty.
    */
-  const initialModel = $derived.by<string>(() => {
+  const initialAgentId = $derived.by<string>(() => {
     const messages = Object.values(chat.history.messages);
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const msg = messages[i];
-      if (msg && msg.role === 'assistant' && msg.model) return msg.model;
+      if (msg && msg.role === 'assistant' && msg.agent_id) return msg.agent_id;
     }
-    return pendingHandoff?.model ?? '';
+    return pendingHandoff?.agent_id ?? '';
   });
 
-  function readPendingHandoff(chatId: string): { content: string; model: string } | null {
+  function readPendingHandoff(chatId: string): { content: string; agent_id: string } | null {
     const raw = sessionStorage.getItem(PENDING_KEY);
     if (raw === null) return null;
     try {
-      const parsed = JSON.parse(raw) as { chatId: string; content: string; model: string };
+      const parsed = JSON.parse(raw) as { chatId: string; content: string; agent_id: string };
       if (parsed.chatId !== chatId) return null;
-      return { content: parsed.content, model: parsed.model };
+      return { content: parsed.content, agent_id: parsed.agent_id };
     } catch {
       return null;
     }
@@ -124,9 +124,9 @@
 
   // ------------------------------------------------------------------
   // Empty-state handoff. The composer at `/` stashes
-  // `{ chatId, content, model }` in sessionStorage before
+  // `{ chatId, content, agent_id }` in sessionStorage before
   // `goto('/c/<id>')`; the script-body snapshot above captured it for
-  // the composer's initial model. Once the active-chat store has
+  // the composer's initial agent. Once the active-chat store has
   // hydrated for this id, we dispatch the first message and clear
   // sessionStorage so a refresh during the in-flight stream doesn't
   // replay it.
@@ -136,9 +136,9 @@
     if (activeChat.chat?.id !== serverChat.id) return;
     if (pendingHandoff === null) return;
     sessionStorage.removeItem(PENDING_KEY);
-    const { content, model } = pendingHandoff;
+    const { content, agent_id } = pendingHandoff;
     pendingHandoff = null;
-    void activeChat.send({ content, model }).catch((err: unknown) => {
+    void activeChat.send({ content, agent_id }).catch((err: unknown) => {
       toast.pushError(err instanceof Error ? err.message : String(err));
     });
   });
@@ -362,7 +362,7 @@
   <!-- Composer ----------------------------------------------------- -->
   <div class="border-hairline border-t px-4 py-4">
     <div class="mx-auto w-full max-w-3xl">
-      <MessageInput {initialModel} />
+      <MessageInput {initialAgentId} />
     </div>
   </div>
 </div>

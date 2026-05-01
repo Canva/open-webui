@@ -29,8 +29,8 @@ def _fresh_settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> object:
         "DATABASE_IAM_AUTH_USER",
         "DATABASE_IAM_AUTH_MIGRATE_USER",
         "REDIS_URL",
-        "MODEL_GATEWAY_BASE_URL",
-        "MODEL_GATEWAY_API_KEY",
+        "AGENT_GATEWAY_BASE_URL",
+        "AGENT_GATEWAY_API_KEY",
         "TRUSTED_EMAIL_HEADER",
         "TRUSTED_NAME_HEADER",
         "TRUSTED_EMAIL_DOMAIN_ALLOWLIST",
@@ -62,8 +62,8 @@ def test_defaults_match_table(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.db_pool_max_overflow == 5
     assert s.db_pool_recycle_seconds == 1800
     assert s.redis_url == "redis://redis:6379/0"
-    assert s.model_gateway_base_url is None
-    assert s.model_gateway_api_key is None
+    assert s.agent_gateway_base_url is None
+    assert s.agent_gateway_api_key is None
     assert s.trusted_email_header == "X-Forwarded-Email"
     assert s.trusted_name_header == "X-Forwarded-Name"
     assert s.trusted_email_domain_allowlist == []
@@ -223,15 +223,15 @@ def test_trusted_email_domain_allowlist_csv_parses(
 def test_secret_str_does_not_leak_in_repr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    s = _fresh_settings(monkeypatch, MODEL_GATEWAY_API_KEY="super-secret-key")
-    assert isinstance(s.model_gateway_api_key, SecretStr)
+    s = _fresh_settings(monkeypatch, AGENT_GATEWAY_API_KEY="super-secret-key")
+    assert isinstance(s.agent_gateway_api_key, SecretStr)
     # Neither repr nor str of the SecretStr (or the parent Settings) should
     # contain the literal value. SecretStr renders `**********`.
-    assert "super-secret-key" not in repr(s.model_gateway_api_key)
-    assert "super-secret-key" not in str(s.model_gateway_api_key)
+    assert "super-secret-key" not in repr(s.agent_gateway_api_key)
+    assert "super-secret-key" not in str(s.agent_gateway_api_key)
     assert "super-secret-key" not in repr(s)
     # Caller still has an escape hatch.
-    assert s.model_gateway_api_key.get_secret_value() == "super-secret-key"
+    assert s.agent_gateway_api_key.get_secret_value() == "super-secret-key"
 
 
 def test_env_literal_rejects_qa(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -55,7 +55,7 @@ test.describe('(app)/+layout.svelte', () => {
           ...baselineThemeData,
           chats: emptyChatList,
           folders: [],
-          models: [],
+          agents: [],
         },
       },
     });

@@ -43,9 +43,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import (
+    AgentsCacheDep,
     CurrentUser,
     DbSession,
-    ModelsCacheDep,
     Provider,
     StreamRegistryDep,
 )
@@ -343,17 +343,20 @@ async def delete_chat(chat_id: str, user: CurrentUser, db: DbSession) -> Respons
 async def _generate_title(
     *,
     provider: Provider,
-    model: str,
+    agent_id: str,
     messages: list[dict[str, Any]],
 ) -> str:
     """One-shot non-streaming completion for the title-helper endpoint.
 
     Phase 2a's ``OpenAICompatibleProvider`` only exposes ``stream`` and
-    ``list_models``; the title helper is the one M2 surface that needs a
+    ``list_agents``; the title helper is the one M2 surface that needs a
     blocking completion. We poke through to ``provider._client`` here
     deliberately (per the dispatch instructions) and mirror
     ``provider.stream``'s exception mapping so :class:`ProviderError`
     bubbles into the centralised handler with the right status code.
+
+    ``agent_id`` is the rebuild-domain id; the OpenAI SDK still wants it
+    in the ``model=`` slot on the wire.
     """
     # The OpenAI SDK's ``messages`` argument expects a union of
     # ``ChatCompletion*MessageParam`` TypedDicts; plain ``dict[str, Any]``
@@ -369,7 +372,7 @@ async def _generate_title(
     )
     try:
         response = await provider._client.chat.completions.create(  # noqa: SLF001
-            model=model,
+            model=agent_id,
             messages=typed_messages,
             stream=False,
             max_tokens=_TITLE_MAX_TOKENS,
@@ -398,19 +401,19 @@ async def title_chat(
     user: CurrentUser,
     db: DbSession,
     provider: Provider,
-    cache: ModelsCacheDep,
+    cache: AgentsCacheDep,
 ) -> TitleResponse:
     """Ask the gateway for a ≤6-word title; persist + return it.
 
     Implementation notes:
 
-    * The default model is the first id from the cached ``/v1/models``
-      list (alphabetical from Phase 2a's :class:`ModelsCache`). If the
-      cache is empty the cache call itself raises :class:`ProviderError`
-      → 502/504/429 via the centralised handler.
+    * The default agent is the first id from the cached agent catalogue
+      (alphabetical from Phase 2a's :class:`AgentsCache`). If the cache
+      is empty the cache call itself raises :class:`ProviderError` →
+      502/504/429 via the centralised handler.
     * The gateway's response is run through :func:`derive_title` to
       enforce the 60-char / single-line invariant — defence against an
-      unusually verbose model that ignored "≤6 words". ``derive_title``
+      unusually verbose agent that ignored "≤6 words". ``derive_title``
       also catches the empty / whitespace-only case and returns the
       project default ``"New Chat"``.
     * ``updated_at`` is bumped so the sidebar surfaces the new title.
@@ -419,12 +422,12 @@ async def title_chat(
 
     items = await cache.get()
     if not items:
-        raise ProviderError("no models available from upstream", status_code=502)
-    default_model = items[0].id
+        raise ProviderError("no agents available from upstream", status_code=502)
+    default_agent_id = items[0].id
 
     raw_title = await _generate_title(
         provider=provider,
-        model=default_model,
+        agent_id=default_agent_id,
         messages=[m.model_dump() for m in body.messages],
     )
     new_title = derive_title(raw_title)
@@ -464,7 +467,7 @@ async def post_message(
     db: DbSession,
     provider: Provider,
     registry: StreamRegistryDep,
-    models_cache: ModelsCacheDep,
+    agents_cache: AgentsCacheDep,
 ) -> StreamingResponse:
     """Append a user message and stream the assistant reply via SSE.
 
@@ -474,7 +477,7 @@ async def post_message(
     see ``app/services/chat_stream.py`` module docstring):
 
     1. :func:`app.services.chat_stream.prepare_stream` runs the chat
-       lookup, model membership check, user-message seeding, initial
+       lookup, agent membership check, user-message seeding, initial
        history-cap enforcement, and the first persist that releases
        the ``SELECT FOR UPDATE`` row lock. Any
        :class:`fastapi.HTTPException` (404 / 400) or
@@ -497,7 +500,7 @@ async def post_message(
         user=user,
         body=body,
         db=db,
-        models_cache=models_cache,
+        agents_cache=agents_cache,
     )
     return StreamingResponse(
         stream_assistant_response(

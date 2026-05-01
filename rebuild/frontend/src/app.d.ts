@@ -1,8 +1,8 @@
 import type { User } from '$lib/types/user';
 import type { ThemeId } from '$lib/theme/presets';
+import type { AgentInfo } from '$lib/types/agent';
 import type { ChatList, ChatRead } from '$lib/types/chat';
 import type { FolderRead } from '$lib/types/folder';
-import type { ModelInfo } from '$lib/types/model';
 
 /*
  * Side-effect ambient declarations for KaTeX optional packages live in
@@ -52,8 +52,8 @@ declare global {
       chats?: ChatList;
       /** Initial folder list — same lifetime as `chats`. */
       folders?: FolderRead[];
-      /** Initial model catalog — same lifetime as `chats`. */
-      models?: ModelInfo[];
+      /** Initial agent catalogue — same lifetime as `chats`. */
+      agents?: AgentInfo[];
       /**
        * Server-loaded full chat for `/c/[id]` deep-links (set by
        * `(app)/c/[id]/+page.server.ts` in Phase 3d). The conversation

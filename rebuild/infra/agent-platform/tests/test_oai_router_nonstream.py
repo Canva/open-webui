@@ -21,7 +21,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.agents import AgentEntry
-from app.config import ModelDef
+from app.config import AgentDef
 from app.oai_router import router as oai_router
 
 REPLY_TEXT = "Hi back!"
@@ -53,7 +53,7 @@ def nonstreaming_client() -> Iterator[TestClient]:
     agent = Agent(model=fake_model, output_type=str)
     app.state.agents = {
         "dev": AgentEntry(
-            definition=ModelDef(
+            definition=AgentDef(
                 id="dev",
                 label="Dev (Qwen 2.5, 0.5B)",
                 ollama_tag="qwen2.5:0.5b",

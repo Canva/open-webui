@@ -60,7 +60,7 @@ Per the user's brief: FastAPI, SQLAlchemy, asyncmy, httpx, and python-socketio.
 
 - **FastAPI**: `FastAPIInstrumentor.instrument_app(app, excluded_urls="/healthz,/readyz,/metrics")`. Health probes are excluded so they don't dominate traces.
 - **SQLAlchemy / asyncmy**: `SQLAlchemyInstrumentor().instrument(engine=db_engine.sync_engine, enable_commenter=True, commenter_options={"db_driver": True, "opentelemetry_values": True})`. The `enable_commenter` option appends a `/* traceparent='...' */` comment to every emitted SQL statement so that DBA-side tools (slow-query log, performance schema) can be correlated back to a trace ID.
-- **httpx**: `HTTPXClientInstrumentor().instrument()` with request/response hooks that set `http.url`, `http.method`, and `http.status_code`. The OpenAI SDK uses httpx under the hood, so this captures every model-gateway call automatically — no extra wiring.
+- **httpx**: `HTTPXClientInstrumentor().instrument()` with request/response hooks that set `http.url`, `http.method`, and `http.status_code`. The OpenAI SDK uses httpx under the hood, so this captures every agent-gateway call automatically — no extra wiring.
 - **python-socketio**: there is no first-party OTel instrumentor for `python-socketio`, so we add a thin custom layer (`rebuild/backend/app/observability/socketio.py`) that wraps the `AsyncServer.on(...)` decorator to start a span per event handler invocation, with attributes `socket.event`, `socket.room`, `socket.user_email_hash` (SHA-256 truncated, never the raw email — see PII below). For Redis pubsub fan-out we add a wrapper around `enter_room`/`emit` that records `socket.fanout.size` (number of recipient SIDs) as a metric.
 - **APScheduler**: each scheduled job is wrapped in a span via a job-listener (`scheduler.add_listener(span_listener, EVENT_JOB_SUBMITTED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)`), with attributes `automation.id`, `automation.user_id_hash`, `scheduler.tick_age_ms`.
 - **Redis**: `RedisInstrumentor().instrument()` — covers both the socket.io adapter and the rate-limit Lua scripts.
@@ -106,7 +106,7 @@ The Grafana dashboard tracks these 11 signals, each with an explicit target. Tar
 | 3 | socket.io fan-out latency p95 | `channel_post.received_at - channel_post.sent_at` (multi-context measurement via synthetic) | < 200 ms | > 500 ms for 5 min |
 | 4 | Scheduler tick latency p95 | Time from `next_run_at <= now()` to `automation_run.created_at` | < 5 s | > 30 s for 10 min |
 | 5 | File upload error rate | 5xx + 4xx on `POST /api/files` ÷ total | < 0.5% | > 2% for 5 min |
-| 6 | Model gateway error rate | httpx exceptions + 5xx from gateway ÷ total | < 1% | > 5% for 5 min (paging) |
+| 6 | Agent gateway error rate | httpx exceptions + 5xx from gateway ÷ total | < 1% | > 5% for 5 min (paging) |
 | 7 | MySQL pool utilisation | `pool.in_use / pool.size` | warn > 80%, crit > 95% | crit for 5 min |
 | 8 | Redis pubsub round-trip p95 | publish-to-deliver latency, measured via heartbeat probe | < 50 ms | > 200 ms for 5 min |
 | 9 | 5xx rate per route | per-route 5xx ÷ per-route requests | < 0.1% | > 1% for 5 min |
@@ -352,7 +352,7 @@ This is intentionally lightweight — the rebuild's MySQL instance is a managed 
 ### SSE / WebSocket heartbeats and idle disconnect
 
 - **SSE**: every `STREAM_HEARTBEAT_SECONDS` of upstream silence (M0 constant; default 15 s), the streaming generator emits a `: keep-alive\n\n` comment frame (same byte-string as `m2-conversations.md` § SSE streaming and `rebuild/docs/best-practises/FastAPI-best-practises.md` § A.7 Streaming responses (SSE)). Most reverse proxies drop idle connections at 60 s; 15 s is well inside that. The 5-minute hard cap above is the outer bound.
-- **WebSocket (socket.io)**: `ping_interval=STREAM_HEARTBEAT_SECONDS`, `ping_timeout=STREAM_HEARTBEAT_SECONDS * 2` (M4 wires both — see [m4-channels.md § Stack](m4-channels.md#stack)). Idle connections (no client events for 30 minutes) are forcibly disconnected by a periodic task that scans the session pool. Channel auto-reply tasks (`@model`) are bounded to 60 s of generation regardless of socket state, with cancellation if the originating user disconnects.
+- **WebSocket (socket.io)**: `ping_interval=STREAM_HEARTBEAT_SECONDS`, `ping_timeout=STREAM_HEARTBEAT_SECONDS * 2` (M4 wires both — see [m4-channels.md § Stack](m4-channels.md#stack)). Idle connections (no client events for 30 minutes) are forcibly disconnected by a periodic task that scans the session pool. Channel auto-reply tasks (`@agent`) are bounded to 60 s of generation regardless of socket state, with cancellation if the originating user disconnects.
 
 ## Deploy pipeline
 
@@ -499,7 +499,7 @@ Lives at `rebuild/comms/faq.md` and is also the source for an in-app `/help` pag
 
 - **Can I get my old chats back?** No, the legacy instance is read-only at archive.openwebui.canva-internal.com for 30 days. After that the data is retained per Canva's standard policy but no longer accessible via UI.
 - **Why didn't you migrate?** Migrating would have added 2–3 weeks and a maintenance burden for a one-off transition. Given how short the average chat lifetime is in this tool, we judged it not worth the cost. Shareable links and chat exports work going forward.
-- **Will my automations carry over?** No. You'll need to recreate them; the editor lets you copy-paste prompts and re-pick the same model and schedule.
+- **Will my automations carry over?** No. You'll need to recreate them; the editor lets you copy-paste prompts and re-pick the same agent and schedule.
 - **Will my channels carry over?** No. Channel structure (membership, pinned messages, scrollback) is reset. The legacy archive preserves them read-only for 30 days.
 - **Will webhooks I set up still work?** No. Tokens are invalidated; you'll need to issue new ones from each channel's webhooks page and update whatever's calling them.
 - **Why the `archive.` subdomain?** It's a read-only mirror at the same DB but behind a proxy that blocks mutating requests. Legacy URLs are auto-rewritten by a 301.
@@ -515,7 +515,7 @@ A single email to `openwebui-users@canva.com` at T-1 week, T-1 day, and T+0. Tem
 Lives at `rebuild/frontend/tests/smoke/`, runs against staging post-deploy and against prod immediately after the proxy flip. Five specs, one for each of the four user-visible features plus health.
 
 1. `01-health.spec.ts` — `/healthz` returns 200, `/readyz` returns 200, root returns 200 with the SvelteKit shell.
-2. `02-chat-stream.spec.ts` — login (header inject), create chat, send message, assert tokens stream, assert the assistant message persists across reload. The OpenAI mock from M0 is **not** used in prod-smoke; a real model gateway call is made and we assert any non-error response of length > 0.
+2. `02-chat-stream.spec.ts` — login (header inject), create chat, send message, assert tokens stream, assert the assistant message persists across reload. The OpenAI mock from M0 is **not** used in prod-smoke; a real agent gateway call is made and we assert any non-error response of length > 0.
 3. `03-share-and-read.spec.ts` — owner creates a share, second BrowserContext reads it. Reused from M3's E2E.
 4. `04-channel-realtime.spec.ts` — two contexts, one posts in a channel, the other receives the delta within 1 s. Reused from M4's E2E.
 5. `05-automation-tick.spec.ts` — create a `FREQ=MINUTELY` automation, hit `/test/scheduler/tick` (test-only endpoint guarded by `settings.env in {"test", "staging"}`), assert the run record appears. Skipped in prod-smoke; staging only.

@@ -4,7 +4,7 @@
    *
    * The single Settings surface M1 ships. Mounts the `ThemePicker`
    * under an `Appearance` section header. M2+ extend this route with
-   * additional sections (display name, default model, ...) by adding
+   * additional sections (display name, default agent, ...) by adding
    * sibling `<section>` blocks inside the centred column.
    *
    * Layout: the parent `(app)/+layout.svelte` is shared with the chat

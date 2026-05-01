@@ -7,7 +7,7 @@ The factory pattern keeps tests isolated — each fixture can build a fresh
 Routers are mounted by the factory; no router knows about the others.
 
 M2 hosts every long-lived singleton on ``app.state`` so routes resolve
-them through the ``Provider`` / ``ModelsCacheDep`` / ``RedisDep`` /
+them through the ``Provider`` / ``AgentsCacheDep`` / ``RedisDep`` /
 ``StreamRegistryDep`` dependency aliases rather than via module-level
 singletons (single-instance-per-worker; fork-safe; testable via
 ``app.dependency_overrides`` — see
@@ -33,8 +33,8 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.providers.openai import OpenAICompatibleProvider
-from app.routers import chats, folders, health, me, models, shares
-from app.services.models_cache import ModelsCache
+from app.routers import agents, chats, folders, health, me, shares
+from app.services.agents_cache import AgentsCache
 from app.services.stream_registry import StreamRegistry
 
 
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.stream_registry = StreamRegistry(redis=redis)
     provider = OpenAICompatibleProvider()
     app.state.provider = provider
-    app.state.models_cache = ModelsCache(provider)
+    app.state.agents_cache = AgentsCache(provider)
     try:
         yield
     finally:
@@ -80,7 +80,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(health.router)
     app.include_router(me.router)
-    app.include_router(models.router)
+    app.include_router(agents.router)
     app.include_router(folders.router)
     app.include_router(chats.router)
     # M3 sharing endpoints (POST/DELETE /api/chats/{id}/share, GET /api/shared/{token}).

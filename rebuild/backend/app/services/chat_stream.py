@@ -16,7 +16,7 @@ errors surface as proper HTTP responses instead of being lost behind
 Starlette's already-sent ``http.response.start`` (the Phase 4a bug):
 
 * :func:`prepare_stream` — ``async def``, **not** a generator. Does
-  the chat lookup (404), model membership check (400), user-message
+  the chat lookup (404), agent membership check (400), user-message
   seeding, and initial history-cap enforcement (413). Commits the
   first persist, releasing the ``SELECT FOR UPDATE`` row lock BEFORE
   the response stream is opened. Errors raised here propagate cleanly
@@ -123,8 +123,8 @@ from app.models.user import User
 from app.providers.openai import OpenAICompatibleProvider, ProviderError, StreamDelta
 from app.schemas.chat import MessageSend
 from app.schemas.history import History, HistoryMessage
+from app.services.agents_cache import AgentsCache
 from app.services.chat_writer import HistoryTooLargeError, _enforce_history_cap
-from app.services.models_cache import ModelsCache
 from app.services.stream_registry import StreamRegistry
 
 log = logging.getLogger(__name__)
@@ -240,7 +240,7 @@ class PreparedStream:
     UPDATE`` lock), the validated :class:`History` tree (already
     mutated to include the user message and the placeholder assistant
     message), and the original :class:`MessageSend` body the generator
-    needs for the provider call (model id + params).
+    needs for the provider call (agent id + params).
     """
 
     chat: Chat
@@ -256,12 +256,12 @@ async def prepare_stream(
     user: User,
     body: MessageSend,
     db: AsyncSession,
-    models_cache: ModelsCache,
+    agents_cache: AgentsCache,
 ) -> PreparedStream:
     """Pre-yield validation + first persist for the streaming endpoint.
 
     Runs the synchronous-from-the-route's-perspective pre-stream work:
-    chat lookup (404 if missing), model membership check (400 if
+    chat lookup (404 if missing), agent membership check (400 if
     unknown), user-message + placeholder-assistant seeding, history-cap
     enforcement (413 if oversized), and the initial commit that
     releases the ``SELECT FOR UPDATE`` row lock BEFORE
@@ -271,7 +271,7 @@ async def prepare_stream(
     centralised exception handlers in ``app/core/errors.py``:
 
     * :class:`HTTPException(404)` — chat not found / not owned.
-    * :class:`HTTPException(400)` — unknown model id.
+    * :class:`HTTPException(400)` — unknown agent id.
     * :class:`HistoryTooLargeError` → 413 — initial user message
       pushes ``chat.history`` over :data:`MAX_CHAT_HISTORY_BYTES`.
 
@@ -310,10 +310,10 @@ async def prepare_stream(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="chat not found")
     history = History.model_validate(chat.history)
 
-    # Step 2: model validation.
-    if not models_cache.contains(body.model):
-        await models_cache.refresh()
-        if not models_cache.contains(body.model):
+    # Step 2: agent validation.
+    if not agents_cache.contains(body.agent_id):
+        await agents_cache.refresh()
+        if not agents_cache.contains(body.agent_id):
             # The chat row IS locked at this point (SELECT FOR UPDATE
             # succeeded above). The HTTPException propagates up to the
             # exception handler; the ``get_session`` dependency teardown
@@ -322,12 +322,12 @@ async def prepare_stream(
             # test-cleanup ``DELETE FROM chat`` does not deadlock.
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"unknown model: {body.model}",
+                detail=f"unknown agent: {body.agent_id}",
             )
 
     # Step 3: seed history + first persist.
     user_msg, assistant_msg = _seed_history(
-        history=history, body=body, model_label=models_cache.label(body.model)
+        history=history, body=body, agent_label=agents_cache.label(body.agent_id)
     )
     if not chat.title or chat.title == "New Chat":
         chat.title = _derive_title_from(body.content)
@@ -363,7 +363,7 @@ async def stream_assistant_response(
 
     Yields raw ``bytes`` SSE frames (``event: ...\\ndata: ...\\n\\n``)
     plus occasional ``: keep-alive\\n\\n`` heartbeats. All pre-yield
-    validation (chat lookup, model membership, initial cap
+    validation (chat lookup, agent membership, initial cap
     enforcement) ran in :func:`prepare_stream` BEFORE this generator
     was constructed, so every branch here either yields an SSE frame
     or persists+yields a terminal frame — never raises an
@@ -515,7 +515,7 @@ async def _run_provider_loop(
     """
     provider_aiter = provider.stream(
         messages=openai_messages,
-        model=body.model,
+        agent_id=body.agent_id,
         params=body.params.model_dump(exclude_none=True),
     ).__aiter__()
     last_persist = monotonic()
@@ -686,7 +686,7 @@ def _seed_history(
     *,
     history: History,
     body: MessageSend,
-    model_label: str,
+    agent_label: str,
 ) -> tuple[HistoryMessage, HistoryMessage]:
     """Build the user message + placeholder assistant message and stitch
     them into the history tree. Returns ``(user_msg, assistant_msg)``.
@@ -711,8 +711,8 @@ def _seed_history(
         role="assistant",
         content="",
         timestamp=now_ms(),
-        model=body.model,
-        modelName=model_label,
+        agent_id=body.agent_id,
+        agentName=agent_label,
         done=False,
     )
     history.messages[user_msg.id] = user_msg

@@ -95,8 +95,8 @@ function aliceChatWithMessage(shareId: string | null): ChatStub {
           role: 'user',
           content: 'Hello',
           timestamp: NOW,
-          model: null,
-          modelName: null,
+          agent_id: null,
+          agentName: null,
           done: true,
           error: null,
           cancelled: false,
@@ -109,8 +109,8 @@ function aliceChatWithMessage(shareId: string | null): ChatStub {
           role: 'assistant',
           content: 'Hi there!',
           timestamp: NOW,
-          model: 'gpt-4o',
-          modelName: 'GPT-4o',
+          agent_id: 'gpt-4o',
+          agentName: 'GPT-4o',
           done: true,
           error: null,
           cancelled: false,
@@ -304,10 +304,10 @@ test.describe('@e2e-m3 @journey-m3 share-and-read', () => {
     await expect(bobPage.getByText('Hi there!', { exact: true })).toBeVisible();
 
     // Negative containment: the public view never renders the
-    // composer, the regen affordances, or the model selector.
+    // composer, the regen affordances, or the agent selector.
     await expect(bobPage.getByRole('textbox', { name: 'Compose a message' })).toHaveCount(0);
     await expect(bobPage.getByRole('button', { name: 'Regenerate message' })).toHaveCount(0);
-    await expect(bobPage.getByRole('button', { name: /Model/ })).toHaveCount(0);
+    await expect(bobPage.getByRole('button', { name: /Agent/ })).toHaveCount(0);
 
     await aliceCtx.close();
     await bobCtx.close();

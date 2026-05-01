@@ -15,7 +15,7 @@ there). This module adds the M2-specific wiring:
   whose underlying SDK ``http_client`` is bound by ``ASGITransport`` to
   the in-process :mod:`tests.llm_mock` cassette server. No real
   upstream is reachable.
-* :func:`cassette_models_cache` — :class:`app.services.models_cache.ModelsCache`
+* :func:`cassette_agents_cache` — :class:`app.services.agents_cache.AgentsCache`
   pre-loaded from the cassette provider so tests don't have to ``await``
   a refresh before issuing requests.
 * :func:`fake_redis_server` / :func:`fake_redis` — a single
@@ -26,7 +26,7 @@ there). This module adds the M2-specific wiring:
   reaped between tests.
 * :func:`m2_client` — :class:`httpx.AsyncClient` wired against the
   global FastAPI app with every M2 dependency (``get_provider``,
-  ``get_models_cache``, ``get_stream_registry``, ``get_redis``,
+  ``get_agents_cache``, ``get_stream_registry``, ``get_redis``,
   ``get_session``) overridden. The in-flight test never touches a real
   upstream or redis.
 
@@ -142,9 +142,10 @@ async def bob(_truncate_m2_tables: None, engine: Any) -> Any:
 def cassette_mock_app() -> Any:
     """A fresh :mod:`tests.llm_mock` instance per test.
 
-    Tests that need a custom model list mutate ``app.state.models``
-    after construction; the default ships the three ids the rebuild's
-    frontend dropdown is expected to render.
+    Tests that need a custom agent list mutate ``app.state.models``
+    (the upstream OpenAI-compat wire field) after construction; the
+    default ships the three ids the rebuild's frontend dropdown is
+    expected to render.
     """
     from tests.llm_mock import create_mock_app
 
@@ -182,17 +183,17 @@ async def cassette_provider(cassette_mock_app: Any) -> AsyncIterator[Any]:
 
 
 @pytest_asyncio.fixture
-async def cassette_models_cache(cassette_provider: Any) -> Any:
-    """A :class:`ModelsCache` pre-warmed against the cassette provider.
+async def cassette_agents_cache(cassette_provider: Any) -> Any:
+    """An :class:`AgentsCache` pre-warmed against the cassette provider.
 
     Pre-warming means the first integration request doesn't have to
-    pay the round-trip to ``/v1/models`` before validating
-    ``body.model``; it also means the test can assert on the cached
-    ids directly.
+    pay the round-trip to ``/v1/models`` (the upstream wire path)
+    before validating ``body.agent_id``; it also means the test can
+    assert on the cached ids directly.
     """
-    from app.services.models_cache import ModelsCache
+    from app.services.agents_cache import AgentsCache
 
-    cache = ModelsCache(cassette_provider)
+    cache = AgentsCache(cassette_provider)
     await cache.refresh()
     return cache
 
@@ -246,7 +247,7 @@ async def m2_client(
     engine: Any,
     _truncate_m2_tables: None,
     cassette_provider: Any,
-    cassette_models_cache: Any,
+    cassette_agents_cache: Any,
     fake_redis: Any,
     stream_registry: Any,
 ) -> AsyncIterator[Any]:
@@ -262,7 +263,7 @@ async def m2_client(
     """
     from app.core.db import AsyncSessionLocal, get_session
     from app.core.deps import (
-        get_models_cache,
+        get_agents_cache,
         get_provider,
         get_redis,
         get_stream_registry,
@@ -275,7 +276,7 @@ async def m2_client(
 
     app.dependency_overrides[get_session] = _session_override
     app.dependency_overrides[get_provider] = lambda: cassette_provider
-    app.dependency_overrides[get_models_cache] = lambda: cassette_models_cache
+    app.dependency_overrides[get_agents_cache] = lambda: cassette_agents_cache
     app.dependency_overrides[get_redis] = lambda: fake_redis
     app.dependency_overrides[get_stream_registry] = lambda: stream_registry
 

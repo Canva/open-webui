@@ -102,7 +102,7 @@ async def test_post_message_streams_start_delta_usage_done(
     chat = await _make_chat(m2_client, alice_headers)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "hello", "model": "gpt-4o"},
+        json={"content": "hello", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 200
@@ -148,7 +148,7 @@ async def test_post_message_persists_user_message_atomically_before_stream_opens
     chat = await _make_chat(m2_client, alice_headers)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "hello", "model": "gpt-4o"},
+        json={"content": "hello", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 200
@@ -188,7 +188,7 @@ async def test_post_message_404_on_unknown_chat(
     """
     response = await m2_client.post(
         "/api/chats/00000000-0000-0000-0000-000000000000/messages",
-        json={"content": "hello", "model": "gpt-4o"},
+        json={"content": "hello", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 404
@@ -196,13 +196,13 @@ async def test_post_message_404_on_unknown_chat(
     assert response.json()["detail"] == "chat not found"
 
 
-async def test_post_message_400_on_unknown_model(
+async def test_post_message_400_on_unknown_agent(
     m2_client: Any,
     alice_headers: dict[str, str],
 ) -> None:
-    """An unknown model id returns ``400``.
+    """An unknown agent id returns ``400``.
 
-    Per the Phase 4a fix: the model membership check runs inside
+    Per the Phase 4a fix: the agent membership check runs inside
     :func:`app.services.chat_stream.prepare_stream`, BEFORE the route
     constructs :class:`StreamingResponse`. The
     :class:`HTTPException(400)` propagates through FastAPI's normal
@@ -215,12 +215,12 @@ async def test_post_message_400_on_unknown_model(
     chat = await _make_chat(m2_client, alice_headers)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "hello", "model": "no-such-model-12345"},
+        json={"content": "hello", "agent_id": "no-such-agent-12345"},
         headers=alice_headers,
     )
     assert response.status_code == 400
     assert response.headers["content-type"].startswith("application/json")
-    assert "no-such-model-12345" in response.json()["detail"]
+    assert "no-such-agent-12345" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ async def test_post_message_branches_off_parent_id_when_provided(
     chat = await _make_chat(m2_client, alice_headers)
     first = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "hello", "model": "gpt-4o"},
+        json={"content": "hello", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert first.status_code == 200
@@ -269,7 +269,7 @@ async def test_post_message_branches_off_parent_id_when_provided(
         f"/api/chats/{chat['id']}/messages",
         json={
             "content": "try again",
-            "model": "gpt-4o",
+            "agent_id": "gpt-4o",
             "parent_id": first_assistant_id,
         },
         headers=alice_headers,
@@ -300,7 +300,7 @@ async def test_post_message_appends_to_currentid_when_parent_id_omitted(
     chat = await _make_chat(m2_client, alice_headers)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "hello", "model": "gpt-4o"},
+        json={"content": "hello", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 200
@@ -335,7 +335,7 @@ async def test_provider_error_mid_stream_emits_terminal_error_frame_and_persists
     chat = await _make_chat(m2_client, alice_headers)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "trigger error", "model": "gpt-4o"},
+        json={"content": "trigger error", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 200
@@ -384,7 +384,7 @@ async def test_timeout_persists_partial_and_emits_timeout_frame(
     chat = await _make_chat(m2_client, alice_headers)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "slow reply", "model": "gpt-4o"},
+        json={"content": "slow reply", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 200
@@ -445,7 +445,7 @@ async def test_client_disconnect_persists_cancelled_partial(
     request = m2_client.build_request(
         "POST",
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "please write a long reply", "model": "gpt-4o"},
+        json={"content": "please write a long reply", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     response = await m2_client.send(request, stream=True)
@@ -510,7 +510,7 @@ async def test_explicit_cancel_endpoint_204_and_persists_cancelled(
     stream_task = asyncio.create_task(
         m2_client.post(
             f"/api/chats/{chat['id']}/messages",
-            json={"content": "please cancel me", "model": "gpt-4o"},
+            json={"content": "please cancel me", "agent_id": "gpt-4o"},
             headers=alice_headers,
         )
     )
@@ -588,7 +588,7 @@ async def test_history_cap_413_on_oversized_user_message(
     huge = "x" * (MAX_CHAT_HISTORY_BYTES + 1024)
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": huge, "model": "gpt-4o"},
+        json={"content": huge, "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 413
@@ -638,8 +638,8 @@ async def test_history_cap_during_streaming_emits_history_too_large_error_frame(
                 "role": "user",
                 "content": "y" * (900 * 1024),
                 "timestamp": 1700000000,
-                "model": None,
-                "modelName": None,
+                "agent_id": None,
+                "agentName": None,
                 "done": True,
                 "error": None,
                 "cancelled": False,
@@ -660,7 +660,7 @@ async def test_history_cap_during_streaming_emits_history_too_large_error_frame(
 
     response = await m2_client.post(
         f"/api/chats/{chat['id']}/messages",
-        json={"content": "overflow my history", "model": "gpt-4o"},
+        json={"content": "overflow my history", "agent_id": "gpt-4o"},
         headers=alice_headers,
     )
     assert response.status_code == 200

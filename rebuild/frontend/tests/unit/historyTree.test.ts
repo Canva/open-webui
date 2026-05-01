@@ -49,8 +49,8 @@ function msg(overrides: Partial<HistoryMessage> & Pick<HistoryMessage, 'id'>): H
     role: overrides.role ?? 'user',
     content: overrides.content ?? '',
     timestamp: overrides.timestamp ?? 0,
-    model: overrides.model ?? null,
-    modelName: overrides.modelName ?? null,
+    agent_id: overrides.agent_id ?? null,
+    agentName: overrides.agentName ?? null,
     done: overrides.done ?? true,
     error: overrides.error ?? null,
     cancelled: overrides.cancelled ?? false,
@@ -200,7 +200,7 @@ describe('findLastAssistant', () => {
 
   it('returns null when no assistant exists in the thread', () => {
     // First-message edit case: the user has typed "hi" and is editing
-    // before the model has replied even once.
+    // before the agent has replied even once.
     const u1 = msg({ id: 'u1', role: 'user' });
     const history = historyOf([u1], 'u1');
 

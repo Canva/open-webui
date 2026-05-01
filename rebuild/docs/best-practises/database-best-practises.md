@@ -66,7 +66,7 @@ These apply to **any** SQL database; if you're tempted to break one of them, esc
 - **Don't `SELECT ... FOR UPDATE` without `SKIP LOCKED` (or `NOWAIT`) for queue-style work.** Plain `FOR UPDATE` makes workers wait on each other. (See B.3.)
 - **Don't issue N+1 queries from application code.** "Get chat, then per chat get user, then per user get…" is the single most common performance bug. Use a `JOIN`, a CTE, or a single `IN (...)` lookup.
 - **Don't cast or wrap a column in a function in a `WHERE` clause unless you have a functional index for it.** `WHERE LOWER(email) = ?` defeats `ix_email`. Use a functional index or compute the projection at write time.
-- **Don't hold a transaction open across a network call** (HTTP, RPC, message bus, model gateway). The other side is allowed to take 30 seconds; your row locks are not.
+- **Don't hold a transaction open across a network call** (HTTP, RPC, message bus, agent gateway). The other side is allowed to take 30 seconds; your row locks are not.
 - **Don't write data in a `SELECT`-driven loop.** Batch the writes (`INSERT ... VALUES (?), (?), (?), ...`); use one transaction; if the dataset is huge, chunk in fixed-size batches with explicit commits.
 
 ### A.4 Migrations

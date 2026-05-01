@@ -69,7 +69,7 @@ async def test_append_assistant_message_status_complete_sets_done_true_no_error_
         db_session,
         chat_id=chat.id,
         parent_message_id=None,
-        model="gpt-4o",
+        agent_id="gpt-4o",
         content="hello",
         status="complete",
     )
@@ -91,7 +91,7 @@ async def test_append_assistant_message_status_cancelled_sets_done_true_cancelle
         db_session,
         chat_id=chat.id,
         parent_message_id=None,
-        model="gpt-4o",
+        agent_id="gpt-4o",
         content="partial",
         status="cancelled",
     )
@@ -117,7 +117,7 @@ async def test_append_assistant_message_status_error_sets_done_true_error_payloa
         db_session,
         chat_id=chat.id,
         parent_message_id=None,
-        model="gpt-4o",
+        agent_id="gpt-4o",
         content="halfway",
         status="error",
     )
@@ -143,7 +143,7 @@ async def test_append_assistant_message_returns_new_message_id(
         db_session,
         chat_id=chat.id,
         parent_message_id=None,
-        model="gpt-4o",
+        agent_id="gpt-4o",
         content="hi",
         status="complete",
     )
@@ -162,7 +162,7 @@ async def test_append_assistant_message_raises_on_missing_chat(
             db_session,
             chat_id="nonexistent-id",
             parent_message_id=None,
-            model="gpt-4o",
+            agent_id="gpt-4o",
             content="hi",
             status="complete",
         )
@@ -201,7 +201,7 @@ async def test_append_assistant_message_enforces_history_cap_413(
             db_session,
             chat_id=chat_id,
             parent_message_id=big_user_msg.id,
-            model="gpt-4o",
+            agent_id="gpt-4o",
             content="y" * 8192,
             status="complete",
         )

@@ -4,17 +4,19 @@
 
 ## Goal
 
-Deliver a working single-user-per-request conversation surface: a SvelteKit chat UI backed by a FastAPI app that streams completions from the internal model gateway via the OpenAI-compatible SDK, with chats and folders persisted in MySQL 8.0 against a single JSON `history` column. By the end of M2 a Canva employee can land on the app behind the OAuth proxy, see their sidebar, start a new chat, watch tokens stream in, send follow-ups (creating a branched message tree), pin/archive/delete chats, organise them into folders, switch models picked dynamically from `/v1/models`, and reload the page to see history exactly as it was. No sharing, no channels, no automations, no file uploads — those belong to later milestones.
+Deliver a working single-user-per-request conversation surface: a SvelteKit chat UI backed by a FastAPI app that streams completions from the internal agent gateway via the OpenAI-compatible SDK, with chats and folders persisted in MySQL 8.0 against a single JSON `history` column. By the end of M2 a Canva employee can land on the app behind the OAuth proxy, see their sidebar, start a new chat, watch tokens stream in, send follow-ups (creating a branched message tree), pin/archive/delete chats, organise them into folders, switch agents picked dynamically from the agent catalogue (the upstream gateway exposes them at the OpenAI-compatible `/v1/models` path; the rebuild surfaces them at `/api/agents`), and reload the page to see history exactly as it was. No sharing, no channels, no automations, no file uploads — those belong to later milestones.
+
+> **Terminology note.** Each entry the rebuild surfaces is an *agent* (each agent has a preselected underlying model). The OpenAI SDK / wire format keeps the legacy field name `model` on the request body and the chunk envelope, and the upstream catalogue endpoint stays on the OpenAI path `/v1/models`; the `OpenAICompatibleProvider` is the translation seam, accepting the rebuild's `agent_id` and forwarding it as `model=` to the SDK. Internal types, the rebuild's HTTP API, frontend stores, and the UI all use "agent".
 
 ## Deliverables
 
 - SQLAlchemy 2 async models for `chat` and `folder` under [rebuild/backend/app/models/chat.py](../../backend/app/models/chat.py) and [rebuild/backend/app/models/folder.py](../../backend/app/models/folder.py).
 - A single Alembic revision creating both tables under [rebuild/backend/alembic/versions/0002_m2_chat_folder.py](../../backend/alembic/versions/0002_m2_chat_folder.py) (`revision = "0002_m2_chat_folder"`, `down_revision = "0001_baseline"`).
-- An `OpenAICompatibleProvider` at [rebuild/backend/app/providers/openai.py](../../backend/app/providers/openai.py) with `stream(...)` and `list_models()`, configured via `MODEL_GATEWAY_BASE_URL`.
+- An `OpenAICompatibleProvider` at [rebuild/backend/app/providers/openai.py](../../backend/app/providers/openai.py) with `stream(...)` and `list_agents()`, configured via `AGENT_GATEWAY_BASE_URL`. The provider is the translation seam: it accepts an `agent_id` from the rebuild and passes it as `model=...` to the OpenAI SDK; in the other direction it reads the SDK's `Model` objects (an SDK type — wire-format only) from `/v1/models` and projects them into the rebuild's `Agent` dataclass.
 - Pydantic schemas under [rebuild/backend/app/schemas/chat.py](../../backend/app/schemas/chat.py) and [rebuild/backend/app/schemas/folder.py](../../backend/app/schemas/folder.py).
-- HTTP routers under [rebuild/backend/app/routers/chats.py](../../backend/app/routers/chats.py), [rebuild/backend/app/routers/folders.py](../../backend/app/routers/folders.py), [rebuild/backend/app/routers/models.py](../../backend/app/routers/models.py).
+- HTTP routers under [rebuild/backend/app/routers/chats.py](../../backend/app/routers/chats.py), [rebuild/backend/app/routers/folders.py](../../backend/app/routers/folders.py), [rebuild/backend/app/routers/agents.py](../../backend/app/routers/agents.py).
 - The streaming pipeline at [rebuild/backend/app/services/chat_stream.py](../../backend/app/services/chat_stream.py) — exports `prepare_stream` (pre-yield validation + first persist), `stream_assistant_response` (post-validation SSE generator), `PreparedStream` (the dataclass handed between them), `sse`, and `build_linear_thread`. See § Streaming pipeline below for the rationale of the two-function split (Phase 4c fix for the Starlette "response already started" race + leaked `SELECT FOR UPDATE` row lock).
-- A reusable assistant-message writer at [rebuild/backend/app/services/chat_writer.py](../../backend/app/services/chat_writer.py) exposing `append_assistant_message(session, *, chat_id: str, parent_message_id: str | None, model: str, content: str, status: Literal["complete","cancelled","error"]="complete") -> str` (returns the new message id, atomically updates `chat.history.messages[<id>]`, sets `chat.history.currentId`, and bumps `chat.updated_at`). Enforces the `MAX_CHAT_HISTORY_BYTES` cap from [m0-foundations.md § Project constants](m0-foundations.md#project-constants) on the resulting `chat.history` JSON before write — see § History-size enforcement below for the precise behaviour. Used by `chat_stream.py` (M2) and the M5 automation executor for chat-target writes.
+- A reusable assistant-message writer at [rebuild/backend/app/services/chat_writer.py](../../backend/app/services/chat_writer.py) exposing `append_assistant_message(session, *, chat_id: str, parent_message_id: str | None, agent_id: str, content: str, status: Literal["complete","cancelled","error"]="complete") -> str` (returns the new message id, atomically updates `chat.history.messages[<id>]`, sets `chat.history.currentId`, and bumps `chat.updated_at`). Enforces the `MAX_CHAT_HISTORY_BYTES` cap from [m0-foundations.md § Project constants](m0-foundations.md#project-constants) on the resulting `chat.history` JSON before write — see § History-size enforcement below for the precise behaviour. Used by `chat_stream.py` (M2) and the M5 automation executor for chat-target writes.
 - A title-derivation helper at [rebuild/backend/app/services/chat_title.py](../../backend/app/services/chat_title.py) exposing `derive_title(first_user_message: str) -> str` (≤ 60 chars, single line, stripped). Called by `POST /api/chats` when the body omits `title` and by the streaming pipeline on the first assistant turn for an untitled chat. Pure function so the unit test is one fixture.
 - A Redis-backed stream registry at [rebuild/backend/app/services/stream_registry.py](../../backend/app/services/stream_registry.py) — module-level `StreamRegistry` singleton holding a per-pod `dict[str, asyncio.Event]` keyed by `assistant_message_id` and a thin pub/sub façade over Redis (`stream:cancel:{message_id}`) so cancel signals cross pod boundaries from day one. Exposes `register(message_id) -> asyncio.Event` (creates the local event and subscribes to the per-message Redis channel), `cancel(message_id) -> bool` (publishes to the channel; returns whether the publish succeeded; idempotent), and `unregister(message_id)` (cancels the subscription and drops the local entry; called from the streaming generator's `finally` block). Powers `POST /api/chats/{id}/messages/{assistant_id}/cancel` (M2): the cancel publishes to Redis, every pod with a local subscription for that `message_id` receives the message and sets its event, the in-flight generator catches `asyncio.CancelledError`, persists the partial assistant content via `chat_writer.append_assistant_message(..., status="cancelled")`, and emits the terminal `cancelled` SSE frame. The Redis connection is the same one M4 uses for the socket.io adapter and M6 uses for rate limits — no new infra.
 - SvelteKit 2 routes under [rebuild/frontend/src/routes/(app)/](../../frontend/src/routes/(app)/) plus components under [rebuild/frontend/src/lib/components/chat/](../../frontend/src/lib/components/chat/).
@@ -155,8 +157,8 @@ The schema mirrors the legacy fork (see [backend/open_webui/models/chats.py](../
       "role": "user" | "assistant" | "system",
       "content": "<text>",
       "timestamp": 1745701234,
-      "model": "gpt-4o" | null,
-      "modelName": "GPT-4o" | null,
+      "agent_id": "gpt-4o" | null,
+      "agentName": "GPT-4o" | null,
       "done": true,
       "error": { "message": "..." } | null,
       "cancelled": false,
@@ -187,7 +189,7 @@ Concrete example: a user sends "hi", the assistant replies "hello", the user reg
       "childrenIds": ["a2", "c3"],
       "role": "user", "content": "hi",
       "timestamp": 1745701200,
-      "model": null, "modelName": null,
+      "agent_id": null, "agentName": null,
       "done": true, "error": null, "cancelled": false, "usage": null
     },
     "a2": {
@@ -195,7 +197,7 @@ Concrete example: a user sends "hi", the assistant replies "hello", the user reg
       "childrenIds": [],
       "role": "assistant", "content": "hello",
       "timestamp": 1745701201,
-      "model": "gpt-4o", "modelName": "GPT-4o",
+      "agent_id": "gpt-4o", "agentName": "GPT-4o",
       "done": true, "error": null, "cancelled": false,
       "usage": { "prompt_tokens": 8, "completion_tokens": 1, "total_tokens": 9 }
     },
@@ -204,7 +206,7 @@ Concrete example: a user sends "hi", the assistant replies "hello", the user reg
       "childrenIds": [],
       "role": "assistant", "content": "hi there!",
       "timestamp": 1745701260,
-      "model": "gpt-4o-mini", "modelName": "GPT-4o mini",
+      "agent_id": "gpt-4o-mini", "agentName": "GPT-4o mini",
       "done": true, "error": null, "cancelled": false,
       "usage": { "prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12 }
     }
@@ -229,8 +231,8 @@ class HistoryMessage(StrictModel):
     role: Literal["user", "assistant", "system"]
     content: str
     timestamp: int
-    model: str | None = None
-    modelName: str | None = None
+    agent_id: str | None = None
+    agentName: str | None = None
     done: bool = True
     error: dict[str, Any] | None = None
     cancelled: bool = False
@@ -295,7 +297,7 @@ Charset/collation: the M0 baseline configures the database default to `utf8mb4` 
 
 ## Settings additions
 
-M2 extends the M0 `Settings` class with one new field. `MODEL_GATEWAY_BASE_URL` and `MODEL_GATEWAY_API_KEY` are already declared in M0's settings table (`m0-foundations.md` § Settings) so M2 only adds the streaming timeout knob:
+M2 extends the M0 `Settings` class with one new field. `AGENT_GATEWAY_BASE_URL` and `AGENT_GATEWAY_API_KEY` are already declared in M0's settings table (`m0-foundations.md` § Settings) so M2 only adds the streaming timeout knob:
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -325,7 +327,17 @@ log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-class Model:
+class Agent:
+    """In-process projection of a surfaced agent.
+
+    The OpenAI SDK still calls each entry it returns from
+    ``client.models.list()`` a ``Model`` (a wire-format type). The
+    rebuild's product domain calls each surfaced entry an *agent* —
+    each agent has a preselected underlying model. ``list_agents``
+    below is the translation seam that maps SDK ``Model`` objects to
+    this dataclass.
+    """
+
     id: str
     label: str          # human-readable; falls back to id
     owned_by: str | None
@@ -346,7 +358,13 @@ class ProviderError(Exception):
 
 
 class OpenAICompatibleProvider:
-    """The only provider. Reads MODEL_GATEWAY_BASE_URL via the central Settings object.
+    """The only provider. Reads AGENT_GATEWAY_BASE_URL via the central Settings object.
+
+    Translation seam between the rebuild's product vocabulary
+    ("agent") and the OpenAI wire format ("model"): callers pass
+    ``agent_id``; we forward it as ``model=`` to the OpenAI SDK and
+    project the SDK's ``Model`` objects back into our own ``Agent``
+    dataclass.
 
     Exactly one instance per app; constructed in `lifespan` and stored on
     `app.state.provider`. Routes/services receive it via the M0 `Provider`
@@ -355,8 +373,8 @@ class OpenAICompatibleProvider:
 
     def __init__(self) -> None:
         self._client = AsyncOpenAI(
-            base_url=settings.model_gateway_base_url,
-            api_key=settings.model_gateway_api_key or "unused",
+            base_url=settings.agent_gateway_base_url,
+            api_key=settings.agent_gateway_api_key or "unused",
             timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
             max_retries=0,  # we control retries ourselves; SDK retries don't compose with SSE.
         )
@@ -365,23 +383,26 @@ class OpenAICompatibleProvider:
         """Release the underlying httpx pool. Called from lifespan shutdown."""
         await self._client.close()
 
-    async def list_models(self) -> list[Model]:
+    async def list_agents(self) -> list[Agent]:
+        # Wire path stays on the OpenAI name `/v1/models`; the SDK
+        # method is `client.models.list()`. We project each entry into
+        # the rebuild's `Agent` dataclass.
         try:
             page = await self._client.models.list()
         except (APIStatusError, APIError) as e:
-            raise ProviderError(f"gateway list_models failed: {e}", status_code=502) from e
+            raise ProviderError(f"gateway list_agents failed: {e}", status_code=502) from e
 
-        out: list[Model] = []
+        out: list[Agent] = []
         for m in page.data:
-            out.append(Model(id=m.id, label=m.id, owned_by=getattr(m, "owned_by", None)))
-        out.sort(key=lambda m: m.id)
+            out.append(Agent(id=m.id, label=m.id, owned_by=getattr(m, "owned_by", None)))
+        out.sort(key=lambda a: a.id)
         return out
 
     async def stream(
         self,
         *,
         messages: list[dict[str, Any]],   # OpenAI-shape: [{"role": "...", "content": "..."}]
-        model: str,
+        agent_id: str,
         params: dict[str, Any],           # {"temperature": 0.7, "system": "..."} subset only
     ) -> AsyncIterator[StreamDelta]:
         # `system` is optional — if present we prepend it.
@@ -389,8 +410,10 @@ class OpenAICompatibleProvider:
         if params.get("system"):
             msgs.insert(0, {"role": "system", "content": params["system"]})
 
+        # The OpenAI SDK keyword is `model=`, even though we accept
+        # an `agent_id` from the rebuild — this is the translation seam.
         kwargs: dict[str, Any] = {
-            "model": model,
+            "model": agent_id,
             "messages": msgs,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -481,8 +504,8 @@ Tests fake the provider with `app.dependency_overrides[get_provider] = lambda: F
 
 Notes:
 
-- `MODEL_GATEWAY_BASE_URL` and `MODEL_GATEWAY_API_KEY` (optional; injected by the gateway sidecar in prod) live on the central `Settings(BaseSettings)` from M0. No other env knobs.
-- **Retries.** Zero SDK-level retries. We don't retry mid-stream — partial assistant content is already on the wire and visible to the user. For `list_models()` we let the caller retry by reissuing the HTTP request; the frontend already polls on the model dropdown open.
+- `AGENT_GATEWAY_BASE_URL` and `AGENT_GATEWAY_API_KEY` (optional; injected by the gateway sidecar in prod) live on the central `Settings(BaseSettings)` from M0. No other env knobs.
+- **Retries.** Zero SDK-level retries. We don't retry mid-stream — partial assistant content is already on the wire and visible to the user. For `list_agents()` we let the caller retry by reissuing the HTTP request; the frontend already polls on the agent dropdown open.
 - **Cancellation.** The route handler propagates `asyncio.CancelledError` (raised by Starlette when the client disconnects); the provider catches it, calls `await stream.close()` to release the connection, and re-raises. This stops billing and frees the upstream slot.
 - **Errors.** Everything funnels into `ProviderError(status_code=...)`. The streaming generator (`stream_assistant_response`) catches these in its outer `except ProviderError:` branch, persists the partial assistant content with `error: {...}, done: true`, and yields a terminal SSE `error` event before returning. Non-streaming endpoints turn the same exception into HTTP errors via the central handler in `app/core/errors.py`.
 
@@ -619,21 +642,21 @@ SELECT id FROM descendants;
 
 The router executes the CTE first, then issues `UPDATE chat SET folder_id = NULL WHERE folder_id IN (...)` (capturing `detached_chat_ids` from the rowset) and finally `DELETE FROM folder WHERE id IN (...)`. The whole sequence is wrapped in one `BEGIN ... COMMIT` so partial failures roll back cleanly. The DB-level FK cascade (`folder.parent_id ON DELETE CASCADE`, `chat.folder_id ON DELETE SET NULL`) is still in place as a belt-and-braces guarantee — the recursive CTE exists to populate the *response*, not to do the cascade itself.
 
-### Models
+### Agents
 
-`GET /api/models` — passthrough of `/v1/models`.
+`GET /api/agents` — projection of the gateway's `/v1/models` (the upstream wire path stays on its OpenAI name).
 
 - Response:
   ```python
-  class ModelInfo(StrictModel):
+  class AgentInfo(StrictModel):
       id: str
       label: str
       owned_by: str | None
-  class ModelList(StrictModel):
-      items: list[ModelInfo]
+  class AgentList(StrictModel):
+      items: list[AgentInfo]
   ```
 - Errors: 502/504 mirror provider errors.
-- Caching: results are cached for 5 minutes in-process with background refresh, matching the cache TTL used by the M4 channel `@model` resolver. Both the `/api/models` router and the channel resolver share the same `provider.list_models()` cache instance.
+- Caching: results are cached for 5 minutes in-process with background refresh, matching the cache TTL used by the M4 channel `@agent` resolver. Both the `/api/agents` router and the channel resolver share the same `provider.list_agents()` cache instance.
 
 ### SSE streaming
 
@@ -643,7 +666,7 @@ The router executes the CTE first, then issues `UPDATE chat SET folder_id = NULL
   ```python
   class MessageSend(StrictModel):
       content: str                      # the user prompt; required, non-empty
-      model: str                        # must appear in /v1/models
+      agent_id: str                     # must appear in the cached agent catalogue
       parent_id: str | None = None      # branch off this message; defaults to history.currentId
       params: ChatParams = ChatParams() # temperature, system
 
@@ -652,7 +675,7 @@ The router executes the CTE first, then issues `UPDATE chat SET folder_id = NULL
       system: str | None = None         # optional system prompt override
   ```
 - Response: `text/event-stream`. Content-Type set explicitly. `Cache-Control: no-cache`, `X-Accel-Buffering: no` (for nginx environments).
-- Errors *before* streaming starts: 404 on chat not found, 400 on empty content, 422 on schema validation, 502/504 on provider list-models failure (we validate model membership against the cached `/v1/models`).
+- Errors *before* streaming starts: 404 on chat not found, 400 on empty content, 422 on schema validation, 502/504 on provider list-agents failure (we validate agent membership against the cached agent catalogue, which the provider sources from the upstream `/v1/models`).
 - Errors *during* streaming: terminal SSE `error` event (see below); the HTTP status is already 200 because headers have been sent.
 
 SSE event types (each event has both `event:` and `data:` lines, separated by `\n\n`; UTF-8; JSON-encoded payloads):
@@ -677,9 +700,9 @@ Lives in `app.services.chat_stream`. The module exports five public symbols — 
 
 ### Why two functions, not one (Phase 4c rationale)
 
-The original dispatch shipped a single `stream_chat(...)` async generator that did both pre-flight validation (chat lookup, model membership, history-cap, user-message persist) and the streaming body. Phase 4c discovered two real bugs in that shape and split the pipeline at the `await db.commit()` boundary to fix them:
+The original dispatch shipped a single `stream_chat(...)` async generator that did both pre-flight validation (chat lookup, agent membership, history-cap, user-message persist) and the streaming body. Phase 4c discovered two real bugs in that shape and split the pipeline at the `await db.commit()` boundary to fix them:
 
-1. **Starlette "response already started" race.** Any `HTTPException` raised inside the generator (404 on missing chat, 400 on unknown model, 413 on initial cap overflow) fires *after* `StreamingResponse` has already sent `http.response.start` with status 200. FastAPI's exception handlers cannot rewrite a status that's already on the wire, so the client received a 200 with an empty body instead of the intended JSON error.
+1. **Starlette "response already started" race.** Any `HTTPException` raised inside the generator (404 on missing chat, 400 on unknown agent, 413 on initial cap overflow) fires *after* `StreamingResponse` has already sent `http.response.start` with status 200. FastAPI's exception handlers cannot rewrite a status that's already on the wire, so the client received a 200 with an empty body instead of the intended JSON error.
 2. **Leaked `SELECT FOR UPDATE` row lock.** The pre-flight `SELECT ... FOR UPDATE` lock on the chat row was held across the entire provider iteration (potentially 5 minutes), serialising any other write against that chat behind the in-flight stream. With the M5 automation executor's chat-target write coming online, this becomes a real contention path.
 
 The fix: validation and the first persist run synchronously from the route's perspective in `prepare_stream`, releasing the lock before the route returns the `StreamingResponse`. The post-validation generator (`stream_assistant_response`) opens the response body and owns the SSE event taxonomy, the persist throttle, and the four terminal branches. The split is load-bearing — collapsing it back into one function silently re-introduces both bugs.
@@ -704,10 +727,10 @@ async def prepare_stream(
     user: User,
     body: MessageSend,
     db: AsyncSession,
-    models_cache: ModelsCache,
+    agents_cache: AgentsCache,
 ) -> PreparedStream:
     """Pre-yield validation + first persist. Raises HTTPException(404) on
-    missing chat, HTTPException(400) on unknown model, or
+    missing chat, HTTPException(400) on unknown agent, or
     HistoryTooLargeError (→ 413 via the M0 central handler) on initial
     cap overflow. All three surface as proper JSON HTTP responses
     because the response body has not opened yet."""
@@ -739,10 +762,10 @@ The route wires them together:
 async def post_message(
     chat_id: str, body: MessageSend, user: CurrentUser,
     db: DbSession, provider: Provider,
-    registry: StreamRegistryDep, models_cache: ModelsCacheDep,
+    registry: StreamRegistryDep, agents_cache: AgentsCacheDep,
 ) -> StreamingResponse:
     prepared = await prepare_stream(
-        chat_id=chat_id, user=user, body=body, db=db, models_cache=models_cache,
+        chat_id=chat_id, user=user, body=body, db=db, agents_cache=agents_cache,
     )
     return StreamingResponse(
         stream_assistant_response(
@@ -758,7 +781,7 @@ async def post_message(
 Runs four steps, in order, all before any byte hits the response wire:
 
 1. **Load + authorise.** `SELECT ... FROM chat WHERE id = :id AND user_id = :uid FOR UPDATE`. Returns the chat row or raises `HTTPException(404, "chat not found")`. The `FOR UPDATE` lock is intentional: it serialises concurrent writes against the same chat (e.g. an M5 automation executor's chat-target write colliding with this in-flight stream) and is released by the commit at step 4.
-2. **Model membership.** `models_cache.contains(body.model)` — on miss, refresh once and recheck. On second miss, raise `HTTPException(400, "unknown model: ...")`.
+2. **Agent membership.** `agents_cache.contains(body.agent_id)` — on miss, refresh once and recheck. On second miss, raise `HTTPException(400, "unknown agent: ...")`.
 3. **Seed history.** Mutate the in-memory `History` to insert the user message + an empty assistant placeholder. The assistant id is pre-allocated via `new_id()` here (not inside the generator) so `prepare_stream` can return both ids and the cancel registry can key on the assistant id from the moment the response opens. Set `chat.title` via `derive_title(body.content)` if the chat is untitled.
 4. **Enforce cap + commit.** `_enforce_history_cap(history.model_dump())` raises `HistoryTooLargeError` (mapped to 413 by the M0 central handler in `app/core/errors.py`) if the serialised JSON exceeds `MAX_CHAT_HISTORY_BYTES`. Otherwise assign back, bump `updated_at`, and `await db.commit()` — releasing the row lock before the route returns.
 
@@ -786,7 +809,7 @@ try:
         # route-layer timeout dependency is set to the same value as a backstop
         # but the in-generator deadline is the primary cap.
         async with asyncio.timeout(settings.sse_stream_timeout_seconds):
-            async for delta in provider.stream(messages=..., model=..., params=...):
+            async for delta in provider.stream(messages=..., agent_id=..., params=...):
                 if cancel_event.is_set():
                     raise asyncio.CancelledError
 
@@ -907,7 +930,7 @@ src/routes/
   +layout.svelte                # global app shell (sidebar + main pane), Tailwind reset
   +layout.server.ts             # SSR check: read X-Forwarded-Email, redirect to /401 if missing
   (app)/
-    +layout.svelte              # signed-in shell (sidebar, model selector, "+ new chat")
+    +layout.svelte              # signed-in shell (sidebar, agent selector, "+ new chat")
     +layout.server.ts           # loads sidebar list + folder list once per navigation
     +page.svelte                # / — empty-state landing screen ("start a conversation")
     c/
@@ -923,15 +946,15 @@ Key components under [rebuild/frontend/src/lib/components/chat/](../../frontend/
 - **`Sidebar.svelte`** — folder tree + chat list. Subscribes to `chats` and `folders` stores. Drag-and-drop for moving chats; right-click menu for pin/archive/rename/delete. Virtualised with `content-visibility: auto` (port the v0.9.2 trick from legacy [src/lib/components/](../../../src/lib/components/)).
 - **`ConversationView.svelte`** — receives chat ID from the route, calls `activeChat.load(id)`, renders the message list and the input. Owns the streaming lifecycle.
 - **`MessageList.svelte`** — pure render: maps the linear thread (built by walking `currentId → parentId`) to `<Message />` components. Branch chevrons (`< 2 / 3 >`) appear on messages whose parent has multiple children; clicking switches `currentId` and the linear thread re-derives.
-- **`Message.svelte`** — single message bubble. User messages: plain text. Assistant messages: `<Markdown />` while `done` is true; live-rendered tokens while streaming. Footer shows model name and (if present) usage on hover.
-- **`MessageInput.svelte`** — single textarea, model selector dropdown, system-prompt + temperature in a collapsed disclosure, Enter to send, Shift+Enter for newline, Esc to cancel an in-flight stream. ~200 LOC max — explicitly *not* a port of the 2.1k-line legacy file. Copy interaction patterns, not code.
+- **`Message.svelte`** — single message bubble. User messages: plain text. Assistant messages: `<Markdown />` while `done` is true; live-rendered tokens while streaming. Footer shows agent name and (if present) usage on hover.
+- **`MessageInput.svelte`** — single textarea, agent selector dropdown, system-prompt + temperature in a collapsed disclosure, Enter to send, Shift+Enter for newline, Esc to cancel an in-flight stream. ~200 LOC max — explicitly *not* a port of the 2.1k-line legacy file. Copy interaction patterns, not code.
 - **`Markdown.svelte`** — see "Markdown port" below.
-- **`ModelSelector.svelte`** — populated from the `models` store; shows a search input when there are >10 models.
+- **`AgentSelector.svelte`** — populated from the `agents` store; shows a search input when there are >10 agents.
 - **`FolderTree.svelte`** — recursive component used inside `Sidebar`.
 
 State + data flow for the streaming send (the most complex flow in M2):
 
-1. User types and hits Enter. `MessageInput` calls `activeChat.send({ content, model, params })`.
+1. User types and hits Enter. `MessageInput` calls `activeChat.send({ content, agent_id, params })`.
 2. The store optimistically inserts a `pending` user message and an empty assistant message into its in-memory `history`. UI re-renders immediately.
 3. The store opens `fetch("/api/chats/{id}/messages", { method: "POST", body, signal })` and reads the body as a `ReadableStream`. A small `parseSSE(stream)` helper yields `{event, data}` records.
 4. On `start`: replace the optimistic IDs with the server-assigned ones (`user_message_id`, `assistant_message_id`) so subsequent edits/branches use the canonical keys.
@@ -975,7 +998,7 @@ Sanitisation: keep the existing DOMPurify-backed approach in `HTMLToken.svelte`.
 
 ## Stores and state
 
-Svelte 5 runes-based stores under [rebuild/frontend/src/lib/stores/](../../frontend/src/lib/stores/). The shape is fixed by the project-wide convention in [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting): **one class per store in a `*.svelte.ts` file, instances constructed and provided via `setContext` in `(app)/+layout.svelte`, downstream components read via `getContext`.** Module-level `$state` is banned for any of these (chats / folders / active chat / models / toast are all per-user; a module-level singleton would leak across SSR requests). Any module that uses runes lives at `*.svelte.ts`, never `*.ts`.
+Svelte 5 runes-based stores under [rebuild/frontend/src/lib/stores/](../../frontend/src/lib/stores/). The shape is fixed by the project-wide convention in [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting): **one class per store in a `*.svelte.ts` file, instances constructed and provided via `setContext` in `(app)/+layout.svelte`, downstream components read via `getContext`.** Module-level `$state` is banned for any of these (chats / folders / active chat / agents / toast are all per-user; a module-level singleton would leak across SSR requests). Any module that uses runes lives at `*.svelte.ts`, never `*.ts`.
 
 The five stores M2 ships:
 
@@ -984,33 +1007,33 @@ The five stores M2 ships:
 | `ChatsStore` | `lib/stores/chats.svelte.ts` | Sidebar list + folder-membership. Methods: `refresh()`, `create(folderId?)`, `patch(id, partial)`, `remove(id)`, `move(id, folderId)`, `togglePin(id)`, `toggleArchive(id)`. Mutations are optimistic with rollback on error. |
 | `FoldersStore` | `lib/stores/folders.svelte.ts` | Flat folder list + `byParent` derived map. CRUD methods mirror `ChatsStore`. |
 | `ActiveChatStore` | `lib/stores/active-chat.svelte.ts` | The chat currently in view; owns the full `History` and the streaming task. Methods: `load(id)`, `unload()`, `send(req)`, `cancel()`, `switchBranch(parentId, childId)`, `editAndResend(messageId, newContent)`. `streaming: 'idle' \| 'sending' \| 'streaming' \| 'cancelling'` field drives the input UI. |
-| `ModelsStore` | `lib/stores/models.svelte.ts` | Model list, refreshed on app boot and on dropdown open if older than 30 s. |
+| `AgentsStore` | `lib/stores/agents.svelte.ts` | Agent catalogue, refreshed on app boot and on dropdown open if older than 30 s. |
 | `ToastStore` | `lib/stores/toast.svelte.ts` | Minimal `{ push(level, message) }`. Surfaces `error` SSE events and HTTP failures. |
 
-Each store is a class with `$state` fields and methods that mutate them. `models.svelte.ts` is the canonical shape:
+Each store is a class with `$state` fields and methods that mutate them. `agents.svelte.ts` is the canonical shape:
 
 ```ts
-// lib/stores/models.svelte.ts
+// lib/stores/agents.svelte.ts
 import { getContext, setContext } from 'svelte';
-import type { ModelInfo } from '$lib/types';
+import type { AgentInfo } from '$lib/types';
 
-const KEY = Symbol('models');
+const KEY = Symbol('agents');
 
-export class ModelsStore {
-  items = $state<ModelInfo[]>([]);
+export class AgentsStore {
+  items = $state<AgentInfo[]>([]);
   loaded = $state(false);
   error = $state<string | null>(null);
   #lastRefreshed = 0;
 
-  constructor(initial: ModelInfo[] = []) {
+  constructor(initial: AgentInfo[] = []) {
     this.items = initial;
     this.loaded = initial.length > 0;
   }
 
   async refresh(): Promise<void> {
     try {
-      const res = await fetch('/api/models');
-      if (!res.ok) throw new Error(`models ${res.status}`);
+      const res = await fetch('/api/agents');
+      if (!res.ok) throw new Error(`agents ${res.status}`);
       this.items = (await res.json()).items;
       this.loaded = true;
       this.error = null;
@@ -1025,14 +1048,14 @@ export class ModelsStore {
   }
 }
 
-export function provideModels(initial: ModelInfo[]): ModelsStore {
-  const s = new ModelsStore(initial);
+export function provideAgents(initial: AgentInfo[]): AgentsStore {
+  const s = new AgentsStore(initial);
   setContext(KEY, s);
   return s;
 }
 
-export function useModels(): ModelsStore {
-  return getContext<ModelsStore>(KEY);
+export function useAgents(): AgentsStore {
+  return getContext<AgentsStore>(KEY);
 }
 ```
 
@@ -1042,20 +1065,20 @@ Construction site (`(app)/+layout.svelte`):
 <script lang="ts">
   import { provideChats } from '$lib/stores/chats.svelte';
   import { provideFolders } from '$lib/stores/folders.svelte';
-  import { provideModels } from '$lib/stores/models.svelte';
+  import { provideAgents } from '$lib/stores/agents.svelte';
   import { provideActiveChat } from '$lib/stores/active-chat.svelte';
   import { provideToast } from '$lib/stores/toast.svelte';
   let { data, children } = $props();
   provideChats(data.chats);
   provideFolders(data.folders);
-  provideModels(data.models);
+  provideAgents(data.agents);
   provideActiveChat();
   provideToast();
 </script>
 {@render children()}
 ```
 
-The `(app)/+layout.server.ts` `load` returns `{ chats, folders, models }` — server-rendered into HTML and re-used as the stores' initial values during hydration, so first paint has the sidebar populated without an extra round-trip. `activeChat` is hydrated separately by `c/[id]/+page.server.ts` on direct deep-links (`provideActiveChat()` starts empty; `useActiveChat().load(id)` is called from `+page.svelte`'s mount via `data.chat`).
+The `(app)/+layout.server.ts` `load` returns `{ chats, folders, agents }` — server-rendered into HTML and re-used as the stores' initial values during hydration, so first paint has the sidebar populated without an extra round-trip. `activeChat` is hydrated separately by `c/[id]/+page.server.ts` on direct deep-links (`provideActiveChat()` starts empty; `useActiveChat().load(id)` is called from `+page.svelte`'s mount via `data.chat`).
 
 Streaming state is **client-only** — there is no useful SSR representation of an in-flight stream, and SvelteKit's `streamed` page-data isn't a fit (we want SSE, not a single async chunk). The streaming generator inside `ActiveChatStore.send()` is owned by the calling component's `$effect` — never by `onMount` + `onDestroy`, never module-scope:
 
@@ -1100,11 +1123,11 @@ Backend (pytest + `pytest-asyncio`, MySQL via the M0 docker-compose, lives at [r
   - `tests/unit/test_provider.py` — `OpenAICompatibleProvider.stream` against an in-process `respx`/`httpx` mock; covers token chunks, usage chunk, finish reason, server-sent error, client cancellation.
   - `tests/unit/test_sse.py` — `sse(event, data)` formatting and JSON edge cases (newlines, unicode).
   - `tests/unit/test_chat_title.py` — `derive_title(first_user_message)` against the canonical fixture set: short input, multi-line, leading/trailing whitespace, ≥60-char overflow ellipsis, unicode-grapheme boundaries. Pure function so the unit test is one fixture file.
-  - `tests/unit/test_models_cache.py` — pure cache mechanics with the provider injected as a fake: TTL refresh boundary, `contains()` / `label()` lookup, single-flight under concurrent refresh. Complements the integration-side cache test below (the unit test pins the in-memory state machine; the integration test exercises it against a real provider error path).
+  - `tests/unit/test_agents_cache.py` — pure cache mechanics with the provider injected as a fake: TTL refresh boundary, `contains()` / `label()` lookup, single-flight under concurrent refresh. Complements the integration-side cache test below (the unit test pins the in-memory state machine; the integration test exercises it against a real provider error path).
 - **Integration**:
   - `tests/integration/test_chats_crud.py` — every endpoint above, against MySQL + the cassette-replay LLM mock; asserts the full `History` shape after a streamed exchange.
   - `tests/integration/test_streaming.py` — end-to-end the SSE generator: send → 5 deltas → done; cancel mid-stream and assert `cancelled: true, done: true` in the persisted `history`; provider error mid-stream and assert `error: {...}, done: true`; `SSE_STREAM_TIMEOUT_SECONDS` exceeded surfaces a terminal `timeout` frame; oversized initial user message returns 413 from `prepare_stream` before the response body opens.
-  - `tests/integration/test_models_cache.py` — list models is cached, refresh after TTL, gateway error surfaces as 502.
+  - `tests/integration/test_agents_cache.py` — `list_agents` is cached, refresh after TTL, gateway error surfaces as 502.
   - `tests/integration/test_chat_writer.py` — `append_assistant_message` end-to-end through `AsyncSession`, asserting the `chat.history` JSON mutation, the `currentId` bump, the `updated_at` bump, and the history-cap rejection path. **Lives under `integration/` rather than `unit/` because the helper writes via `AsyncSession` and exercises the SQLAlchemy unit-of-work + history-cap path together; substituting an in-memory fake for the session would assert the wrong contract.**
   - `tests/integration/test_folders_crud.py` — folder CRUD round-trip including the recursive CTE for cycle-detection (`POST` / `PATCH` parent-change) and the descendant set + chat-detach cascade (`DELETE`).
   - `tests/integration/test_stream_registry_cross_pod.py` — pod-A registers, pod-B cancels via Redis pub/sub, pod-A's local `asyncio.Event` fires within 100 ms (the test that backs the cross-pod acceptance criterion above).
@@ -1117,7 +1140,7 @@ Frontend (Vitest + Playwright):
   - `markdown.test.ts` — sanitisation, fenced-code-while-streaming detection, math passthrough, alert syntax.
 - **Component (Playwright CT, [rebuild/frontend/tests/component/](../../frontend/tests/component/))**:
   - `Message.spec.ts` — renders a fixture corpus of assistant messages: plain, code, math, mermaid, alerts, mid-stream incomplete fences.
-  - `MessageInput.spec.ts` — Enter sends, Shift+Enter newlines, Esc fires cancel, model dropdown shows the populated `models` store.
+  - `MessageInput.spec.ts` — Enter sends, Shift+Enter newlines, Esc fires cancel, agent dropdown shows the populated `agents` store.
   - `Markdown.spec.ts` — full token table from the legacy fork minus deleted types.
   - `Sidebar.spec.ts` — virtualisation cutoff with 50 / 500 / 5000 chats; folder expand/collapse; drag-and-drop chat into folder.
 - **E2E (Playwright + the M0 docker-compose, [rebuild/frontend/tests/e2e/](../../frontend/tests/e2e/))** — the four critical paths:
@@ -1128,27 +1151,27 @@ Frontend (Vitest + Playwright):
 - **Visual regression (Playwright `toHaveScreenshot`, baselines under [rebuild/frontend/tests/visual-baselines/m1/](../../frontend/tests/visual-baselines/m1/))** — capture the four M2-owned surfaces per the three-layer discipline in [visual-qa-best-practises.md § Layer A](../best-practises/visual-qa-best-practises.md#layer-a--pixel-diff-baselines): `chat-empty.png` (no chats yet, sidebar visible), `chat-streamed-reply.png` (one completed exchange, deterministic content via cassette), `chat-sidebar.png` (sidebar with mixed pinned/folder/archived rows), and `composer-options-open-tokyo-night.png` (composer with the `+ Options` disclosure expanded, exposing Temperature + System). Baselines committed via Git LFS; specs use `--prefers-reduced-motion` and frozen `Date.now`.
 - **Geometric invariants (Playwright Component Testing, under [rebuild/frontend/tests/component/](../../frontend/tests/component/))** — one `*-geometry.spec.ts` spec per component whose layout a user can visibly stress. Each spec mounts the component's existing CT harness at a deterministic viewport and asserts overlap / containment / min-content-width / no-text-clipping via `tests/e2e/helpers/geometry.ts`, per [visual-qa-best-practises.md § Layer B](../best-practises/visual-qa-best-practises.md#layer-b--geometric-invariants). Unlike the baselines, these fail on the FIRST run when the bug is present — that is the whole point. M2 ships `composer-options-geometry.spec.ts` (open Options → Temperature and System must not collide, must stay inside the composer, must not be clipped) covering both the desktop (`sm:grid-cols-[120px_1fr]`) and narrow (`grid-cols-1`) layouts. Subsequent components get their own `*-geometry.spec.ts` as surfaces ship. Escalation to `@journey-m2` e2e specs is reserved for multi-surface invariants (none in M2 yet).
 
-Cassette strategy for the model gateway mock:
+Cassette strategy for the agent gateway mock:
 
-- Replay server is a 60-line FastAPI app at [rebuild/backend/tests/llm_mock.py](../../backend/tests/llm_mock.py) exposing `/v1/models` and `/v1/chat/completions`.
-- Requests are hashed by `(model, messages, temperature, system)`; the hash maps to a file under `tests/fixtures/llm/<hash>.sse`. On first run with `LLM_RECORD=1`, the mock proxies to a real gateway and records. Subsequent runs replay byte-for-byte.
-- Both backend integration tests and frontend E2Es point `MODEL_GATEWAY_BASE_URL` at the mock, so a single set of cassettes serves both layers.
+- Replay server is a 60-line FastAPI app at [rebuild/backend/tests/llm_mock.py](../../backend/tests/llm_mock.py) exposing `/v1/models` and `/v1/chat/completions` (the path keeps the OpenAI wire name so the OpenAI SDK on the rebuild's side serialises unchanged).
+- Requests are hashed by `(model, messages, temperature, system)` — the hash key matches the OpenAI wire body, including the wire field name `model` even though the rebuild calls each entry an agent. The hash maps to a file under `tests/fixtures/llm/<hash>.sse`. On first run with `LLM_RECORD=1`, the mock proxies to a real gateway and records. Subsequent runs replay byte-for-byte.
+- Both backend integration tests and frontend E2Es point `AGENT_GATEWAY_BASE_URL` at the mock, so a single set of cassettes serves both layers.
 - Cassettes are checked in. Refreshing them is a deliberate PR with a `cassette-refresh` label.
 
 Coverage gate: every CRUD endpoint and every SSE event type has at least one test that asserts on it. PRs that add a router function without an integration test are blocked in code review.
 
 ## Dependencies on other milestones
 
-- **Depends on M0** for: trusted-header `get_user`, `Settings` (which already exposes `MODEL_GATEWAY_BASE_URL`), the SQLAlchemy `Base` and async session, the Alembic baseline that creates `user`, the docker-compose stack, the Vite + SvelteKit + Tailwind 4 + Vitest + Playwright skeleton, and the Buildkite path-filtered pipeline.
+- **Depends on M0** for: trusted-header `get_user`, `Settings` (which already exposes `AGENT_GATEWAY_BASE_URL`), the SQLAlchemy `Base` and async session, the Alembic baseline that creates `user`, the docker-compose stack, the Vite + SvelteKit + Tailwind 4 + Vitest + Playwright skeleton, and the Buildkite path-filtered pipeline.
 - **Reserved for M3.** The `share_id` column (`String(43)`) is created on `chat` by M2 so M3 doesn't need an `ALTER ADD COLUMN`. M2 does not read or write it; M3 owns the FK + unique index + uniqueness constraint via its own Alembic revision (`0003_m3_sharing` calls `create_foreign_key_if_not_exists("fk_chat_share_id", "chat", "shared_chat", ["share_id"], ["id"], ondelete="SET NULL")` and `create_index_if_not_exists("ix_chat_share_id", "chat", ["share_id"], unique=True)` — both via the M0 helper module, never bare `op.*`, per `m0-foundations.md` § Migration helpers).
 - **`append_assistant_message` exposed for M5.** The chat-target writer M5 calls (`app.services.chat_writer.append_assistant_message`) is shipped by M2; it is the same helper `chat_stream.py` uses for non-streaming finalisation. Keeping it here means M5 doesn't need a separate writer or to know the JSON history shape.
-- **Nothing in M2 hard-couples M4.** The provider abstraction is the same one M4's `@model` channel auto-reply will use; we keep the contract narrow (`stream(messages, model, params)`) so M4 can wire it in without touching M2 code.
+- **Nothing in M2 hard-couples M4.** The provider abstraction is the same one M4's `@agent` channel auto-reply will use; we keep the contract narrow (`stream(messages, agent_id, params)`) so M4 can wire it in without touching M2 code.
 
 ## Acceptance criteria
 
 - [ ] `alembic upgrade head` against an empty MySQL 8.0 instance creates `chat` and `folder` with all indexes and the generated `current_message_id` column. `alembic downgrade -1` reverses it cleanly. Re-running `alembic upgrade head` immediately after `head` is a no-op, and re-running `alembic downgrade base` after `base` is a no-op (covered by the M0 `test_upgrade_head_is_idempotent` / `test_downgrade_base_is_idempotent` cases parametrised over the M2 revision).
 - [ ] `test_partial_upgrade_recovers` includes an M2 case: pre-create only `folder` (raw DDL), then `alembic upgrade head` produces `chat`, the generated column, every named index, and both cross-table FKs without operator intervention.
-- [ ] `GET /api/models` returns the gateway's `/v1/models` list, cached for 5 minutes in-process with background refresh; gateway errors surface as 502/504.
+- [ ] `GET /api/agents` returns the agent catalogue projected from the gateway's `/v1/models` (the upstream wire path stays on its OpenAI name), cached for 5 minutes in-process with background refresh; gateway errors surface as 502/504.
 - [ ] Full chat CRUD (`GET/POST/PATCH/DELETE /api/chats[...]`) round-trips correctly, including history-snapshot read after streaming.
 - [ ] Full folder CRUD round-trips, including parent moves and cascade delete (chats are detached, not deleted).
 - [ ] `POST /api/chats/{id}/messages` streams `start → delta* → usage? → done` for a successful completion and persists the assistant message with `done: true`.
@@ -1157,13 +1180,13 @@ Coverage gate: every CRUD endpoint and every SSE event type has at least one tes
 - [ ] Provider error mid-stream surfaces a terminal `error` SSE event and persists `error: {...}, done: true`.
 - [ ] Whole-request timeout (exceeding `SSE_STREAM_TIMEOUT_SECONDS`) surfaces a terminal `timeout` SSE event with `assistant_message_id` and `limit_seconds`, and persists `cancelled: true, done: true` with the partial content the client already saw. Covered by `tests/integration/test_streaming.py::test_timeout_persists_partial_and_emits_timeout_frame` with `SSE_STREAM_TIMEOUT_SECONDS` overridden to a small value.
 - [ ] `StreamRegistry` cancel crosses pod boundaries via Redis pub/sub: a unit test against `fakeredis` registers a stream on pod A, calls `cancel(message_id)` from pod B's registry instance, and asserts the local `asyncio.Event` on pod A is set within 100 ms (`tests/integration/test_stream_registry_cross_pod.py`).
-- [ ] Reloading `/c/{id}` after a completed exchange shows the chat exactly as it was: same branch, same content, same model footer, same usage.
+- [ ] Reloading `/c/{id}` after a completed exchange shows the chat exactly as it was: same branch, same content, same agent footer, same usage.
 - [ ] The four Playwright E2E specs above pass on Chromium in the deterministic CI stack.
 - [ ] **Three-layer visual QA** (per [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md)): every row in § User journeys has (a) a committed baseline PNG under `tests/visual-baselines/m1/` produced by the manual refresh workflow, (b) a green geometric-invariant spec — CT `*-geometry.spec.ts` by default under `tests/component/`, escalating to `@journey-m2` under `tests/e2e/journeys/` only for multi-surface invariants, and (c) an `impeccable` design-review pass with zero Blockers. Polish findings are filed into § M2 follow-ups rather than blocking acceptance. `make test-component` and `make test-visual` both green; the verifier records the impeccable pass output.
 - [ ] Branching: regenerate creates a sibling assistant message; the branch chevron switches `currentId`; reload preserves the choice.
 - [ ] No Svelte component exceeds 400 LOC; `Chat.svelte`-equivalent responsibilities are split across `ConversationView`, `MessageList`, `Message`, `MessageInput`.
-- [ ] Every M2 store lives at `lib/stores/<name>.svelte.ts` (not `.ts`) and exports a class instantiated via `setContext` in `(app)/+layout.svelte`. No module-level `$state` for chats / folders / active chat / models / toast (verified by the M0 grep gate). The streaming `AbortController` and any other long-lived browser side-effect is owned by a `$effect(() => { … return () => cleanup(); })` inside the component (verified by code review against the conventions in [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting)).
-- [ ] Total backend LOC for M2 (models, schemas, routers, provider, services, repository — i.e. every file under `rebuild/backend/app/` shipped or extended by this milestone) is under **3,000**. Total frontend LOC for M2 (the M2-specific surface only — `lib/components/chat/`, the five M2 stores `lib/stores/{chats,folders,active-chat,models,toast}.svelte.ts`, `lib/utils/{history-tree,sse,markdown}.ts`, `lib/utils/marked/`, `lib/types/`, the chat routes under `routes/(app)/`) is under **4,400**, **excluding** (a) the ported markdown pipeline (separately tracked at ~1,202 LOC) and (b) shared frontend infrastructure that future milestones inherit (`lib/api/client.ts` extensions, `lib/msw/handlers.ts` extensions, the `(internal)/smoke/...` routes promoted out of M1).
+- [ ] Every M2 store lives at `lib/stores/<name>.svelte.ts` (not `.ts`) and exports a class instantiated via `setContext` in `(app)/+layout.svelte`. No module-level `$state` for chats / folders / active chat / agents / toast (verified by the M0 grep gate). The streaming `AbortController` and any other long-lived browser side-effect is owned by a `$effect(() => { … return () => cleanup(); })` inside the component (verified by code review against the conventions in [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting)).
+- [ ] Total backend LOC for M2 (SQLAlchemy ORM modules, schemas, routers, provider, services, repository — i.e. every file under `rebuild/backend/app/` shipped or extended by this milestone, including the `app/models/` SQLAlchemy directory) is under **3,000**. Total frontend LOC for M2 (the M2-specific surface only — `lib/components/chat/`, the five M2 stores `lib/stores/{chats,folders,active-chat,agents,toast}.svelte.ts`, `lib/utils/{history-tree,sse,markdown}.ts`, `lib/utils/marked/`, `lib/types/`, the chat routes under `routes/(app)/`) is under **4,400**, **excluding** (a) the ported markdown pipeline (separately tracked at ~1,202 LOC) and (b) shared frontend infrastructure that future milestones inherit (`lib/api/client.ts` extensions, `lib/msw/handlers.ts` extensions, the `(internal)/smoke/...` routes promoted out of M1).
   - **Backend re-baseline rationale.** M2 was originally dispatched with a 1,800 LOC backend cap. Net came in at ~2,891. The overage is concentrated in `app/services/chat_stream.py` (~840 LOC) and `app/routers/chats.py` (~550 LOC), which together carry the SSE pipeline (six event types × four terminal branches × heartbeat tick × persist throttle), the prepare/stream split that landed in Phase 4c to fix the Starlette "response already started" race + leaked `SELECT FOR UPDATE` row lock (see § Streaming pipeline below for the rationale), and the history-cap enforcement that has to fire on every persist boundary. Phase 4a/4c review confirmed the code is functionally correct and free of duplication; the original 1,800 number was set during dispatch before the streaming-hardening detail was understood. Re-baselined here at 3,000 to give a defensible upper bound that reflects the validated implementation. An optional refactor (extract heartbeat + persist-throttle into a helper module) is tracked in [m6-hardening.md § M2 follow-ups](m6-hardening.md#m2-follow-ups) and lands only if the file is touched again for unrelated reasons — chasing it pre-emptively is not justified by a passing pipeline.
   - **Frontend re-baseline rationale.** Originally dispatched at 4,000 LOC against a looser definition. Net came in at ~4,226 against the broader scope; the re-baseline tightens the definition (the explicit file-list above) so shared infrastructure that future milestones consume — the API client, the MSW handler registry, the smoke-route shells — is excluded from the M2-only count. The explicit cap moves to 4,400 to leave a small headroom for the inevitable end-of-milestone polish PR. The per-component cap (≤400 LOC each, see the bullet above) is unchanged and stays enforced — that is the rule that actually catches "Chat.svelte regrowth", not the rolled-up budget.
 - [ ] `ruff`, `mypy --strict`, `vitest`, and `playwright test` are all green on `rebuild/` CI.
@@ -1176,7 +1199,7 @@ Explicitly **not** done in M2:
 - Channels — anything `channel*`, socket.io, presence, typing indicators, reactions, threads, webhooks — M4.
 - File uploads, attachments, the `file` and `file_blob` tables, `MEDIUMBLOB` — M4.
 - Automations, RRULE, scheduler, `automation*` tables — M5.
-- Per-user model permissions, model groups, access grants, `access_grant` / `group` tables of any kind.
+- Per-user agent permissions, agent groups, access grants, `access_grant` / `group` tables of any kind.
 - Roles or admin UI; everyone with a valid `X-Forwarded-Email` is the same kind of user in M2.
 - Full-text or vector search across chats. Sidebar `?q=` is a `LIKE %q%` on `title` plus an optional `JSON_SEARCH(LOWER(history), ...)` for content; we do **not** introduce MeiliSearch / OpenSearch / pgvector.
 - Tags on chats. The legacy `meta.tags` field is dropped; if we miss it we add it in a later milestone, but it is not in M2.
@@ -1191,4 +1214,4 @@ Explicitly **not** done in M2:
 
 - **Auto-title timing.** Plan-locked decision is to call `POST /api/chats/{id}/title` from the frontend after the first assistant message completes. Open: should the backend do it inline at the end of the stream (one fewer round-trip but couples title generation to streaming) or stay client-driven (cleaner but creates a brief "New Chat" flash)? Default to client-driven for M2; revisit in M6 if the flash is annoying.
 - **Generated column on MariaDB.** The plan locks MySQL 8.0; `current_message_id` uses `STORED` generated columns which MariaDB also supports but with slightly different syntax. If anyone deploys against MariaDB we'll need a dialect branch in the migration. Flagging only — we are MySQL-only by decision.
-- **`SSE_STREAM_TIMEOUT_SECONDS` default.** 300 s (5 min) matches the per-route timeout in the M6 hardening plan. If the model gateway exposes a tighter cap, we should mirror it to fail fast. Will confirm with the gateway team during M2 implementation; default stays at 300 until then.
+- **`SSE_STREAM_TIMEOUT_SECONDS` default.** 300 s (5 min) matches the per-route timeout in the M6 hardening plan. If the agent gateway exposes a tighter cap, we should mirror it to fail fast. Will confirm with the gateway team during M2 implementation; default stays at 300 until then.

@@ -63,6 +63,15 @@ class ChatCompletionChunk(BaseModel):
 
 
 class ModelInfo(BaseModel):
+    """Per-entry shape on ``GET /v1/models``.
+
+    Keeps the OpenAI wire field names (``id``, ``object: "model"``,
+    ``owned_by``) so any OpenAI-SDK client deserialises cleanly. The
+    rebuild's product domain calls each entry an *agent*; the
+    translation lives in :class:`app.providers.openai.OpenAICompatibleProvider`
+    on the rebuild side.
+    """
+
     id: str
     object: str = "model"
     created: int
@@ -70,10 +79,13 @@ class ModelInfo(BaseModel):
     # Non-OpenAI extension. The rebuild's OpenAICompatibleProvider reads
     # this via ``getattr(m, "label", None)`` so absent labels fall back
     # to ``m.id``; emitting it here is what surfaces friendly names like
-    # "Dev (Qwen 2.5, 0.5B)" in the rebuild's model dropdown.
+    # "Dev (Qwen 2.5, 0.5B)" in the rebuild's agent dropdown.
     label: str
 
 
 class ModelListResponse(BaseModel):
+    """Response shape for ``GET /v1/models`` — kept on the OpenAI wire
+    name so the OpenAI SDK on the consumer side picks it up unchanged."""
+
     object: str = "list"
     data: list[ModelInfo]

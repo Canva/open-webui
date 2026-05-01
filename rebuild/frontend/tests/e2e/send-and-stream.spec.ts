@@ -176,7 +176,7 @@ test.describe('@e2e-m2 send-and-stream', () => {
     // contract).
     await expect(page.getByText('Hi there!', { exact: true })).toBeVisible();
 
-    // The assistant message footer surfaces the model + token count
+    // The assistant message footer surfaces the agent + token count
     // once `done` flips true (see `Message.svelte` § "Metadata +
     // actions row" — hidden while isStreaming).
     await expect(page.getByText('11 tokens', { exact: true })).toBeVisible();
@@ -207,8 +207,8 @@ test.describe('@e2e-m2 send-and-stream', () => {
                 role: 'user',
                 content: 'Hello',
                 timestamp: now,
-                model: null,
-                modelName: null,
+                agent_id: null,
+                agentName: null,
                 done: true,
                 error: null,
                 cancelled: false,
@@ -221,8 +221,8 @@ test.describe('@e2e-m2 send-and-stream', () => {
                 role: 'assistant',
                 content: 'Hi there!',
                 timestamp: now,
-                model: 'gpt-4o',
-                modelName: 'GPT-4o',
+                agent_id: 'gpt-4o',
+                agentName: 'GPT-4o',
                 done: true,
                 error: null,
                 cancelled: false,

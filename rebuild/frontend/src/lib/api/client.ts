@@ -4,7 +4,7 @@
  * The M0 dispatch shipped `apiFetch` + `ApiError` — both kept verbatim
  * for back-compat with the unit tests at
  * `tests/unit/api-client.test.ts`. M2 adds three namespaced surfaces
- * (`chats`, `folders`, `models`) for the conversation routes; the
+ * (`chats`, `folders`, `agents`) for the conversation routes; the
  * stores call into those instead of issuing raw `fetch` calls.
  *
  * Per `rebuild/docs/plans/m0-foundations.md` § Frontend conventions
@@ -34,7 +34,7 @@ import type {
   TitleResponse,
 } from '$lib/types/chat';
 import type { FolderCreate, FolderDeleteResult, FolderPatch, FolderRead } from '$lib/types/folder';
-import type { ModelList } from '$lib/types/model';
+import type { AgentList } from '$lib/types/agent';
 import type { ShareCreateResponse, SharedChatSnapshot } from '$lib/types/share';
 
 /**
@@ -265,13 +265,18 @@ export const folders = {
 };
 
 // ---------------------------------------------------------------------------
-// `models` namespace — `/api/models`.
+// `agents` namespace — `/api/agents`.
+//
+// The upstream OpenAI-compatible gateway still serves the catalogue
+// at `/v1/models`; the rebuild's own surface is `/api/agents` so the
+// product domain ("agents") and the wire compatibility (`/v1/models`)
+// stay distinct.
 // ---------------------------------------------------------------------------
 
-export const models = {
-  /** `GET /api/models` — passthrough of `/v1/models`, cached server-side. */
-  async list(fetcher: typeof fetch = fetch): Promise<ModelList> {
-    return apiFetch<ModelList>('/api/models', { method: 'GET' }, fetcher);
+export const agents = {
+  /** `GET /api/agents` — passthrough of the upstream agent catalogue, cached server-side. */
+  async list(fetcher: typeof fetch = fetch): Promise<AgentList> {
+    return apiFetch<AgentList>('/api/agents', { method: 'GET' }, fetcher);
   },
 };
 

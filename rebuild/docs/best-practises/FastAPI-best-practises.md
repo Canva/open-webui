@@ -157,7 +157,7 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
 - **Don't share an `AsyncSession` across requests.** Sessions hold transactional state, identity-map caches, and a connection from the pool; sharing them is a recipe for stale reads and silently committed work from another request. One per request, scoped by `yield`.
 - **Don't call `session.close()` explicitly inside the dependency body** when you've used `async with AsyncSessionLocal()`. The context manager already does it; calling it again leaves the pool slot in a half-released state.
-- **Don't open a transaction, then call an external API, then commit.** Network calls inside `BEGIN ... COMMIT` hold the row lock for the full duration of the call (which can be 30 seconds for the model gateway). Pattern: gather state, commit, _then_ call the external service. The M2 streaming flow follows this — the user message is committed before the SSE generator reaches `provider.stream(...)`.
+- **Don't open a transaction, then call an external API, then commit.** Network calls inside `BEGIN ... COMMIT` hold the row lock for the full duration of the call (which can be 30 seconds for the agent gateway). Pattern: gather state, commit, _then_ call the external service. The M2 streaming flow follows this — the user message is committed before the SSE generator reaches `provider.stream(...)`.
 - **Don't hand out the same `AsyncSession` to a `BackgroundTasks` callback.** The session is closed by the time the task runs. If you need DB access in a background task, open a fresh session inside the task body.
 
 ### A.7 Streaming responses (SSE)
@@ -202,7 +202,7 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
 - **Use FastAPI's `BackgroundTasks` for fire-and-forget work that's safe to lose** (logging, sending an email, refreshing a small cache). Tasks run after the response is sent, in the same worker process.
 - **Use APScheduler with `SELECT ... FOR UPDATE SKIP LOCKED` for scheduled or recurring work** that has to survive a worker restart. M5 is the reference implementation; the same pattern fits any future "fire every N minutes / check this state on a schedule" need.
-- **Use `asyncio.create_task(...)` from inside an `async def` route** when you want to spawn a long-running task that the request itself doesn't wait on but still belongs to this process (e.g. M4's `@model` channel auto-reply). Wrap with a per-channel `Semaphore` so you can't spawn unbounded coroutines. **Always** keep a strong reference to the task (otherwise the GC eats it mid-flight) — store it in the per-channel registry that already owns the cancellation token.
+- **Use `asyncio.create_task(...)` from inside an `async def` route** when you want to spawn a long-running task that the request itself doesn't wait on but still belongs to this process (e.g. M4's `@agent` channel auto-reply). Wrap with a per-channel `Semaphore` so you can't spawn unbounded coroutines. **Always** keep a strong reference to the task (otherwise the GC eats it mid-flight) — store it in the per-channel registry that already owns the cancellation token.
 
 **DON'T**
 
@@ -255,7 +255,7 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
 - **Override dependencies for tests via `app.dependency_overrides[dep] = fake`.** Auth, model provider, file store — all overridable. Clear the dict in a fixture teardown so the override doesn't leak.
 - **Spin up a real MySQL via `testcontainers-mysql` for integration tests** (M0 already wires this). Don't substitute SQLite — it's missing JSON path operators, generated columns, FK CHECK semantics, and `SELECT FOR UPDATE SKIP LOCKED`. Every one of those features is exercised by the rebuild.
-- **Mock the model gateway with cassettes** (M2 / M5 plans). A recorded SSE stream replayed deterministically is the only sane way to test streaming end-to-end without a real upstream.
+- **Mock the agent gateway with cassettes** (M2 / M5 plans). A recorded SSE stream replayed deterministically is the only sane way to test streaming end-to-end without a real upstream.
 - **Use `pytest-asyncio` with `asyncio_mode = "auto"`** (M0 default) so you don't have to decorate every async test.
 
 **DON'T**
@@ -321,8 +321,8 @@ Both helpers exist precisely so the test suite can monkeypatch a single symbol t
 **DO**
 
 - **Subclass `pydantic_settings.BaseSettings`** for every `Settings` class. Construct one instance at import time and treat it as immutable; never read `os.environ` directly anywhere else under `app/`.
-- **Declare attribute names in `snake_case`** per PEP 8. Read in code as `settings.database_url`, `settings.model_gateway_base_url`, `settings.sse_stream_timeout_seconds`.
-- **Set `model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")`.** `case_sensitive=False` is what lets the canonical 12-factor UPPER_SNAKE env-var keys (`DATABASE_URL=...`, `MODEL_GATEWAY_API_KEY=...`) keep populating the lowercase Python attribute without per-field `alias=` plumbing.
+- **Declare attribute names in `snake_case`** per PEP 8. Read in code as `settings.database_url`, `settings.agent_gateway_base_url`, `settings.sse_stream_timeout_seconds`.
+- **Set `model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")`.** `case_sensitive=False` is what lets the canonical 12-factor UPPER_SNAKE env-var keys (`DATABASE_URL=...`, `AGENT_GATEWAY_API_KEY=...`) keep populating the lowercase Python attribute without per-field `alias=` plumbing.
 - **Keep env-var keys in UPPER_SNAKE_CASE** in `.env` / `.env.example`, in `infra/docker-compose.yml`'s `environment:` blocks, in Helm values, and in Kubernetes manifests. The shell convention is the contract with operators; only the Python attribute side moves to PEP 8.
 
 **DON'T**
@@ -363,7 +363,7 @@ Every Alembic revision uses the M0 `*_if_not_exists` / `*_if_exists` helpers. CI
 
 ### B.8 Test stack: Vitest + Playwright on the FE, pytest + httpx + testcontainers on the BE
 
-`asyncio_mode = "auto"` in `pyproject.toml`. `testcontainers[mysql]` for any test that touches the DB. `respx` (or the cassette mock) for any test that touches the model gateway. `app.dependency_overrides` for swapping `get_user` and the file store; never monkeypatch internals.
+`asyncio_mode = "auto"` in `pyproject.toml`. `testcontainers[mysql]` for any test that touches the DB. `respx` (or the cassette mock) for any test that touches the agent gateway. `app.dependency_overrides` for swapping `get_user` and the file store; never monkeypatch internals.
 
 ---
 
@@ -452,7 +452,7 @@ Before opening a PR that adds or changes a router, dependency, schema, or servic
 
 - [ ] If it's safe-to-lose: `BackgroundTasks` is fine.
 - [ ] If it's recurring or must survive a restart: APScheduler + `SELECT ... FOR UPDATE SKIP LOCKED` (M5 pattern).
-- [ ] If it's an in-process spawn (`@model` reply): `asyncio.create_task(...)` with the task pinned in a registry so the GC can't eat it; bounded by a `Semaphore`.
+- [ ] If it's an in-process spawn (`@agent` reply): `asyncio.create_task(...)` with the task pinned in a registry so the GC can't eat it; bounded by a `Semaphore`.
 
 **Deploy / config**
 

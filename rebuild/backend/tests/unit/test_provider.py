@@ -1,10 +1,16 @@
 """Unit tests for :class:`app.providers.openai.OpenAICompatibleProvider`.
 
-The provider is the rebuild's only model-gateway transport — every
+The provider is the rebuild's only agent-gateway transport — every
 upstream failure mode has to map cleanly onto :class:`ProviderError`
 with the right HTTP status code, otherwise the streaming pipeline's
 SSE error frames and the non-streaming routes' 502 / 504 / 429
 responses will diverge.
+
+The OpenAI-compatible upstream still serves its catalogue at
+``/v1/models`` and uses ``model=`` on the wire, so the SDK-facing
+half of these tests legitimately speaks "model"; the provider itself
+exposes the rebuild's :class:`Agent` shape and an ``agent_id``
+keyword on :meth:`stream`.
 
 We test against an in-process mock whose ``http_client`` is bound by
 :class:`httpx.ASGITransport` to a tiny FastAPI app — no network, no
@@ -25,7 +31,7 @@ from typing import Any
 import httpx
 import pytest
 from app.providers.openai import (
-    Model,
+    Agent,
     OpenAICompatibleProvider,
     ProviderError,
     StreamDelta,
@@ -155,7 +161,7 @@ async def test_stream_yields_token_chunks_then_usage_then_finish() -> None:
         deltas: list[StreamDelta] = []
         async for delta in provider.stream(
             messages=[{"role": "user", "content": "hi"}],
-            model="gpt-4o",
+            agent_id="gpt-4o",
             params={},
         ):
             deltas.append(delta)
@@ -185,7 +191,7 @@ async def _drain_stream(provider: OpenAICompatibleProvider) -> None:
     """
     async for _ in provider.stream(
         messages=[{"role": "user", "content": "hi"}],
-        model="gpt-4o",
+        agent_id="gpt-4o",
         params={},
     ):
         pass
@@ -327,7 +333,7 @@ async def test_stream_propagates_cancellation_after_closing_underlying_stream() 
     async def _consume() -> None:
         async for _ in provider.stream(
             messages=[{"role": "user", "content": "hi"}],
-            model="gpt-4o",
+            agent_id="gpt-4o",
             params={},
         ):
             pass
@@ -350,13 +356,18 @@ async def test_stream_propagates_cancellation_after_closing_underlying_stream() 
 
 
 # ---------------------------------------------------------------------------
-# list_models
+# list_agents
 # ---------------------------------------------------------------------------
 
 
-async def test_list_models_returns_sorted_by_id() -> None:
+async def test_list_agents_returns_sorted_by_id() -> None:
     """Provider sorts the upstream list by ``id`` so the dropdown is
-    stable across upstream-side reorderings."""
+    stable across upstream-side reorderings.
+
+    The upstream OpenAI-compatible response uses ``"object": "model"``
+    on each entry — that's the wire shape — but the provider returns
+    them as :class:`Agent` instances to the rest of the rebuild.
+    """
 
     async def _handler() -> Response:
         return JSONResponse(
@@ -372,17 +383,17 @@ async def test_list_models_returns_sorted_by_id() -> None:
 
     provider, mock_client = _make_provider(_handler)
     try:
-        models = await provider.list_models()
+        agents = await provider.list_agents()
     finally:
         await mock_client.aclose()
 
-    assert [m.id for m in models] == ["alpha", "mu", "zeta"]
-    assert all(isinstance(m, Model) for m in models)
-    assert models[0].label == "alpha"  # label falls back to id
-    assert models[2].owned_by == "x"
+    assert [a.id for a in agents] == ["alpha", "mu", "zeta"]
+    assert all(isinstance(a, Agent) for a in agents)
+    assert agents[0].label == "alpha"  # label falls back to id
+    assert agents[2].owned_by == "x"
 
 
-async def test_list_models_wraps_errors_as_provider_error_502() -> None:
+async def test_list_agents_wraps_errors_as_provider_error_502() -> None:
     """Any 5xx from the upstream maps to :class:`ProviderError(502)`."""
 
     async def _handler() -> Response:
@@ -394,8 +405,8 @@ async def test_list_models_wraps_errors_as_provider_error_502() -> None:
     provider, mock_client = _make_provider(_handler)
     try:
         with pytest.raises(ProviderError) as exc_info:
-            await provider.list_models()
+            await provider.list_agents()
     finally:
         await mock_client.aclose()
     assert exc_info.value.status_code == 502
-    assert "list_models" in str(exc_info.value)
+    assert "list_agents" in str(exc_info.value)

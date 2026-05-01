@@ -6,7 +6,7 @@ Build a self-contained, multi-instance-safe channels feature inside `rebuild/`
 that delivers the full Slack-shape interaction model — channels with members,
 threaded messages, reactions, pinned messages, typing presence, read receipts,
 incoming + outgoing webhooks, multipart file uploads stored as MySQL
-`MEDIUMBLOB` (5 MiB cap), and `@model` auto-reply that streams an assistant
+`MEDIUMBLOB` (5 MiB cap), and `@agent` auto-reply that streams an assistant
 answer back into the same thread via the shared `OpenAICompatibleProvider`
 introduced in M2. Realtime is `python-socketio` with the Redis async manager so
 the FastAPI process can scale horizontally without sticky sessions, and the
@@ -40,9 +40,9 @@ plan is biased toward precision over brevity.
     `message:create` emit + auto-reply trigger). Three callers: REST POST,
     M5 automation executor, webhook ingress.
   - `mentions.py` — `MENTION_RE` + `classify_mentions(text, *, member_lookup,
-    model_lookup) -> list[Mention]`. Pure functions; reused by the FE
+    agent_lookup) -> list[Mention]`. Pure functions; reused by the FE
     `mention-parser` test fixtures so BE and FE stay in lockstep.
-  - `auto_reply.py` — `@model` mention dispatcher, semaphore-bounded
+  - `auto_reply.py` — `@agent` mention dispatcher, semaphore-bounded
     background task pool with latest-wins cancellation. Lives under
     `services/channels/` (not at the top of `services/`) because it is 100%
     channel-coupled and shares per-channel state with `messages.py`.
@@ -253,9 +253,10 @@ Notes:
   is_pinned)` so the pinned drawer is one index seek.
 - `parent_id` references `channel_message.id` with `ON DELETE CASCADE`, so
   deleting a thread root tombstones the entire thread atomically.
-- Author attribution: `bot_id` is **not** a FK because models are discovered
-  dynamically from the gateway's `/v1/models` endpoint and there is no models
-  table. The string is the upstream model id (e.g. `gpt-4o-mini`). We keep
+- Author attribution: `bot_id` is **not** a FK because agents are discovered
+  dynamically from the gateway's `/v1/models` endpoint (the upstream wire path
+  stays on its OpenAI name) and there is no agents table. The string is the
+  agent id (e.g. `gpt-4o-mini`). We keep
   webhook attribution in its own column rather than the legacy `meta.webhook`
   blob so the FE can render it with a single SQL fetch.
 
@@ -265,7 +266,7 @@ Notes:
 {
   "text": "Hi @gpt-4o-mini, please summarise the design doc.",
   "mentions": [
-    { "kind": "model", "id": "gpt-4o-mini", "offset": 3, "length": 13 }
+    { "kind": "agent", "id": "gpt-4o-mini", "offset": 3, "length": 13 }
   ],
   "attachments": [
     { "file_id": "<uuid>", "name": "diagram.png", "mime": "image/png", "size": 412034 }
@@ -284,8 +285,8 @@ Notes:
   (see Mentions section); other syntaxes such as `<#channel>` or `<@user>` are
   not part of v1 and are treated as plain text.
 - `mentions`: pre-resolved offsets to keep the server-side mention parser
-  authoritative (used by `@model` dispatcher and unread-counter logic). `kind`
-  is `"model"` (matched against the gateway model list) or `"user"` (matched
+  authoritative (used by `@agent` dispatcher and unread-counter logic). `kind`
+  is `"agent"` (matched against the cached agent catalogue) or `"user"` (matched
   against `channel_member`); v1 does not emit any other kinds.
 - `attachments`: parallel array to `channel_file` rows for fast render without a
   join; the join row is the source of truth and is always written first.
@@ -926,7 +927,7 @@ Authentication is the M0 trusted-header dependency surfaced as
   `{ content:{text, attachments?, mentions?}, parent_id?:str, temp_id?:str }`.
   `parent_id` is **top-level** (not nested in `content`) because it maps to the
   `channel_message.parent_id` column. Returns the created `ChannelMessageDTO`.
-  Triggers the `@model` dispatcher (section 8).
+  Triggers the `@agent` dispatcher (section 8).
 - `GET /api/channels/{id}/messages/{mid}` — single message + reaction summary.
 - `PATCH /api/channels/{id}/messages/{mid}` — author only. Body `{ content }`.
   Sets `updated_at` and toggles `content.edited=true`.
@@ -1022,7 +1023,7 @@ to invalidate. Revisit in M6+ if image-heavy usage emerges.
   `is_active=false` after 10 consecutive failures. No retry queue, no DLQ —
   this is best-effort.
 
-## `@model` auto-reply
+## `@agent` auto-reply
 
 ### Detection
 
@@ -1033,14 +1034,15 @@ from `content.text` using a single regex:
 MENTION_RE = re.compile(r"(?<![\w@])@([A-Za-z0-9][A-Za-z0-9._-]{0,127})")
 ```
 
-Each match is classified once: if the token equals a model id from the gateway
-list, `kind:"model"`; if it matches a `channel_member` username/email-prefix,
-`kind:"user"`; otherwise the token is treated as plain text and not added to
-`content.mentions`. No other mention syntaxes (`<#channel>`, `<@uuid>`, etc.)
-are recognised in v1. The model list comes from the cached output of
-`provider.list_models()` (TTL 5 minutes, refreshed in the background). The
-same cache instance backs the M2 `/api/models` router; both share a single
-TTL.
+Each match is classified once: if the token equals an agent id from the
+gateway catalogue, `kind:"agent"`; if it matches a `channel_member`
+username/email-prefix, `kind:"user"`; otherwise the token is treated as plain
+text and not added to `content.mentions`. No other mention syntaxes
+(`<#channel>`, `<@uuid>`, etc.) are recognised in v1. The agent catalogue
+comes from the cached output of `provider.list_agents()` (TTL 5 minutes,
+refreshed in the background; the upstream wire path stays on its OpenAI name
+`/v1/models`). The same cache instance backs the M2 `/api/agents` router;
+both share a single TTL.
 
 ### Background task lifecycle
 
@@ -1051,18 +1053,18 @@ TTL.
   2. Builds the OpenAI `messages` array: each thread message becomes
      `{ role: 'assistant' if bot_id else 'user', content: text }`. The original
      mention is stripped from the user turn.
-  3. Calls `provider.stream(messages=..., model=model_id, params={})` —
+  3. Calls `provider.stream(messages=..., agent_id=agent_id, params={})` —
      the same `OpenAICompatibleProvider` instance from M2. No multi-provider
      routing; rails forbid it.
   4. As tokens arrive, accumulates them in a single in-progress
-     `channel_message` row created with `bot_id=model_id`,
+     `channel_message` row created with `bot_id=agent_id`,
      `content={text:'', mentions:[], attachments:[]}`. Every ~250ms, emits
      `message:update` with the accumulated text. Final commit emits one more
      `message:update` with the complete text and a server-side
      `message:create` already happened at task start.
   5. On completion, `updated_at` is bumped to `now_ms()`.
 - Errors (provider 4xx/5xx/timeout): replace the message text with
-  `"Failed to reach `{model_id}`: {error}"` and emit a final `message:update`.
+  `"Failed to reach `{agent_id}`: {error}"` and emit a final `message:update`.
   The row stays so the user sees the failure inline.
 
 ### Concurrency caps & latest-wins
@@ -1086,12 +1088,12 @@ TTL.
 ### Bot identity (`bot_id`)
 
 We recommend the **nullable `bot_id` column on `channel_message`** over a
-synthetic `model:<model_id>` user, for these reasons:
+synthetic `agent:<agent_id>` user, for these reasons:
 
 - The `user` table is the source of truth for humans auto-provisioned from
   `X-Forwarded-Email`. Synthetic rows pollute user listings, mention pickers,
   sharing, and any future audit log with "is this real?" branches.
-- Models are discovered dynamically from the gateway; the set is open-ended.
+- Agents are discovered dynamically from the gateway; the set is open-ended.
   Sentinel users would need GC or accumulate stale rows.
 - FE rendering becomes a single `if bot_id` conditional with zero DB churn.
 - The `CheckConstraint` formalises "exactly one of (user_id, bot_id,
@@ -1250,10 +1252,10 @@ blocks, images all differ wildly in size).
 
 ### Composer mention picker
 
-- `@` keystroke opens `MentionPicker` with two sections: **Models**
-  (from `GET /models` cached on connect) and **Members** (from the channel's
-  member list). Search is client-side fuzzy match over names.
-- Selecting a model inserts `@<model_id>` literal text — the server-side
+- `@` keystroke opens `MentionPicker` with two sections: **Agents**
+  (from `GET /api/agents` cached on connect) and **Members** (from the
+  channel's member list). Search is client-side fuzzy match over names.
+- Selecting an agent inserts `@<agent_id>` literal text — the server-side
   parser is the source of truth, so the FE doesn't need to encode markup.
 
 ### File upload UX
@@ -1277,7 +1279,7 @@ blocks, images all differ wildly in size).
   out to every sid in the room across the cluster.
 - **Stateless replicas.** No process-local cache survives a restart that
   isn't reconstructable from MySQL or Redis. Typing rate-limit cache,
-  model-list cache, and `@model` task registry are all per-process and
+  agent-catalogue cache, and `@agent` task registry are all per-process and
   bounded.
 - **Health checks for socket.io upgrade.** The M0 `/healthz` already checks
   HTTP. We add `/readyz` to additionally verify (a) MySQL connectivity, (b)
@@ -1323,7 +1325,7 @@ blocks, images all differ wildly in size).
     unknown keys, accepts the M5 channel-target shape with both
     `automation_id` and `automation_owner_name` set, and accepts user-authored
     messages that omit both automation fields.
-  - `auto_reply.dispatcher` — only real-model mentions trigger; cap and
+  - `auto_reply.dispatcher` — only real-agent mentions trigger; cap and
     latest-wins enforced under a fake clock.
   - `file_store.MysqlFileStore` — round-trip put/get with chunked read,
     unicode filenames, exact-cap edge case, ordered chunk yields.
@@ -1344,9 +1346,9 @@ blocks, images all differ wildly in size).
 - `Reactions` — toggle, count update, hover popover with users.
 - `Pins` — empty state, scroll, click-to-jump.
 - `Composer` — keyboard (Enter/Shift+Enter), paste image, drag-drop file,
-  oversize file rejection, mention picker (model + member sections).
+  oversize file rejection, mention picker (agent + member sections).
 - `FileUpload` — progress bar, error state, multiple files.
-- `MentionPicker` — keyboard nav, fuzzy match, model vs user differentiation.
+- `MentionPicker` — keyboard nav, fuzzy match, agent vs user differentiation.
 - `WebhookConfig` — create, copy-token (one-shot reveal), revoke.
 - Each component test renders against an MSW handler set so the same handlers
   drive E2E in `dev`.
@@ -1363,14 +1365,14 @@ The three critical paths called out in the brief, plus support tests:
      unread dot updates. Verifies both single- and two-replica configs (test
      parameterised over docker-compose profiles).
 
-2. **`@model` mention → streamed reply in thread → reactions visible.**
+2. **`@agent` mention → streamed reply in thread → reactions visible.**
    - Alice posts `@gpt-4o-mini summarise this channel` against the recorded
      OpenAI cassette. The mock SSE replays a 6-token stream; the FE shows
      incremental tokens (`message:update`) on both A and B. Final message has
      `bot_id=gpt-4o-mini` and lives under `parent_id=<alice's message>`.
      A reacts to the bot reply; B sees the reaction on the bot message.
    - Tests also verify the latest-wins cancel: posting a second mention for
-     the same model within 5s cancels the first stream.
+     the same agent within 5s cancels the first stream.
 
 3. **File upload + preview.**
    - Alice drops a 4 MiB PNG into the composer. Progress bar advances. After
@@ -1447,7 +1449,7 @@ Every click-path a real user takes on M4-owned surfaces. Each row binds the thre
 | Open Members list → online + offline sections, status dot placement | `members-list.png` | `tests/component/MemberList-geometry.spec.ts` — status dot does not collide with avatar, role badge ("owner" / "admin") stays inside its row | sign-off required |
 | Open Webhook config → token masked, "Rotate" + "Delete" actions visible | `webhook-config.png` | `tests/component/WebhookConfig-geometry.spec.ts` — masked token's monospace text not clipped, actions stay inside the panel | sign-off required |
 | Typing indicator: 1 / 2 / 3+ users typing in a channel | `typing-indicator-{one,two,many}.png` | covered by `Composer-geometry.spec.ts` — the indicator row does not push the composer textarea above the viewport; copy variants ("Alice is typing…", "Alice and Bob are typing…", "Alice, Bob, and 3 others are typing…") are not clipped | sign-off required |
-| `@model` mention → bot streams reply in the thread | `bot-stream-in-thread.png` | covered by `Thread-geometry.spec.ts` (same component, streaming-state variant); `MessageItem-geometry.spec.ts` adds a streaming-state case so the bot cursor/placeholder chrome does not clip at the message bubble's right edge | sign-off required |
+| `@agent` mention → bot streams reply in the thread | `bot-stream-in-thread.png` | covered by `Thread-geometry.spec.ts` (same component, streaming-state variant); `MessageItem-geometry.spec.ts` adds a streaming-state case so the bot cursor/placeholder chrome does not clip at the message bubble's right edge | sign-off required |
 | Connection lost → "Reconnecting…" chrome; Connection restored → chrome hides | `connection-reconnecting.png` | `tests/component/Navbar-geometry.spec.ts` — reconnecting banner does not overlap the topbar's other affordances, copy is not clipped | sign-off required |
 
 Follow-up rows deferring Layer A or Layer B coverage to a later milestone MUST be tracked in § M4 follow-ups below.
@@ -1503,7 +1505,7 @@ Follow-up rows deferring Layer A or Layer B coverage to a later milestone MUST b
   messages, and that `GET /api/channels` orders the response by descending
   `last_message_at NULLS LAST` (verified by `EXPLAIN` to use
   `ix_channel_recency`).
-- [ ] `@model` mention triggers a streamed assistant reply in the same thread
+- [ ] `@agent` mention triggers a streamed assistant reply in the same thread
   with `bot_id` set, never as a `user`. Concurrency cap = 2 per channel,
   latest-wins window = 5s, both verified by integration tests.
 - [ ] Incoming webhook works without `X-Forwarded-Email`; outgoing webhook
@@ -1567,7 +1569,7 @@ when convenient to add:
   a few keyboard shortcuts; rendering uses the M2 markdown pipeline.
 - Signed URLs and any object store. Files live in `MEDIUMBLOB`; the
   `FileStore` facade is the only seam for an eventual S3 swap.
-- Multi-provider routing. `@model` always targets the single
+- Multi-provider routing. `@agent` always targets the single
   `OpenAICompatibleProvider` from M2.
 - Per-user permission grants on channels (`access_grant` table from legacy).
   Channel access is binary: member or not, role is owner/admin/member only.

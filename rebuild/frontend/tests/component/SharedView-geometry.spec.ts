@@ -4,7 +4,7 @@
  * Pinned by `rebuild/docs/best-practises/visual-qa-best-practises.md`
  * § Layer B (geometric invariants), and called out by name in
  * `rebuild/docs/plans/m3-sharing.md` § User journeys row 4 (the
- * "no composer / model-selector / regen affordances" negative-
+ * "no composer / agent-selector / regen affordances" negative-
  * containment check, plus the read-only thread fitting inside the
  * public-layout shell).
  *
@@ -32,7 +32,7 @@ const NARROW_VIEWPORT = { width: 520, height: 720 } as const;
 test.describe('SharedView — geometric invariants (desktop viewport)', () => {
   test.use({ viewport: DESKTOP_VIEWPORT });
 
-  test('negative containment: no composer, no model-selector, no regen affordances render', async ({
+  test('negative containment: no composer, no agent-selector, no regen affordances render', async ({
     mount,
   }) => {
     const component = await mount(SharedViewHarness, {
@@ -42,9 +42,9 @@ test.describe('SharedView — geometric invariants (desktop viewport)', () => {
     // The compose textbox is the M2 user-input affordance — explicitly
     // suppressed on the share view per the M3 plan.
     await expect(component.getByRole('textbox', { name: 'Compose a message' })).toHaveCount(0);
-    // Model selector buttons (in M2 they appear as `aria-label` / role
-    // matching `Model`). The share view never instantiates one.
-    await expect(component.getByRole('button', { name: /Model/ })).toHaveCount(0);
+    // Agent selector buttons (in M2 they appear as `aria-label` / role
+    // matching `Agent`). The share view never instantiates one.
+    await expect(component.getByRole('button', { name: /Agent/ })).toHaveCount(0);
     // Per-message regen / copy / retry buttons are suppressed by the
     // readonly mode on `Message.svelte`.
     await expect(component.getByRole('button', { name: 'Regenerate message' })).toHaveCount(0);

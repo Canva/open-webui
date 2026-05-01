@@ -88,17 +88,19 @@ class MessageSend(StrictModel):
     whitespace before validation, so ``min_length=1`` rejects whitespace-only
     bodies as well as the literal empty string).
 
-    ``model`` is validated against the cached ``/v1/models`` list inside
-    the streaming generator; we accept any non-empty string here so the
-    router can return a clean 400 with the upstream's vocabulary instead
-    of a 422 with a generic enum error.
+    ``agent_id`` is the rebuild-domain identifier for the agent the user
+    picked. It is validated against the cached agent catalogue (sourced
+    from the upstream's ``/v1/models`` list) inside the streaming
+    generator; we accept any non-empty string here so the router can
+    return a clean 400 with the upstream's vocabulary instead of a 422
+    with a generic enum error.
 
     ``parent_id`` defaults to ``history.currentId`` server-side when
     ``None``; pass an explicit value to branch off an older message.
     """
 
     content: str = Field(min_length=1)
-    model: str = Field(min_length=1)
+    agent_id: str = Field(min_length=1)
     parent_id: str | None = None
     params: ChatParams = ChatParams()
 

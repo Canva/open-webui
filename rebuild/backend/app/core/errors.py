@@ -60,7 +60,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ProviderError)
     async def _provider_error_handler(_request: Request, exc: ProviderError) -> JSONResponse:
-        # Non-streaming surfaces — ``GET /api/models``, ``POST /api/chats/{id}/title``
+        # Non-streaming surfaces — ``GET /api/agents``, ``POST /api/chats/{id}/title``
         # — let :class:`app.providers.openai.ProviderError` bubble out so the
         # status code (502 / 504 / 429) is owned in one place. The streaming
         # generator (Phase 2c) catches it inside the SSE loop and emits a

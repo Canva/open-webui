@@ -72,8 +72,8 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://redis:6379/0"
 
-    model_gateway_base_url: str | None = None
-    model_gateway_api_key: SecretStr | None = None
+    agent_gateway_base_url: str | None = None
+    agent_gateway_api_key: SecretStr | None = None
 
     trusted_email_header: str = "X-Forwarded-Email"
     trusted_name_header: str = "X-Forwarded-Name"

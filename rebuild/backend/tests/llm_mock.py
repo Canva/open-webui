@@ -1,12 +1,19 @@
 """Cassette-replay LLM mock — the OpenAI-compatible upstream stand-in for
 the M2 integration suite.
 
+This module mocks the **upstream agent gateway** which speaks the
+OpenAI wire format, so the wire field names (``model``) and HTTP path
+(``/v1/models``) deliberately retain the OpenAI nomenclature. The
+rebuild's *internal* domain talks about *agents*; the translation
+happens in :class:`app.providers.openai.OpenAICompatibleProvider`.
+
 A tiny FastAPI app exposing the two endpoints the rebuild's
 :class:`app.providers.openai.OpenAICompatibleProvider` ever hits:
 
-* ``GET /v1/models`` — fixed model list (overridable per-test by mounting
-  ``app.state.models``). No hashing; the rebuild's
-  ``OpenAICompatibleProvider.list_models`` calls this once on cache fill.
+* ``GET /v1/models`` — fixed agent list (overridable per-test by mounting
+  ``app.state.models``; the attribute keeps the OpenAI wire field name).
+  No hashing; the rebuild's
+  ``OpenAICompatibleProvider.list_agents`` calls this once on cache fill.
 * ``POST /v1/chat/completions`` — request hashed via
   :func:`compute_cassette_hash` to a filename under
   ``rebuild/backend/tests/fixtures/llm/``:
@@ -32,7 +39,7 @@ as future work and not in code so the file replay surface stays the only
 test path that can possibly fire.
 
 Plan reference: ``rebuild/docs/plans/m2-conversations.md`` § Tests
-("Cassette strategy for the model gateway mock", lines 1075-1080).
+("Cassette strategy for the agent gateway mock", lines 1075-1080).
 """
 
 from __future__ import annotations
@@ -96,9 +103,11 @@ def _hash_request_body(body: dict[str, Any]) -> str:
 def create_mock_app(*, fixtures_dir: Path = FIXTURES_DIR) -> FastAPI:
     """Build a fresh mock app instance.
 
-    Tests that need a custom model list can mutate ``app.state.models``
-    after construction; the default list ships with the three ids the
-    rebuild's frontend dropdown is expected to render.
+    Tests that need a custom agent list can mutate ``app.state.models``
+    after construction; the attribute name keeps the OpenAI wire field
+    so the route handler stays a faithful upstream stand-in. The
+    default list ships with the three ids the rebuild's frontend
+    dropdown is expected to render.
     """
     app = FastAPI(title="llm-mock", version="0.0.0")
     app.state.models = list(DEFAULT_MODELS)
@@ -200,6 +209,7 @@ def _replay_json(fixtures_dir: Path, cassette_hash: str) -> Response:
 
 
 # Module-level app instance for tests that don't need per-test isolation.
-# Test fixtures requiring a custom model list construct a fresh instance
-# via :func:`create_mock_app` and mutate its ``app.state.models``.
+# Test fixtures requiring a custom agent list construct a fresh instance
+# via :func:`create_mock_app` and mutate its ``app.state.models`` (the
+# OpenAI wire field name).
 app = create_mock_app()

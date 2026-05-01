@@ -154,12 +154,12 @@
 
     <!-- Metadata + actions row. Hidden on streaming so it doesn't
          flicker during token arrival. In `readonly` mode the row
-         still renders so model + usage stay visible, but the action
+         still renders so agent + usage stay visible, but the action
          cluster (Copy / Regenerate) is suppressed. -->
     {#if !isStreaming}
       <div class="text-ink-muted flex items-center gap-3 text-[11px]">
-        {#if message.modelName || message.model}
-          <span class="font-mono">{message.modelName ?? message.model}</span>
+        {#if message.agentName || message.agent_id}
+          <span class="font-mono">{message.agentName ?? message.agent_id}</span>
         {/if}
         {#if usageText}
           <span title={usageText}>{message.usage?.total_tokens} tokens</span>

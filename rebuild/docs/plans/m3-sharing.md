@@ -70,7 +70,7 @@ Notes:
 - `id` length 43 matches the unpadded URL-safe base64 length of 32 raw bytes. Storing as `VARCHAR(43)` instead of `VARCHAR(64)` removes any ambiguity and gives MySQL a tight key.
 - `history` is the same JSON shape as `chat.history` from M2 (the message tree dict). Storing the full snapshot inline means the share endpoint never has to join back to `chat`, which is exactly what we want for a read-only view of a possibly-mutated original.
 - We do NOT store `updated_at`. A share is immutable after creation; re-share is delete + create (see Snapshot semantics).
-- We do NOT store `model_id`, `folder_id`, `archived`, or any other chat metadata — only what the renderer needs.
+- We do NOT store `agent_id`, `folder_id`, `archived`, or any other chat metadata — only what the renderer needs.
 
 ## Alembic revision
 
@@ -208,7 +208,7 @@ The public-from-the-proxy share view lives at `rebuild/frontend/src/routes/(publ
 - Loads via `+page.server.ts` (server-only `load`) that calls `GET /api/shared/{token}` using the SvelteKit `fetch` (which forwards the proxy headers in our deployment). Server `load` is the right primitive here per [sveltekit-best-practises.md § 2.1 / § 2.3](../best-practises/sveltekit-best-practises.md): the response is auth-gated, comes from our own backend, and the share view never needs to refetch on client navigation. A universal `+page.ts` would also re-run on the client during in-app navigation, which is wasted work for a snapshot.
 - On `404`, renders a minimal "This share link is no longer active" panel rather than redirecting away — readers should know the link is dead, not be silently bounced to home.
 - On `401`, lets the proxy's interception take over; the SvelteKit handler does nothing special.
-- Renders the same `Message` and `Markdown` components used by the M2 conversation view, in read-only mode (no edit, no regenerate, no continue, no input box, no model selector, no scroll-to-bottom-on-stream behaviour).
+- Renders the same `Message` and `Markdown` components used by the M2 conversation view, in read-only mode (no edit, no regenerate, no continue, no input box, no agent selector, no scroll-to-bottom-on-stream behaviour).
 - Header layout:
   - Title (the snapshot's `title`).
   - Subline: "Shared by {shared_by.name} • {created_at, relative}".
@@ -216,7 +216,7 @@ The public-from-the-proxy share view lives at `rebuild/frontend/src/routes/(publ
 - Body: the message list, max-width matching the conversation view, with `content-visibility: auto` virtualization carried over from M2 for long histories.
 - No realtime subscription. The page is a pure read.
 
-The route has no layout dependency on the authenticated app shell; the existing `(public)/+layout.svelte` (chrome-free, theme-aware, no sidebar / model store / automations) satisfies the "thin layout" role — inventing a sibling `s/+layout.svelte` would have duplicated that logic without adding any contract the public layout doesn't already meet. As a small infrastructure detail of the new `+page.server.ts`, the existing `(public)/+layout.server.ts` is updated to flow `user: locals.user` through `App.PageData` so the typed `PageData` contract resolves for any child route under `(public)`; the `(public)` shell itself never reads the value, and it is `null` for anonymous requests. This keeps the share view from accidentally pulling in sidebar, model store, automations stores, or any other M4/M5 surface area.
+The route has no layout dependency on the authenticated app shell; the existing `(public)/+layout.svelte` (chrome-free, theme-aware, no sidebar / agent store / automations) satisfies the "thin layout" role — inventing a sibling `s/+layout.svelte` would have duplicated that logic without adding any contract the public layout doesn't already meet. As a small infrastructure detail of the new `+page.server.ts`, the existing `(public)/+layout.server.ts` is updated to flow `user: locals.user` through `App.PageData` so the typed `PageData` contract resolves for any child route under `(public)`; the `(public)` shell itself never reads the value, and it is `null` for anonymous requests. This keeps the share view from accidentally pulling in sidebar, agent store, automations stores, or any other M4/M5 surface area.
 
 ## Owner UX
 
@@ -243,7 +243,7 @@ The route has no layout dependency on the authenticated app shell; the existing 
 ### Component (Playwright CT, `rebuild/frontend/tests/component/`)
 
 - `share-modal.spec.ts` — drives `ShareModal.svelte` through all three states with MSW handlers for the three endpoints. Asserts: copy button writes to `navigator.clipboard`, stop-sharing requires confirmation, generate-link reflects the returned URL.
-- `shared-view.spec.ts` — renders `+page.svelte` against a fixture snapshot covering markdown, code blocks, and math, asserting it uses the same `Message` component as the conversation view (no input box, no regen controls, no model selector). Includes a long-history fixture (200+ messages) to exercise virtualization.
+- `shared-view.spec.ts` — renders `+page.svelte` against a fixture snapshot covering markdown, code blocks, and math, asserting it uses the same `Message` component as the conversation view (no input box, no regen controls, no agent selector). Includes a long-history fixture (200+ messages) to exercise virtualization.
 
 ### E2E (Playwright, `rebuild/frontend/tests/e2e/`)
 
@@ -273,7 +273,7 @@ Every click-path a real user takes on M3-owned surfaces. Each row binds the thre
 | Chat header → click Share → modal opens with "Generate link" CTA (not-shared state) | `share-modal-not-shared.png` (new baseline) | `tests/component/ShareModal-geometry.spec.ts` — modal stays inside viewport, CTA + dismiss button don't collide, description text not clipped | sign-off required |
 | Share modal → click Generate → modal transitions to shared state with token + copy button + stop-sharing button | `share-modal-shared.png` (new baseline) | same `ShareModal-geometry.spec.ts` — token input's monospace text not clipped at token length 43, copy / stop-sharing buttons stay inside the modal at every viewport | sign-off required |
 | Share modal → click Stop sharing → confirm → modal returns to not-shared state | covered by the `share-modal-not-shared.png` baseline (destination state) | covered by `ShareModal-geometry.spec.ts` | sign-off required |
-| Recipient opens `/s/{token}` → read-only snapshot renders via M2 `Message` + `Markdown` components, no input, no regen, no model selector | `share-view.png` | `tests/component/SharedView-geometry.spec.ts` — no composer / model-selector / regen affordances render (negative containment check), read-only snapshot fits inside the public-layout shell, header "Shared chat" label is not text-clipped | sign-off required |
+| Recipient opens `/s/{token}` → read-only snapshot renders via M2 `Message` + `Markdown` components, no input, no regen, no agent selector | `share-view.png` | `tests/component/SharedView-geometry.spec.ts` — no composer / agent-selector / regen affordances render (negative containment check), read-only snapshot fits inside the public-layout shell, header "Shared chat" label is not text-clipped | sign-off required |
 | Recipient with no `X-Forwarded-Email` → `/s/{token}` 401 page | covered by the M6 error-banner baseline (see [m6 § User journeys](m6-hardening.md)); M3 does not ship a bespoke 401 chrome | covered by M6's error-banner geometry spec | sign-off required |
 
 ## Dependencies on other milestones
@@ -292,7 +292,7 @@ Every click-path a real user takes on M3-owned surfaces. Each row binds the thre
 - [ ] `DELETE /api/chats/{id}/share` clears `chat.share_id` and the shared row; `GET /api/shared/{old_token}` returns `404` thereafter; a second `DELETE` on the same chat is a `204` no-op.
 - [ ] `GET /api/shared/{token}` with a valid `X-Forwarded-Email` returns the snapshot regardless of whether the caller is the owner.
 - [ ] `GET /api/shared/{token}` with no `X-Forwarded-Email` returns `401` even when the token is valid.
-- [ ] `/s/{token}` renders the snapshot using the M2 `Message` and `Markdown` components, with no input box, no regen, no model selector.
+- [ ] `/s/{token}` renders the snapshot using the M2 `Message` and `Markdown` components, with no input box, no regen, no agent selector.
 - [ ] The share modal walks through `not shared → shared → not shared` states with copy and stop-sharing actions wired up.
 - [ ] All unit, component, and E2E tests listed above are present and green in CI.
 - [ ] OpenAPI schema includes the three endpoints with correct request/response models.

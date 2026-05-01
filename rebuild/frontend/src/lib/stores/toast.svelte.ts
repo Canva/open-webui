@@ -2,7 +2,7 @@
  * Per-request toast queue. Constructed once in `(app)/+layout.svelte`
  * via `provideToast()` and consumed by every store/component that
  * needs to surface an error or success — primarily the M2 SSE error
- * branch and HTTP failures from `chats` / `folders` / `models`.
+ * branch and HTTP failures from `chats` / `folders` / `agents`.
  *
  * Locked by:
  * - `rebuild/docs/plans/m2-conversations.md` § Stores and state
