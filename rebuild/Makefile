@@ -28,7 +28,7 @@
 # Tail container output with `make logs`.
 # ---------------------------------------------------------------------------
 
-.PHONY: setup dev dev-rebuild-models migrate lint typecheck test-unit test-component test-e2e-smoke verify-stack verify-migrate build down logs
+.PHONY: setup dev dev-rebuild-models migrate lint lint-plans typecheck test-unit test-component test-e2e-smoke test-visual test-visual-update verify-stack verify-migrate build down logs
 
 # One-shot install of backend (uv) and frontend (npm) dependencies.
 setup:
@@ -42,8 +42,10 @@ setup:
 # Reminder: this does NOT start the Vite dev server -- run `npm run dev`
 # in a second terminal to serve the SvelteKit frontend on :5173.
 dev:
-	docker compose -f infra/docker-compose.yml up -d --build --wait
+	docker compose -f infra/docker-compose.yml up -d --build --wait --remove-orphans
 
+stop-dev:
+	docker compose -f infra/docker-compose.yml down
 # Force-recreate the `ollama` container so its entrypoint wrapper re-runs
 # the `ollama pull qwen2.5:0.5b` step on next boot. Idempotent: `ollama
 # pull` is a no-op on cache hit, so this target is mostly useful when the
@@ -78,11 +80,46 @@ migrate:
 # `rebuild/docs/plans/feature-llm-models.md` § Deliverables and
 # § pyproject.toml for the rationale; this is the first backend custom
 # grep gate (mirrors the frontend `lint:grep` pattern from m0).
-lint:
+lint: lint-plans
 	uv run --project backend ruff check backend
 	uv run --project backend ruff format --check backend
 	@! grep -RInE 'pydantic[-_]ai' backend || (echo "ERROR: pydantic-ai must not appear under rebuild/backend/ -- see rebuild/docs/plans/feature-llm-models.md" && exit 1)
 	npm run -s lint
+
+# Every milestone and feature plan under `docs/plans/` MUST have a
+# `## User journeys` section and the mandatory three-layer visual-QA
+# acceptance criterion. The section drives Layer A (baselines), Layer B
+# (geometric invariants), and Layer C (impeccable design review) per
+# `docs/best-practises/visual-qa-best-practises.md`; without it the
+# verifier has nothing to check against.
+#
+# Milestones that ship no product UI opt out by writing the literal
+# phrase `_No product UI in this milestone._` as the section's sole
+# content — the second grep below enforces that every section is either
+# populated (has a row with "Layer A") or explicitly marked n/a.
+#
+# See `docs/plans/PLAN-TEMPLATE.md` for the canonical shape.
+lint-plans:
+	@set -e ; \
+	  for f in docs/plans/m[0-9]*.md docs/plans/feature-*.md ; do \
+	    grep -q '^## User journeys' "$$f" || { \
+	      echo "ERROR: $$f is missing a '## User journeys' section." ; \
+	      echo "       See docs/plans/PLAN-TEMPLATE.md and docs/best-practises/visual-qa-best-practises.md." ; \
+	      exit 1 ; \
+	    } ; \
+	    grep -qE '(Layer A|No product UI in this milestone\.)' "$$f" || { \
+	      echo "ERROR: $$f has a '## User journeys' section but no journey rows and no explicit n/a marker." ; \
+	      echo "       Populate the table (columns: Journey | Layer A | Layer B | Layer C) or write" ; \
+	      echo "       '_No product UI in this milestone._' as the section's sole content." ; \
+	      exit 1 ; \
+	    } ; \
+	    grep -q 'Three-layer visual QA' "$$f" || { \
+	      echo "ERROR: $$f is missing the mandatory 'Three-layer visual QA' acceptance-criteria row." ; \
+	      echo "       Copy the row verbatim from docs/plans/PLAN-TEMPLATE.md § Mandatory acceptance criterion." ; \
+	      exit 1 ; \
+	    } ; \
+	  done ; \
+	  echo "lint-plans: all plans have § User journeys and the three-layer acceptance criterion"
 
 # Static typechecks: mypy for backend, svelte-check for frontend.
 typecheck:
@@ -95,6 +132,11 @@ test-unit:
 	npm run -s test:unit
 
 # Playwright component tests (Svelte components mounted in isolation).
+# This is the primary home for Layer B geometric-invariant specs per
+# `rebuild/docs/best-practises/visual-qa-best-practises.md` — component-
+# level overlap / containment / clipping invariants live in
+# `frontend/tests/component/*-geometry.spec.ts` so they run hermetically
+# without needing the backend + Vite dev server.
 test-component:
 	npm run -s test:ct
 
@@ -102,6 +144,28 @@ test-component:
 # (`make dev`) AND the Vite dev server (`npm run dev`) to be running.
 test-e2e-smoke:
 	npm run -s test:e2e:smoke
+
+# Playwright @visual-tagged baselines (pixel-diff via `toHaveScreenshot`).
+# Matches every milestone's `@visual-m{n}` tag. Requires the Docker stack
+# + Vite dev server AND the Linux container image the baselines were
+# captured on (macOS font-hinting drift will inflate diffs into the tens
+# of thousands of pixels — run inside the CI image via `docker compose
+# run ... make test-visual` for a clean local result).
+#
+# See `rebuild/docs/best-practises/visual-qa-best-practises.md` § Layer A
+# for capture workflow and `rebuild/docs/plans/m6-hardening.md` § Visual-
+# regression CI for the Buildkite wiring.
+test-visual:
+	npm run -s test:visual
+
+# Manual-only: refresh the pixel-diff baselines. NEVER run by CI. Use
+# the Buildkite `block: "Refresh visual baselines"` step documented in
+# `rebuild/docs/plans/m6-hardening.md` § Baseline refresh, or run
+# locally inside the CI Linux image to avoid font drift. Regenerated
+# PNGs are committed via Git LFS and reviewed in GitHub's image-diff
+# view; baselines never auto-merge.
+test-visual-update:
+	npm run -s test:visual:update
 
 # Cold-build the docker image, bring up mysql + redis + app, hit the
 # canonical health + bootstrap routes, confirm the DB is at the expected

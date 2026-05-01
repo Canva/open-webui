@@ -1428,6 +1428,30 @@ quarantine + investigation, never a green tick.
 No milestone depends on M4 reciprocally except M6 hardening, which adds OTel
 spans around the realtime emit path and the upload-bytes counter.
 
+## User journeys
+
+Every click-path a real user takes on M4-owned surfaces. Each row binds the three layers of coverage per [visual-qa-best-practises.md § The three layers](../best-practises/visual-qa-best-practises.md#the-three-layers). The `verifier` walks this table on acceptance. M4 ships the largest UI surface in the rebuild — every journey below must have its three-layer coverage before acceptance is declared green.
+
+| Journey | Visual baseline (Layer A) | Geometric invariants (Layer B) | Impeccable review (Layer C) |
+|---------|---------------------------|-------------------------------|-----------------------------|
+| Open `/channels` → empty-state picker (no channel selected) | `channels-empty.png` | `tests/component/ChannelList-geometry.spec.ts` — empty-state copy not clipped, "Create channel" CTA stays inside the sidebar column | sign-off required |
+| Channel list → 3 pinned + 8 unpinned + 2 archived hidden | `channel-list-dense.png` | `ChannelList-geometry.spec.ts` — pinned/unpinned dividers don't collide with row chrome, unread badges stay inside their row's right edge, archived rows don't leak into the default view | sign-off required |
+| Open `/channels/[id]` → feed with mixed messages (user + bot, some with reactions, one with pin badge) | `channel-feed-mixed.png` | `tests/component/MessageItem-geometry.spec.ts` — author avatar + name + timestamp don't collide, reaction chips stay inside the message bubble, pin badge doesn't overflow at narrow widths | sign-off required |
+| Composer → `@` trigger → mention picker opens below the cursor | `composer-mention-picker.png` | `tests/component/Composer-geometry.spec.ts` — picker popover stays inside viewport (no bottom-edge overflow at short viewports), picker rows not text-clipped at longest member name; picker's top edge lands above the composer's top edge (anchor direction) | sign-off required |
+| Composer → attach file → 4.8 MiB image preview tile appears above textarea | `composer-file-preview.png` | `Composer-geometry.spec.ts` — preview tile + remove `×` affordance stay inside the composer card, filename does not overflow the preview's right edge | sign-off required |
+| Composer → attach oversize file (>5 MiB) → inline error | `composer-file-oversize-error.png` | covered by `Composer-geometry.spec.ts` — error text stays inside the composer, does not push the send button out of the row | sign-off required |
+| Click message → open thread split-pane → reply | `thread-split-pane.png` | `tests/component/Thread-geometry.spec.ts` — split-pane divider does not overlap either pane's scroll chrome, thread composer stays inside its pane at every viewport, the "Back to channel" affordance is not clipped | sign-off required |
+| Hover message → reaction + pin + thread actions reveal | `message-hover-actions.png` | `MessageItem-geometry.spec.ts` — action row stays within the message bubble's right edge, action icons do not collide with message text at widths ≥ `sm` | sign-off required |
+| Message with reactions from 3+ users → reaction chip shows count + tooltip | `message-reactions-counted.png` | `tests/component/Reactions-geometry.spec.ts` — chip row wraps without clipping emoji, count badge stays right-aligned inside chip | sign-off required |
+| Open Pins modal → pinned-message list visible | `pins-modal.png` | `tests/component/Pins-geometry.spec.ts` — modal stays inside viewport, pinned-message snippets truncate with ellipsis not hard-clip, "Unpin" action is visible in every row | sign-off required |
+| Open Members list → online + offline sections, status dot placement | `members-list.png` | `tests/component/MemberList-geometry.spec.ts` — status dot does not collide with avatar, role badge ("owner" / "admin") stays inside its row | sign-off required |
+| Open Webhook config → token masked, "Rotate" + "Delete" actions visible | `webhook-config.png` | `tests/component/WebhookConfig-geometry.spec.ts` — masked token's monospace text not clipped, actions stay inside the panel | sign-off required |
+| Typing indicator: 1 / 2 / 3+ users typing in a channel | `typing-indicator-{one,two,many}.png` | covered by `Composer-geometry.spec.ts` — the indicator row does not push the composer textarea above the viewport; copy variants ("Alice is typing…", "Alice and Bob are typing…", "Alice, Bob, and 3 others are typing…") are not clipped | sign-off required |
+| `@model` mention → bot streams reply in the thread | `bot-stream-in-thread.png` | covered by `Thread-geometry.spec.ts` (same component, streaming-state variant); `MessageItem-geometry.spec.ts` adds a streaming-state case so the bot cursor/placeholder chrome does not clip at the message bubble's right edge | sign-off required |
+| Connection lost → "Reconnecting…" chrome; Connection restored → chrome hides | `connection-reconnecting.png` | `tests/component/Navbar-geometry.spec.ts` — reconnecting banner does not overlap the topbar's other affordances, copy is not clipped | sign-off required |
+
+Follow-up rows deferring Layer A or Layer B coverage to a later milestone MUST be tracked in § M4 follow-ups below.
+
 ## Acceptance criteria
 
 - [ ] All eight ORM tables created via a single Alembic revision; `alembic
@@ -1516,6 +1540,7 @@ spans around the realtime emit path and the upload-bytes counter.
 - [ ] Visual-regression baselines `channel-feed.png` and `channel-thread.png`
   captured under `rebuild/frontend/tests/visual-baselines/m3/` (Git LFS),
   rendered against the deterministic two-user channel fixture.
+- [ ] **Three-layer visual QA** (per [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md)): every row in § User journeys has (a) a committed baseline PNG under `tests/visual-baselines/m3/` produced by the manual refresh workflow, (b) a green geometric-invariant spec — CT `*-geometry.spec.ts` by default under `tests/component/`, escalating to `@journey-m4` under `tests/e2e/journeys/` only for multi-surface invariants, and (c) an `impeccable` design-review pass with zero Blockers. Polish findings are filed into § M4 follow-ups rather than blocking acceptance. `make test-component` and `make test-visual` both green; the verifier records the impeccable pass output.
 
 ## Out of scope
 

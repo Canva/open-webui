@@ -255,6 +255,18 @@ Auth E2E (sits in the same file because it is the security backstop):
 
 All E2E specs run against the deterministic stack from M0 (app + MySQL + Redis + recorded LLM mock).
 
+## User journeys
+
+Every click-path a real user takes on M3-owned surfaces. Each row binds the three layers of coverage per [visual-qa-best-practises.md § The three layers](../best-practises/visual-qa-best-practises.md#the-three-layers). The `verifier` walks this table on acceptance.
+
+| Journey | Visual baseline (Layer A) | Geometric invariants (Layer B) | Impeccable review (Layer C) |
+|---------|---------------------------|-------------------------------|-----------------------------|
+| Chat header → click Share → modal opens with "Generate link" CTA (not-shared state) | `share-modal-not-shared.png` (new baseline) | `tests/component/ShareModal-geometry.spec.ts` — modal stays inside viewport, CTA + dismiss button don't collide, description text not clipped | sign-off required |
+| Share modal → click Generate → modal transitions to shared state with token + copy button + stop-sharing button | `share-modal-shared.png` (new baseline) | same `ShareModal-geometry.spec.ts` — token input's monospace text not clipped at token length 43, copy / stop-sharing buttons stay inside the modal at every viewport | sign-off required |
+| Share modal → click Stop sharing → confirm → modal returns to not-shared state | covered by the `share-modal-not-shared.png` baseline (destination state) | covered by `ShareModal-geometry.spec.ts` | sign-off required |
+| Recipient opens `/s/{token}` → read-only snapshot renders via M2 `Message` + `Markdown` components, no input, no regen, no model selector | `share-view.png` | `tests/component/SharedView-geometry.spec.ts` — no composer / model-selector / regen affordances render (negative containment check), read-only snapshot fits inside the public-layout shell, header "Shared chat" label is not text-clipped | sign-off required |
+| Recipient with no `X-Forwarded-Email` → `/s/{token}` 401 page | covered by the M6 error-banner baseline (see [m6 § User journeys](m6-hardening.md)); M3 does not ship a bespoke 401 chrome | covered by M6's error-banner geometry spec | sign-off required |
+
 ## Dependencies on other milestones
 
 - **M2 (hard).** Requires the `chat` table, the `chat.history` JSON column, the conversation page, and the `Message` + `Markdown` components. Without M2 there is nothing to share and no renderer to reuse.
@@ -276,6 +288,7 @@ All E2E specs run against the deterministic stack from M0 (app + MySQL + Redis +
 - [ ] All unit, component, and E2E tests listed above are present and green in CI.
 - [ ] OpenAPI schema includes the three endpoints with correct request/response models.
 - [ ] `tests/visual-baselines/m2/share-view.png` captured against the deterministic snapshot fixture (committed via Git LFS); diff tolerance configured per `rebuild.md` §8 Layer 4.
+- [ ] **Three-layer visual QA** (per [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md)): every row in § User journeys has (a) a committed baseline PNG under `tests/visual-baselines/m2/` produced by the manual refresh workflow, (b) a green geometric-invariant spec — CT `*-geometry.spec.ts` by default under `tests/component/`, escalating to `@journey-m3` under `tests/e2e/journeys/` only for multi-surface invariants, and (c) an `impeccable` design-review pass with zero Blockers. Polish findings are filed into § M3 follow-ups rather than blocking acceptance. `make test-component` and `make test-visual` both green; the verifier records the impeccable pass output.
 
 ## Out of scope
 

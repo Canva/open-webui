@@ -778,6 +778,12 @@ The rebuild's existing M2 integration suite continues to use the cassette mock a
 
 MSW handlers in [rebuild/frontend/src/lib/msw/handlers.ts](../../frontend/src/lib/msw/handlers.ts) keep returning the existing fixed model list; the agent platform is not used by Vitest, Playwright component tests, or Playwright E2E. The model ids in the MSW handler list (`gpt-4o`, `gpt-4o-mini`, `claude-3-5-sonnet`) intentionally differ from the agent platform's (`dev`) — the MSW list represents what the production gateway eventually returns, not what dev ships locally.
 
+## User journeys
+
+_No product UI in this milestone._
+
+This feature is dev-loop only. The agent-platform runs as a separate compose service; the runtime image and every production deploy are untouched. The one visible-surface artefact — the model dropdown reading `Dev (Qwen 2.5, 0.5B)` in the dev environment — is a behavioural check on the M2-owned `ModelSelector` component, not a new UI surface. The M2 `ModelSelector-geometry.spec.ts` (owned by [m2 § User journeys](m2-conversations.md)) already asserts geometric invariants for that dropdown; no new row is needed here.
+
 ## Acceptance criteria
 
 The feature is done when, on a fresh `git clone`, the following sequence works end-to-end with no manual intervention beyond running the documented commands:
@@ -793,6 +799,7 @@ The feature is done when, on a fresh `git clone`, the following sequence works e
 - [ ] Backend `make test-unit` completes in ≤ same wall-time as before the feature lands (agent platform is not in the test path).
 - [ ] `make lint` fails if `pydantic-ai` or `pydantic_ai` is imported anywhere under `rebuild/backend/`.
 - [ ] The runtime image (`make build`) does not include `pydantic-ai` or any LLM-related transitives — verified by `docker run --rm open-webui-rebuild:dev pip list | grep -i pydantic-ai` returning empty.
+- [ ] **Three-layer visual QA** — n/a (this feature ships no product UI). The `## User journeys` section is empty; the `lint-plans` gate accepts the literal phrase `_No product UI in this milestone._`.
 
 ## Out of scope
 

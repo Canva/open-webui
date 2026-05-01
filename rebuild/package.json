@@ -12,7 +12,9 @@
     "format": "prettier --write .",
     "test:unit": "vitest run",
     "test:ct": "playwright test -c playwright-ct.config.ts",
-    "test:e2e:smoke": "playwright test -c playwright.config.ts --grep @smoke"
+    "test:e2e:smoke": "playwright test -c playwright.config.ts --grep @smoke",
+    "test:visual": "playwright test -c playwright.config.ts --grep @visual",
+    "test:visual:update": "playwright test -c playwright.config.ts --grep @visual --update-snapshots"
   },
   "devDependencies": {
     "@playwright/experimental-ct-svelte": "1.58.2",

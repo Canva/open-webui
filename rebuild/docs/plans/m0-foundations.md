@@ -1136,6 +1136,14 @@ The following must run green in CI before the milestone is closed.
 
 **Image build:** `docker build -f rebuild/Dockerfile rebuild` succeeds; `docker run` exits 0 on `/healthz` curl after compose-up.
 
+## User journeys
+
+_No product UI in this milestone._
+
+M0 ships a `/api/me` backend roundtrip plus the SvelteKit `hooks.server.ts` → `event.locals.user` → root `+layout.server.ts` → `Hello {email}` smoke surface. The DOM text is a trusted-header integrity check, not product UI; M1 replaces it with the theme-aware empty-chat layout. The `@smoke` E2E (`frontend/tests/e2e/auth-locals.spec.ts`) already asserts the value is in the DOM — that's the authoritative check for M0. No baseline, no geometric-invariant spec, no impeccable review for this scaffold.
+
+The first real product-UI rows land in [M1 § User journeys](m1-theming.md) (theme picker surfaces) and [M2 § User journeys](m2-conversations.md) (chat surfaces).
+
 ## Acceptance criteria
 
 - [ ] Top-level `rebuild/` directory exists with the layout in [§ File and directory layout](#file-and-directory-layout).
@@ -1160,6 +1168,7 @@ The following must run green in CI before the milestone is closed.
 - [ ] `cd rebuild && make test-e2e-smoke` runs the `@smoke` E2E suite against compose, green on chromium + firefox + webkit.
 - [ ] `cd rebuild && make build` produces a runnable Docker image; `docker run --rm <image> python -c "import app.main"` exits 0.
 - [ ] **Deployment-plumbing gate (project-wide, inherited by every milestone).** `cd rebuild && make verify-stack` cold-builds the image, brings up mysql + redis + app via compose, asserts `/healthz` + `/readyz` + `/api/me` return 200 with the expected JSON shape, asserts `alembic_version` is at the expected head, and tears down — all without manual intervention. `cd rebuild && make verify-migrate` brings up only mysql, runs `make migrate` from the host, and asserts `alembic_version` is at head — exercising the documented host-side alembic flow against a fresh database. Both targets are run by the verifier (`.cursor/agents/verifier.md` step 3) on every dispatch that touches `rebuild/`, with `verify-migrate` gated on changes under `backend/alembic/` or `backend/app/models/`. This is the gate that catches the bug class lint / typecheck / unit / e2e cannot see — Dockerfile build breakage, missing build-time env vars, stale-image silent code drift, broken `alembic.ini` sys-path, and `DATABASE_URL` defaults that don't resolve from the host.
+- [ ] **Three-layer visual QA** — n/a (this milestone ships no product UI). The `## User journeys` section is empty; the `lint-plans` gate accepts the literal phrase `_No product UI in this milestone._`.
 - [ ] Buildkite pipeline file `rebuild/.buildkite/rebuild.yml` exists with the path filter `if: build.changed_files =~ /^rebuild\//` on every step.
 - [ ] A test PR touching only `README.md` does not trigger any rebuild step in Buildkite. A test PR touching `rebuild/backend/app/main.py` triggers the rebuild pipeline and not the legacy one.
 - [ ] Legacy [Makefile](../../../Makefile) still works (no shared targets touched, no shared lockfiles modified).

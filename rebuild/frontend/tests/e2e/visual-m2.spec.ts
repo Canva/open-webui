@@ -2,7 +2,7 @@
  * Visual-regression baselines for M2 chat surfaces.
  *
  * Locked by `rebuild/docs/plans/m2-conversations.md`:
- *   - § Tests § Visual regression: three new M2 baselines under
+ *   - § Tests § Visual regression: four M2 baselines under
  *     `tests/visual-baselines/m1/` (the M1 directory is shared per
  *     the plan):
  *       1. `chat-empty-tokyo-night.png` — empty `(app)/+page.svelte`
@@ -15,6 +15,12 @@
  *          pre-populated mixed sidebar (3 pinned, 5 un-foldered, 2
  *          folders each with 3 chats inside, 4 archived which must
  *          NOT show).
+ *       4. `composer-options-open-tokyo-night.png` — composer with
+ *          the `+ Options` disclosure expanded, exposing `Temperature`
+ *          and `System`. Pairs with `tests/e2e/journeys/composer-
+ *          options.spec.ts` (geometric invariants), per the three-
+ *          layer visual-QA discipline in
+ *          `rebuild/docs/best-practises/visual-qa-best-practises.md`.
  *   - § Frontend conventions: `prefers-reduced-motion: reduce` and
  *     a frozen `Date.now` are mandatory boot-time stubs.
  *
@@ -320,5 +326,90 @@ test.describe('@visual-m2 chat-sidebar', () => {
     const sidebar = page.locator('aside').first();
     await expect(sidebar).toBeVisible();
     await expect(sidebar).toHaveScreenshot('chat-sidebar-tokyo-night.png', SCREENSHOT_OPTS);
+  });
+});
+
+test.describe('@visual-m2 composer-options-open', () => {
+  test.skip(process.env.SKIP_VISUAL !== '0', SKIP_REASON);
+
+  // Fourth M2 baseline — the composer with the `+ Options` disclosure
+  // expanded. Pairs with `tests/e2e/journeys/composer-options.spec.ts`
+  // for the geometric-invariant layer, per the three-layer visual-QA
+  // discipline (baseline + invariants + impeccable design review) in
+  // `rebuild/docs/best-practises/visual-qa-best-practises.md`.
+  //
+  // The full `MessageInput.svelte` (which owns `+ Options`) only mounts
+  // on `/c/<id>`; the `/` landing screen uses a stripped-down inline
+  // composer without the disclosure. We navigate straight to a
+  // fixtured empty chat so the capture is hermetic and stable.
+  const OPTIONS_CHAT_ID = '01900000-0000-7000-8000-00000000feed';
+
+  test('composer-options-open-tokyo-night', async ({ page, context }) => {
+    await setupForTokyoNight(page, context);
+
+    await page.route(`**/api/chats/${OPTIONS_CHAT_ID}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: OPTIONS_CHAT_ID,
+          title: 'Fresh chat',
+          pinned: false,
+          archived: false,
+          folder_id: null,
+          created_at: NOW,
+          updated_at: NOW,
+          history: { messages: {}, currentId: null },
+          share_id: null,
+        }),
+      });
+    });
+    await page.route('**/api/chats**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/api/chats') && route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            items: [chatSummary({ id: OPTIONS_CHAT_ID, title: 'Fresh chat' })],
+            next_cursor: null,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route('**/api/folders**', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify([]),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/c/${OPTIONS_CHAT_ID}`);
+    await page.waitForLoadState('networkidle');
+
+    // Drive into the "Options open" state — the disclosure is
+    // collapsed by default, so without this click we'd re-capture the
+    // same surface as `chat-empty-tokyo-night.png`.
+    const composer = page.getByRole('textbox', { name: 'Compose a message' });
+    await composer.fill('hello');
+    await page.getByRole('button', { name: /\+ Options/ }).click();
+    await expect(page.getByLabel('Temperature')).toBeVisible();
+    await expect(page.getByLabel('System')).toBeVisible();
+
+    // Scope to the composer card — nothing above it should drift the
+    // baseline, and the sidebar is already captured by
+    // `chat-sidebar-tokyo-night.png`.
+    const composerCard = page.locator('form').first();
+    await expect(composerCard).toHaveScreenshot(
+      'composer-options-open-tokyo-night.png',
+      SCREENSHOT_OPTS,
+    );
   });
 });

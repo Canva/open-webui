@@ -499,6 +499,22 @@ The legacy `TerminalDropdown.svelte` is **not** ported. Terminals are out of sco
 
 A single recorded SSE cassette `tests/fixtures/llm/automation_minutely.sse` covers the deterministic prompt for both the chat and channel cases; the request hash includes `model`, `messages`, and `stream=true` so the same cassette is used regardless of target.
 
+## User journeys
+
+Every click-path a real user takes on M5-owned surfaces. Each row binds the three layers of coverage per [visual-qa-best-practises.md § The three layers](../best-practises/visual-qa-best-practises.md#the-three-layers). The `verifier` walks this table on acceptance.
+
+| Journey | Visual baseline (Layer A) | Geometric invariants (Layer B) | Impeccable review (Layer C) |
+|---------|---------------------------|-------------------------------|-----------------------------|
+| Open `/automations` → list of automations (name, target, next run, last status badge, active toggle) | `automation-list.png` | `tests/component/AutomationList-geometry.spec.ts` — table columns don't overflow at narrow widths, status badge stays inside its column, active toggle does not collide with row chrome | sign-off required |
+| Open `/automations` → empty state, "Create your first automation" CTA | `automation-list-empty.png` | covered by `AutomationList-geometry.spec.ts` — empty-state copy not clipped, CTA stays inside the viewport | sign-off required |
+| Open `/automations/new` → empty editor: name, prompt, model picker, RRULE picker (Once tab), target selector | `automation-editor-empty.png` | `tests/component/AutomationEditor-geometry.spec.ts` — every form field stays inside the editor card, model-picker popover doesn't collide with prompt textarea | sign-off required |
+| RRULE picker → Daily tab with hour/minute pickers + weekday picker (where applicable) | `rrule-picker-daily.png` | `tests/component/RRulePicker-geometry.spec.ts` — frequency tabs fit in one row at the editor's widest width, hour/minute pickers don't overlap the weekday picker at narrower widths, "Next 5 runs" preview rows not text-clipped | sign-off required |
+| RRULE picker → Custom tab with raw-rule textarea and live validation error | `rrule-picker-custom-error.png` | same `RRulePicker-geometry.spec.ts` — validation error text stays inside the custom-rule panel, does not push the tab row out of view | sign-off required |
+| Target selector → "Chat" → chat-picker search results | `target-selector-chat.png` | `tests/component/TargetSelector-geometry.spec.ts` — search results list stays inside the target panel, titles truncate with ellipsis not hard-clip | sign-off required |
+| Target selector → "Channel" → channel list (or disabled state if M4 has not shipped) | `target-selector-channel.png` / `target-selector-disabled.png` | covered by `TargetSelector-geometry.spec.ts` — disabled-state tooltip does not overlap the toggle, channel rows don't overflow | sign-off required |
+| Editor → "Run now" → status pill transitions `pending → running → success` in the Run history | `run-history-running.png` / `run-history-success.png` | `tests/component/RunHistory-geometry.spec.ts` — status pill stays inside its column, duration text not clipped, expand toggle does not collide with status | sign-off required |
+| Editor → "Run now" → run ends in error → expand row shows error message | `run-history-error.png` | covered by `RunHistory-geometry.spec.ts` — error message wraps inside the expanded row and does not break out vertically, chat-link affordance stays in its row | sign-off required |
+
 ## Dependencies on other milestones
 
 - **Hard dependency on M0** — Alembic baseline, async session factory, settings, `/healthz`, trusted-header auth, FastAPI lifespan plumbing.
@@ -526,6 +542,7 @@ A single recorded SSE cassette `tests/fixtures/llm/automation_minutely.sse` cove
 - [ ] One-shot rules (`COUNT=1`) execute exactly once and then `next_run_at IS NULL`; the scheduler stops picking them up.
 - [ ] `/test/scheduler/tick` is registered only when `settings.env in {"test", "staging"}`; the route is absent in production (returns 404).
 - [ ] Visual-regression baselines `automation-list.png` and `automation-editor.png` captured under `rebuild/frontend/tests/visual-baselines/m4/` (Git LFS) against the deterministic editor + run-history fixture.
+- [ ] **Three-layer visual QA** (per [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md)): every row in § User journeys has (a) a committed baseline PNG under `tests/visual-baselines/m4/` produced by the manual refresh workflow, (b) a green geometric-invariant spec — CT `*-geometry.spec.ts` by default under `tests/component/`, escalating to `@journey-m5` under `tests/e2e/journeys/` only for multi-surface invariants, and (c) an `impeccable` design-review pass with zero Blockers. Polish findings are filed into § M5 follow-ups rather than blocking acceptance. `make test-component` and `make test-visual` both green; the verifier records the impeccable pass output.
 - [ ] The E2E test `automation-minutely.spec.ts` passes deterministically against the recorded SSE cassette.
 - [ ] `AutomationsStore` lives at `lib/stores/automations.svelte.ts` (not `.ts`), exports a class instantiated via `setContext` in `(app)/automations/+layout.svelte`. The run-now `setInterval` polling and 60s deadline `setTimeout` in `<AutomationEditor>` live inside a single `$effect(() => { …; return () => cleanup(); })`. No module-scope timers anywhere under `frontend/src/lib/stores/` (verified by the M0 grep gate). `<RRulePicker>` exposes its rule via `value = $bindable<string>('')` and is the only `$bindable` introduced by M5.
 - [ ] `make format` and `make test` pass under `rebuild/`.

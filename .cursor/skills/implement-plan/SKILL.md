@@ -45,9 +45,12 @@ Run these phases in order. Do not skip.
    - **API surface** — routes, payloads, status codes.
    - **Realtime / Streaming-pipeline / Socket.io** sections (M2 and M4).
    - **Frontend deliverables** — routes, components, stores.
+   - **User journeys** — mandatory. Lists every click-path this milestone ships with bound three-layer coverage (baseline PNG, geometric-invariant spec, impeccable review). See `rebuild/docs/plans/PLAN-TEMPLATE.md` and `rebuild/docs/best-practises/visual-qa-best-practises.md`.
    - **Tests** / **Acceptance criteria** / **Definition of done**.
 3. Re-read `rebuild.md` §9 (locked decisions) so you don't accidentally invite a subagent to violate one.
-4. If anything in the user's request contradicts a locked decision or a plan section, stop and dispatch `plan-keeper` first to surface the drift. Do not proceed with implementation until the user confirms how to resolve it.
+4. **Confirm the plan has a populated `## User journeys` section before dispatching any implementation subagent.** Run `cd rebuild && make lint-plans` — if it fails, dispatch `plan-keeper` FIRST with the milestone plan path and ask it to populate the section per `rebuild/docs/plans/PLAN-TEMPLATE.md § The User journeys section`. The `test-author` and `verifier` subagents consume this section to scope Layer A baselines, Layer B geometric-invariant specs, and Layer C impeccable reviews; without it they have nothing to generate or check against.
+5. If anything in the user's request contradicts a locked decision or a plan section, stop and dispatch `plan-keeper` first to surface the drift. Do not proceed with implementation until the user confirms how to resolve it.
+6. If during implementation any subagent ships a new visible surface — a new route under `src/routes/`, a new component with a visible state, a new banner/toast/modal/disclosure, or a new visible variant of an existing component — that isn't already a row in `## User journeys`, pause and dispatch `plan-keeper` to add the row before opening the PR. Do not paper over the gap by hand-editing the plan from an implementation subagent — `plan-keeper` is the only subagent that edits plans.
 
 ### Phase 1 — Build the dispatch plan
 
@@ -59,9 +62,9 @@ Map every actionable item from the plan to exactly one subagent. Use this rubric
 | New router, new endpoint, new Pydantic schema, new service, new dependency, route renames                                                           | `fastapi-engineer`  |
 | SSE generator, `StreamRegistry`, socket.io event/room, webhook delivery, presence/typing/read receipts                                              | `realtime-engineer` |
 | New SvelteKit route, new component, new store (`*.svelte.ts`), Tailwind work, legacy port with dead-import strip, design polish on existing surface | `svelte-engineer`   |
-| Unit test, component test, E2E test, multi-context test, visual baseline, MSW handler, LLM cassette                                                 | `test-author`       |
-| Acceptance-criteria sweep, regression-first gate enforcement, grep checks for non-negotiables                                                       | `verifier`          |
-| Plan edit (data-model row, API surface row, deliverable bullet)                                                                                     | `plan-keeper`       |
+| Unit test, component test, E2E test, multi-context test, visual baseline, MSW handler, LLM cassette, **`*-geometry.spec.ts` for every `## User journeys` row**                                                 | `test-author`       |
+| Acceptance-criteria sweep, regression-first gate enforcement, grep checks for non-negotiables, **three-layer visual-QA walk of every `## User journeys` row**                                                       | `verifier`          |
+| Plan edit (data-model row, API surface row, deliverable bullet, **`## User journeys` row for any new visible surface**)                                                                                     | `plan-keeper`       |
 
 For every `svelte-engineer` row in the dispatch plan, name the **impeccable command** the subagent should run. Pick from the routing table in `.cursor/skills/impeccable/PROJECT.md` § Command routing for `svelte-engineer`:
 
@@ -125,9 +128,9 @@ Mark each TodoWrite item `completed` as soon as its subagent returns, and update
 
 After all implementation subagents return:
 
-1. If any subagent reported it added a column/index/route/event/store that wasn't in the plan, dispatch `plan-keeper` with the diff. `plan-keeper` updates the milestone plan; never let implementation subagents edit plans.
-2. Dispatch `verifier` with the full list of changes from this run. Wait for its three-bucket report (Verified and passing / Claimed but incomplete or broken / Risks not blocking).
-3. If `verifier` flags incomplete work, do not auto-fix. Surface the report to the user and ask whether to re-dispatch the relevant specialist or accept the gap.
+1. If any subagent reported it added a column/index/route/event/store/**visible surface** that wasn't in the plan, dispatch `plan-keeper` with the diff. `plan-keeper` updates the milestone plan — including new `## User journeys` rows for any new visible surface — and never lets implementation subagents edit plans. The `make lint-plans` gate must stay green after the drift sweep.
+2. Dispatch `verifier` with the full list of changes from this run. In the dispatch message, explicitly require the verifier to walk every row in the target milestone's `## User journeys` section and confirm each has (a) a committed baseline PNG under `tests/visual-baselines/m{n}/`, (b) a green `*-geometry.spec.ts` (or `@journey-m{n}` e2e spec for multi-surface rows), and (c) an `impeccable`-skill pass with zero Blockers — per `rebuild/docs/best-practises/visual-qa-best-practises.md`. Wait for its three-bucket report (Verified and passing / Claimed but incomplete or broken / Risks not blocking).
+3. If `verifier` flags incomplete work — missing baselines, missing geometry specs, Blocker-level impeccable findings, or `## User journeys` rows without coverage — do not auto-fix. Surface the report to the user and ask whether to re-dispatch the relevant specialist or accept the gap.
 
 ### Phase 5 — Final report to the user
 

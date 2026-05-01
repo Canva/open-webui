@@ -553,18 +553,38 @@ Failures page the on-call rotation. Five-minute cadence is balanced against budg
 
 ### Visual-regression CI
 
-The visual-regression layer from `rebuild.md` § 8 Layer 4 spans every milestone — M1 ships 15 chrome + smoke baselines under `tests/visual-baselines/m1/`, M2 / M4 / M5 / M6 each add their own — so M6 owns the cross-milestone npm scripts, Makefile targets, and Buildkite wiring rather than each milestone re-inventing the workflow.
+The visual-regression layer from `rebuild.md` § 8 Layer 4, plus the two complementary layers documented in [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md) (geometric invariants + impeccable design review), span every milestone — M1 ships 15 chrome + smoke baselines under `tests/visual-baselines/m1/`, M2 / M4 / M5 / M6 each add their own plus the journey specs that guard them — so M6 owns the cross-milestone npm scripts, Makefile targets, and Buildkite wiring rather than each milestone re-inventing the workflow.
 
 **npm scripts (`rebuild/package.json`).** Two new scripts complement the existing `test:e2e:smoke`:
 
-- `test:visual` runs `playwright test --grep @visual` (matches every milestone's `@visual-m{n}` tag — M1's `visual-m1.spec.ts` already authors `@visual-m1`; M2 / M4 / M5 / M6 follow the same convention).
+- `test:visual` runs `playwright test --grep @visual` (matches every milestone's `@visual-m{n}` tag — M1's `visual-m1.spec.ts` already authors `@visual-m1`; M2 / M4 / M5 / M6 follow the same convention). Layer A per [visual-qa-best-practises.md § Layer A](../best-practises/visual-qa-best-practises.md#layer-a--pixel-diff-baselines).
 - `test:visual:update` runs `playwright test --grep @visual --update-snapshots` for the manual baseline refresh workflow (Git LFS-tracked PNGs under `tests/visual-baselines/**`).
 
-**Makefile targets (`rebuild/Makefile`).** `make test-visual` and `make test-visual-update` delegate to the two npm scripts so the rebuild's command surface stays consistent with the M0 `test-unit` / `test-component` / `test-e2e-smoke` shape.
+Layer B's geometric-invariant specs live primarily in Playwright Component Testing under `frontend/tests/component/*-geometry.spec.ts` and ship via the existing `test:ct` / `make test-component` step (no new npm script needed). E2E-level journey specs (`frontend/tests/e2e/journeys/*.spec.ts`, tag `@journey-m{n}`) are reserved for multi-surface invariants and run via `npx playwright test -c playwright.config.ts --grep @journey` — not given a dedicated npm script or Makefile target because they are the escalation path, not the default home.
 
-**Buildkite wiring.** A new path-filtered `:playwright: visual` step in `rebuild/.buildkite/rebuild.yml` (`if: build.changed_files =~ /^rebuild\/(frontend|backend)\//`) runs `make test-visual` against the deterministic compose stack — same shape as the existing `e2e-smoke` step, separate label so a baseline diff doesn't masquerade as a smoke failure. The step is **gating** for PRs that touch `rebuild/frontend/src/**` or `rebuild/frontend/tests/visual-baselines/**`; it remains informational (non-gating) for backend-only PRs to avoid spurious failures from incidental rendering noise on chrome the change can't have affected.
+**Makefile targets (`rebuild/Makefile`).** `make test-visual` and `make test-visual-update` delegate to the two npm scripts so the rebuild's command surface stays consistent with the M0 `test-unit` / `test-component` / `test-e2e-smoke` shape. Layer B invariants run under the existing `make test-component` step.
+
+**Buildkite wiring.** One new path-filtered step in `rebuild/.buildkite/rebuild.yml`:
+
+- `:playwright: visual` — `if: build.changed_files =~ /^rebuild\/(frontend|backend)\//`; runs `make test-visual` against the deterministic compose stack. Same shape as the existing `e2e-smoke` step, separate label so a baseline diff doesn't masquerade as a smoke failure. **Gating** for PRs that touch `rebuild/frontend/src/**` or `rebuild/frontend/tests/visual-baselines/**`; informational (non-gating) for backend-only PRs to avoid spurious failures from incidental rendering noise on chrome the change can't have affected.
+
+The existing `:playwright: component` step (which runs `make test-component`) now also covers Layer B per the discipline above — no additional step needed. When a milestone ships a new `@journey-m{n}` e2e spec for a multi-surface invariant, extend the existing `:playwright: smoke` step's `--grep` to include `@smoke|@journey-m{n}` rather than adding a third step.
 
 **Baseline refresh (manual workflow).** Per `rebuild.md` § 8 Layer 4 ("baselines updated via a manual workflow only"), `test:visual:update` is **never** auto-run by CI. The workflow is a Buildkite manual-trigger step (`block: "Refresh visual baselines"` in `rebuild.yml`) that runs `make test-visual-update` inside the CI Linux container image, commits the regenerated PNGs on a feature branch via Git LFS, and opens a PR titled `chore(visual): refresh baselines for {milestone}`. Reviewers diff the PNGs in GitHub's image-diff view; baselines never auto-merge. This same workflow is what M1 uses to backfill the 15 deferred PNGs under `tests/visual-baselines/m1/` (see [m1-theming.md § Visual regression](m1-theming.md)) and what every later milestone uses to refresh its own surfaces.
+
+**Impeccable design-review gate (Layer C).** Per [visual-qa-best-practises.md § Layer C](../best-practises/visual-qa-best-practises.md#layer-c--impeccable-design-review), the `verifier` subagent invokes the `impeccable` skill (`.cursor/skills/impeccable/SKILL.md`) over the baseline PNGs produced by `make test-visual` for every journey enumerated in the milestone plan's `## User journeys` section. Findings are classified **Blocker** (fails acceptance — fix before milestone-complete), **Polish** (filed into `## Follow-ups` via `plan-keeper`), or **Nit** (discarded unless the reviewer acts). This gate runs at milestone acceptance time and after any PR that changes design tokens — not on every PR (too slow, too noisy).
+
+## User journeys
+
+Every click-path a real user takes on M6-owned surfaces. M6 introduces cross-cutting chrome that every earlier milestone's surfaces inherit — rows here cover the M6-specific error/banner/toast surfaces; M1 / M2 / M4 / M5 journeys continue to enforce their own rows. Each row binds the three layers of coverage per [visual-qa-best-practises.md § The three layers](../best-practises/visual-qa-best-practises.md#the-three-layers). The `verifier` walks this table on acceptance in addition to the cross-milestone journeys in earlier plans.
+
+| Journey | Visual baseline (Layer A) | Geometric invariants (Layer B) | Impeccable review (Layer C) |
+|---------|---------------------------|-------------------------------|-----------------------------|
+| Backend returns 5xx on any route → global error banner at the top of the app shell with dismiss affordance | `error-banner.png` | `tests/component/ErrorBanner-geometry.spec.ts` — banner stays inside the topbar, dismiss `×` does not overlap copy, banner does not push the sidebar / main content below the viewport fold | sign-off required |
+| Backend returns 401 on any route → user-visible "Session expired" banner with sign-in CTA | `error-banner-401.png` | covered by `ErrorBanner-geometry.spec.ts` — same invariants, 401 variant copy | sign-off required |
+| Rate limit exceeded → toast with `Retry-After` copy | `rate-limited-toast.png` | `tests/component/Toast-geometry.spec.ts` — toast stays inside the viewport right edge, `Retry-After` countdown text not clipped, toast stack of 2+ rate-limit toasts does not overlap or push each other off-screen | sign-off required |
+| Launch banner — non-dismissible banner at the top of the app shell during the first 14 days | `launch-banner.png` | `tests/component/LaunchBanner-geometry.spec.ts` — banner stays inside the topbar, archive-link chrome does not wrap onto a second line at widths ≥ `sm`, legacy-archive URL not text-clipped | sign-off required |
+| Launch banner → after `PUBLIC_LAUNCH_BANNER_UNTIL` → banner absent | n/a (negative-visibility baseline is the absence of `launch-banner.png` — asserted by `LaunchBanner-geometry.spec.ts`'s "not rendered" branch) | covered by `LaunchBanner-geometry.spec.ts` | sign-off required |
 
 ## Acceptance criteria
 
@@ -588,6 +608,9 @@ The visual-regression layer from `rebuild.md` § 8 Layer 4 spans every milestone
 - [ ] Cutover runbook reviewed and dry-run on staging once before cutover day.
 - [ ] In-product banner copy ships before T-0 and auto-disables 14 days later.
 - [ ] Visual-regression baselines `error-banner.png` and `rate-limited-toast.png` captured under `rebuild/frontend/tests/visual-baselines/m5/` (Git LFS) covering the M6-introduced error/banner surfaces; the smoke pack consumes the same baselines.
+- [ ] `make test-component` runs the Layer B geometric-invariant specs (`frontend/tests/component/*-geometry.spec.ts`) for every component a user can visibly stress — at minimum one per milestone that shipped a visible surface (M1 / M2 / M4 / M5 / M6). The `rebuild.yml` Buildkite pipeline's existing `:playwright: component` step is the gating surface; no extra CI wiring.
+- [ ] Every milestone plan has a `## User journeys` section enumerating the click-paths shipped in that milestone, and the three-layer visual-QA criterion (baseline + geometric-invariant spec + impeccable review) in its `## Acceptance criteria` — per [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md). The `make lint-plans` gate enforces this mechanically: no plan under `docs/plans/m*.md` or `docs/plans/feature-*.md` can be merged without `## User journeys` and the `Three-layer visual QA` acceptance row. See [docs/plans/PLAN-TEMPLATE.md](PLAN-TEMPLATE.md) for the canonical shape.
+- [ ] **Three-layer visual QA** (per [visual-qa-best-practises.md](../best-practises/visual-qa-best-practises.md)): every row in § User journeys above has (a) a committed baseline PNG under `tests/visual-baselines/m5/` produced by the manual refresh workflow, (b) a green geometric-invariant spec — CT `*-geometry.spec.ts` by default under `tests/component/`, escalating to `@journey-m6` under `tests/e2e/journeys/` only for multi-surface invariants, and (c) an `impeccable` design-review pass with zero Blockers. Polish findings are filed into § M6 follow-ups rather than blocking acceptance. `make test-component` and `make test-visual` both green; the verifier records the impeccable pass output.
 
 ## M1 follow-ups
 
