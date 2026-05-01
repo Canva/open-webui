@@ -16,16 +16,21 @@ class ModelDef(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+    # PEP 8 attribute names with case_sensitive=False so the canonical
+    # UPPER_SNAKE env-var keys (OLLAMA_BASE_URL, MODELS, ...) keep
+    # populating the lowercase Python attribute. See
+    # rebuild/docs/plans/m0-foundations.md § Settings(BaseSettings)
+    # "Casing convention (locked)".
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
-    OLLAMA_BASE_URL: str = "http://ollama:11434"
-    HOST: str = "0.0.0.0"
-    PORT: int = 8081
-    LOG_LEVEL: str = "INFO"
+    ollama_base_url: str = "http://ollama:11434"
+    host: str = "0.0.0.0"
+    port: int = 8081
+    log_level: str = "INFO"
 
     # Default catalog. Override at compose-time via the MODELS env var
     # holding a JSON list of ModelDef shapes.
-    MODELS: list[ModelDef] = [
+    models: list[ModelDef] = [
         ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
     ]
 

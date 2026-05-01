@@ -117,7 +117,7 @@ rebuild/
 - Logging via `logging.getLogger(__name__)`. No `print(...)` anywhere.
 - Errors via `HTTPException(status_code=...)` for client-facing failures; `raise RuntimeError(...)` only for startup-time invariant violations (the lifespan probe).
 - No business logic in dependencies; the dependency layer reads `request.app.state.agents` and that's it.
-- `Settings(BaseSettings)` follows the rebuild's UPPER_SNAKE_CASE convention from [m0-foundations.md § Settings(BaseSettings)](m0-foundations.md#settingsbasesettings) "Casing convention (locked)" — every config attribute matches its env var name verbatim.
+- `Settings(BaseSettings)` follows the rebuild's settings convention from [m0-foundations.md § Settings(BaseSettings)](m0-foundations.md#settingsbasesettings) "Casing convention (locked)": Python attributes are PEP 8 `snake_case`, env-var keys stay UPPER_SNAKE_CASE, and `model_config = SettingsConfigDict(case_sensitive=False, ...)` bridges the two so `OLLAMA_BASE_URL=...` from compose populates `settings.ollama_base_url` automatically.
 - No background tasks spawned without a strong local reference (per [FastAPI-best-practises.md § A.8](../best-practises/FastAPI-best-practises.md)). The platform has no long-lived background tasks today; if a future change adds one, hold its handle on `app.state` so the GC doesn't reap it.
 - **UUIDv7 everywhere, no `uuid.uuid4()`.** Even though the platform never writes to MySQL (so the InnoDB clustered-PK locality argument from [rebuild.md § 9 Decisions (locked)](../../../rebuild.md#9-decisions-locked) doesn't apply), we mirror the project-wide ban on `uuid4` so a future contributor doesn't reach for it on autocomplete. OpenAI completion ids look like `chatcmpl-{36-char-uuidv7}` (a few chars longer than OpenAI's own opaque ids, but the field is opaque to every caller including the rebuild — `id` is never parsed). The `uuid7-standard` dep + the ruff `banned-api` rule in `pyproject.toml` enforce this.
 
@@ -202,7 +202,7 @@ Two divergences from the backend Dockerfile worth noting:
 
 ### `infra/agent-platform/app/config.py`
 
-Standard `Settings(BaseSettings)`, mirrored UPPER_SNAKE_CASE per [m0-foundations.md § Settings(BaseSettings) "Casing convention (locked)"](m0-foundations.md#settingsbasesettings).
+Standard `Settings(BaseSettings)`, mirroring the rebuild's settings convention per [m0-foundations.md § Settings(BaseSettings) "Casing convention (locked)"](m0-foundations.md#settingsbasesettings) — PEP 8 lowercase attribute names with `case_sensitive=False`, env-var keys (`OLLAMA_BASE_URL`, `MODELS`, etc.) stay UPPER_SNAKE.
 
 ```python
 from __future__ import annotations
@@ -221,16 +221,17 @@ class ModelDef(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
-    OLLAMA_BASE_URL: str = "http://ollama:11434"
-    HOST: str = "0.0.0.0"
-    PORT: int = 8081
-    LOG_LEVEL: str = "INFO"
+    ollama_base_url: str = "http://ollama:11434"
+    host: str = "0.0.0.0"
+    port: int = 8081
+    log_level: str = "INFO"
 
-    # Default catalog. Override at compose-time via MODELS env var
-    # holding a JSON list of ModelDef shapes.
-    MODELS: list[ModelDef] = [
+    # Default catalog. Override at compose-time via the MODELS env var
+    # holding a JSON list of ModelDef shapes (case_sensitive=False above
+    # bridges the UPPER_SNAKE env-var name to this lowercase attribute).
+    models: list[ModelDef] = [
         ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
     ]
 
@@ -238,7 +239,7 @@ class Settings(BaseSettings):
 settings = Settings()
 ```
 
-`MODELS` is overridable from compose so an individual developer can add e.g. a coder persona without editing the platform's source. Compose default ships exactly one entry; future personas land as additional `ModelDef` entries pointing at the same `qwen2.5:0.5b` tag with different ids and labels (and, when the API surfaces it, different system prompts).
+`MODELS` (env var) / `models` (Python attribute) is overridable from compose so an individual developer can add e.g. a coder persona without editing the platform's source. Compose default ships exactly one entry; future personas land as additional `ModelDef` entries pointing at the same `qwen2.5:0.5b` tag with different ids and labels (and, when the API surfaces it, different system prompts).
 
 ### `infra/agent-platform/app/agents.py`
 
@@ -265,9 +266,9 @@ def build_agents(settings: Settings) -> dict[str, AgentEntry]:
     """Construct one Agent per configured model. Called once from
     ``lifespan``; the result is cached on ``app.state.agents``.
     """
-    provider = OpenAIProvider(base_url=f"{settings.OLLAMA_BASE_URL}/v1", api_key="ollama")
+    provider = OpenAIProvider(base_url=f"{settings.ollama_base_url}/v1", api_key="ollama")
     out: dict[str, AgentEntry] = {}
-    for defn in settings.MODELS:
+    for defn in settings.models:
         model = OpenAIModel(defn.ollama_tag, provider=provider)
         out[defn.id] = AgentEntry(definition=defn, agent=Agent(model=model, output_type=str))
     return out
@@ -579,7 +580,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_SECONDS) as c:
         for attempt in range(_PROBE_ATTEMPTS):
             try:
-                r = await c.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+                r = await c.get(f"{settings.ollama_base_url}/api/tags")
                 r.raise_for_status()
                 last_exc = None
                 break
@@ -589,7 +590,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     await asyncio.sleep(_PROBE_BACKOFF_SECONDS)
     if last_exc is not None:
         raise RuntimeError(
-            f"agent-platform could not reach ollama at {settings.OLLAMA_BASE_URL} "
+            f"agent-platform could not reach ollama at {settings.ollama_base_url} "
             f"after {_PROBE_ATTEMPTS} attempts: {last_exc}"
         ) from last_exc
     app.state.agents = build_agents(settings)

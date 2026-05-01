@@ -7,7 +7,7 @@ Anchors:
   Heavy: ~one-time image pull, then ~5s spin-up. Subsequent fixtures
   (``database_url``, ``engine``) attach to it.
 * ``engine`` (session-scoped) — async SQLAlchemy engine bound to the live
-  container. Mutates ``app.core.config.settings.DATABASE_URL`` and rebinds
+  container. Mutates ``app.core.config.settings.database_url`` and rebinds
   the production singletons in ``app.core.db`` (and ``app.routers.health``,
   which copies ``AsyncSessionLocal`` at module load) so the FastAPI app +
   ``/readyz`` handler hit the testcontainer instead of the prod URL. Runs
@@ -101,7 +101,7 @@ def engine(database_url: str) -> Iterator[Any]:
 
     Side-effects:
 
-    1. ``app.core.config.settings.DATABASE_URL`` is overwritten so any
+    1. ``app.core.config.settings.database_url`` is overwritten so any
        lazy reads (notably ``alembic/env.py``'s ``_settings_url``) see the
        container URL.
     2. ``app.core.db.engine`` and ``app.core.db.AsyncSessionLocal`` are
@@ -118,7 +118,7 @@ def engine(database_url: str) -> Iterator[Any]:
     from app.core import db as db_module
     from app.routers import health as health_module
 
-    config_module.settings.DATABASE_URL = database_url
+    config_module.settings.database_url = database_url
 
     # NullPool: each connection is opened fresh on the calling loop and fully
     # closed on context exit, so connections are never retained across the
@@ -253,7 +253,7 @@ def override_settings() -> Any:
     Usage::
 
         def test_thing(override_settings):
-            with override_settings(TRUSTED_EMAIL_DOMAIN_ALLOWLIST=["canva.com"]):
+            with override_settings(trusted_email_domain_allowlist=["canva.com"]):
                 ...
     """
     return _override_settings_cm

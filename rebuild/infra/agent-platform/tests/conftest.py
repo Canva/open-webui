@@ -49,11 +49,11 @@ def app_settings() -> Settings:
 
     Constructed explicitly (rather than relying on the module-level
     ``settings = Settings()`` import side-effect in ``app/config.py``)
-    so a future test can pass a different ``MODELS=[...]`` list without
+    so a future test can pass a different ``models=[...]`` list without
     fighting environment leakage from a previous test.
     """
     return Settings(
-        MODELS=[
+        models=[
             ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
         ]
     )

@@ -301,7 +301,7 @@ M2 extends the M0 `Settings` class with one new field. `MODEL_GATEWAY_BASE_URL` 
 |---|---|---|---|
 | `SSE_STREAM_TIMEOUT_SECONDS` | `int` | `300` | Whole-request cap on `POST /api/chats/{id}/messages`. Wrapped around the provider iteration via `async with asyncio.timeout(...)` *inside the streaming generator* so the persist-partial branch owns the cleanup path. Must equal the M6 per-route timeout for `/api/chats/{id}/messages` (see `m6-hardening.md` § Per-route HTTP timeouts) — diverging the two means a request can be killed by the route timeout before the executor's persist-partial path runs. |
 
-The casing convention from M0 (UPPER_SNAKE_CASE attributes matching env var names) applies; `SSE_STREAM_TIMEOUT_SECONDS` is read as `settings.SSE_STREAM_TIMEOUT_SECONDS` everywhere.
+The casing convention from M0 applies (env-var key UPPER_SNAKE / Python attribute lowercase, bridged by `case_sensitive=False` — see [m0-foundations.md § Settings(BaseSettings) "Casing convention (locked)"](m0-foundations.md#settingsbasesettings)); the env var is `SSE_STREAM_TIMEOUT_SECONDS` and the Python attribute is `settings.sse_stream_timeout_seconds` everywhere.
 
 ## Provider abstraction
 
@@ -355,8 +355,8 @@ class OpenAICompatibleProvider:
 
     def __init__(self) -> None:
         self._client = AsyncOpenAI(
-            base_url=settings.MODEL_GATEWAY_BASE_URL,
-            api_key=settings.MODEL_GATEWAY_API_KEY or "unused",
+            base_url=settings.model_gateway_base_url,
+            api_key=settings.model_gateway_api_key or "unused",
             timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
             max_retries=0,  # we control retries ourselves; SDK retries don't compose with SSE.
         )
@@ -785,7 +785,7 @@ try:
         # so the timeout branch can emit its own "timeout" SSE frame. The M6
         # route-layer timeout dependency is set to the same value as a backstop
         # but the in-generator deadline is the primary cap.
-        async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS):
+        async with asyncio.timeout(settings.sse_stream_timeout_seconds):
             async for delta in provider.stream(messages=..., model=..., params=...):
                 if cancel_event.is_set():
                     raise asyncio.CancelledError
@@ -876,7 +876,7 @@ Cancellation paths:
 Timeouts:
 
 - Per-stream: 120 s read on each chunk (provider's `httpx.Timeout(read=120.0)`). Exceeded → `ProviderError(504)` → `error` event.
-- Whole-request: a hard 5-minute cap enforced inside the generator via `async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS)` wrapped around the provider iteration. Configurable via `SSE_STREAM_TIMEOUT_SECONDS` (default 300). On exceedance the generator catches `TimeoutError`, persists the partial assistant content with `cancelled=True, done=True`, and emits a terminal `timeout` SSE frame (`data: {"assistant_message_id": "...", "limit_seconds": 300}`) before returning. The cap lives inside the generator (not in the route-layer `timeout(seconds)` dependency from M6) so the persist-partial branch always owns the cleanup path; the M6 route timeout remains in place as a backstop and is set to the same 300 s value, so neither tripping nor diverging is possible. Do not diverge the two values.
+- Whole-request: a hard 5-minute cap enforced inside the generator via `async with asyncio.timeout(settings.sse_stream_timeout_seconds)` wrapped around the provider iteration. Configurable via the `SSE_STREAM_TIMEOUT_SECONDS` env var (default 300). On exceedance the generator catches `TimeoutError`, persists the partial assistant content with `cancelled=True, done=True`, and emits a terminal `timeout` SSE frame (`data: {"assistant_message_id": "...", "limit_seconds": 300}`) before returning. The cap lives inside the generator (not in the route-layer `timeout(seconds)` dependency from M6) so the persist-partial branch always owns the cleanup path; the M6 route timeout remains in place as a backstop and is set to the same 300 s value, so neither tripping nor diverging is possible. Do not diverge the two values.
 
 Partial-message persistence semantics — the loop above guarantees:
 

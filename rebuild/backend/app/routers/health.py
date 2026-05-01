@@ -2,8 +2,8 @@
 
 * ``GET /healthz`` — pure no-I/O liveness; always 200.
 * ``GET /readyz`` — pings MySQL (``SELECT 1``) and Redis (``PING``) inside
-  per-call timeouts from ``settings.READYZ_DB_TIMEOUT_MS`` /
-  ``settings.READYZ_REDIS_TIMEOUT_MS``. 503 on any failure.
+  per-call timeouts from ``settings.readyz_db_timeout_ms`` /
+  ``settings.readyz_redis_timeout_ms``. 503 on any failure.
 
 ``/readyz`` opens its own ``AsyncSessionLocal`` and Redis client per call
 rather than depending on ``get_session`` — these are infra endpoints and must
@@ -34,17 +34,17 @@ async def _check_db() -> str:
     async with AsyncSessionLocal() as session:
         await asyncio.wait_for(
             session.execute(text("SELECT 1")),
-            timeout=settings.READYZ_DB_TIMEOUT_MS / 1000,
+            timeout=settings.readyz_db_timeout_ms / 1000,
         )
     return "ok"
 
 
 async def _check_redis() -> str:
-    client = Redis.from_url(settings.REDIS_URL)
+    client = Redis.from_url(settings.redis_url)
     try:
         await asyncio.wait_for(
             client.ping(),
-            timeout=settings.READYZ_REDIS_TIMEOUT_MS / 1000,
+            timeout=settings.readyz_redis_timeout_ms / 1000,
         )
     finally:
         await client.aclose()

@@ -1,7 +1,7 @@
 """The single model-gateway transport.
 
 A thin wrapper around the OpenAI Python SDK pointed at
-``settings.MODEL_GATEWAY_BASE_URL``. M2 ships exactly one provider class —
+``settings.model_gateway_base_url``. M2 ships exactly one provider class —
 no provider matrix, no LiteLLM, no second class — per
 ``rebuild/docs/best-practises/FastAPI-best-practises.md`` § B.4.
 
@@ -84,12 +84,12 @@ class OpenAICompatibleProvider:
 
     def __init__(self) -> None:
         api_key = (
-            settings.MODEL_GATEWAY_API_KEY.get_secret_value()
-            if settings.MODEL_GATEWAY_API_KEY is not None
+            settings.model_gateway_api_key.get_secret_value()
+            if settings.model_gateway_api_key is not None
             else "unused"
         )
         self._client = AsyncOpenAI(
-            base_url=settings.MODEL_GATEWAY_BASE_URL,
+            base_url=settings.model_gateway_base_url,
             api_key=api_key,
             timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
             max_retries=0,

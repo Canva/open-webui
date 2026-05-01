@@ -73,7 +73,7 @@ async def test_domain_allowlist_rejects(
     override_settings: Any,
 ) -> None:
     """When TRUSTED_EMAIL_DOMAIN_ALLOWLIST is set, off-domain -> 401."""
-    with override_settings(TRUSTED_EMAIL_DOMAIN_ALLOWLIST=["canva.com"]):
+    with override_settings(trusted_email_domain_allowlist=["canva.com"]):
         res = await client.get(
             "/api/me",
             headers={"X-Forwarded-Email": "carol@example.com"},
@@ -87,7 +87,7 @@ async def test_domain_allowlist_admits_listed_domain(
     override_settings: Any,
 ) -> None:
     """Same allowlist accepts an in-list domain (positive sibling)."""
-    with override_settings(TRUSTED_EMAIL_DOMAIN_ALLOWLIST=["canva.com"]):
+    with override_settings(trusted_email_domain_allowlist=["canva.com"]):
         res = await client.get(
             "/api/me",
             headers={"X-Forwarded-Email": "dan@canva.com"},
@@ -161,7 +161,7 @@ async def test_upsert_user_from_headers_respects_allowlist(
     from fastapi import HTTPException
 
     with (
-        override_settings(TRUSTED_EMAIL_DOMAIN_ALLOWLIST=["canva.com"]),
+        override_settings(trusted_email_domain_allowlist=["canva.com"]),
         pytest.raises(HTTPException) as exc_info,
     ):
         await upsert_user_from_headers(

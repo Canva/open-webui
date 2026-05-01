@@ -362,10 +362,10 @@ async def test_provider_error_mid_stream_emits_terminal_error_frame_and_persists
 
 @pytest_asyncio.fixture
 async def short_timeout_settings(override_settings: Any) -> Any:
-    """Set ``SSE_STREAM_TIMEOUT_SECONDS = 1`` for the duration of one
+    """Set ``sse_stream_timeout_seconds = 1`` for the duration of one
     test (the timeout case). Restored on teardown so other streaming
     tests run with the default ``300 s``."""
-    with override_settings(SSE_STREAM_TIMEOUT_SECONDS=1):
+    with override_settings(sse_stream_timeout_seconds=1):
         yield
 
 

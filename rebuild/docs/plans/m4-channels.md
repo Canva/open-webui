@@ -442,7 +442,7 @@ class File(Base):
     )
 ```
 
-Metadata only. `size` is bound by the 5 MiB cap (`settings.MAX_UPLOAD_BYTES`,
+Metadata only. `size` is bound by the 5 MiB cap (`settings.max_upload_bytes`,
 default `5_242_880` from `m0-foundations.md` § Settings). `sha256` exists for
 future de-duplication and is set on insert.
 
@@ -537,7 +537,7 @@ class MysqlFileStore:
 ```
 
 Cap enforcement lives in the FastAPI router, **before** any bytes touch
-`FileStore`. The cap is read from `settings.MAX_UPLOAD_BYTES` (declared in
+`FileStore`. The cap is read from `settings.max_upload_bytes` (declared in
 [m0-foundations.md § Settings](m0-foundations.md#settingsbasesettings),
 default `5_242_880`) so prod can lower the limit without a code change:
 
@@ -548,10 +548,10 @@ async def read_capped(upload: UploadFile) -> bytes:
     chunks, total = [], 0
     while chunk := await upload.read(64 * 1024):
         total += len(chunk)
-        if total > settings.MAX_UPLOAD_BYTES:
+        if total > settings.max_upload_bytes:
             raise HTTPException(
                 413,
-                f"file exceeds {settings.MAX_UPLOAD_BYTES // (1024 * 1024)} MiB cap",
+                f"file exceeds {settings.max_upload_bytes // (1024 * 1024)} MiB cap",
             )
         chunks.append(chunk)
     return b"".join(chunks)
@@ -569,7 +569,7 @@ inserts succeed with headroom.
 ### Stack
 
 - `python-socketio==5.x` mounted as an ASGI sub-app at `/socket.io`.
-- `socketio.AsyncRedisManager(url=settings.REDIS_URL, channel="rebuild-sio")`
+- `socketio.AsyncRedisManager(url=settings.redis_url, channel="rebuild-sio")`
   as the client manager. Every emit goes through Redis pub/sub so any FastAPI
   replica can broadcast to any client regardless of which replica owns the
   websocket.
@@ -578,13 +578,13 @@ inserts succeed with headroom.
   from app.core.constants import STREAM_HEARTBEAT_SECONDS
 
   # `cors_allowed_origins` mirrors the FastAPI HTTP-side policy
-  # (`settings.CORS_ALLOW_ORIGINS` from M0) so the SvelteKit dev server can
+  # (`settings.cors_allow_origins` from M0) so the SvelteKit dev server can
   # complete the websocket upgrade in dev (`["http://localhost:5173"]`).
   # Prod is same-origin behind the OAuth proxy, where `CORS_ALLOW_ORIGINS`
   # holds the proxy's external URL — same setting, same value, no drift.
   sio = socketio.AsyncServer(async_mode="asgi",
-      client_manager=AsyncRedisManager(settings.REDIS_URL),
-      cors_allowed_origins=settings.CORS_ALLOW_ORIGINS,
+      client_manager=AsyncRedisManager(settings.redis_url),
+      cors_allowed_origins=settings.cors_allow_origins,
       logger=False, engineio_logger=False,
       max_http_buffer_size=1_000_000,
       ping_interval=STREAM_HEARTBEAT_SECONDS,
@@ -991,7 +991,7 @@ to invalidate. Revisit in M6+ if image-heavy usage emerges.
   Successful posts insert a `channel_message` with `webhook_id` set, fan out
   via socket.io, update `channel_webhook.last_used_at`, and respond 202.
   Rate-limited per `webhook_id` to 60 req/min via the M6 Redis-backed
-  sliding-window limiter (`settings.RATELIMIT_WEBHOOK_PER_MIN`; see
+  sliding-window limiter (`settings.ratelimit_webhook_per_min`; see
   `m6-hardening.md` § Configured buckets).
   Per-route HTTP timeout: **5 s** end-to-end, applied via the M6
   `timeout(5)` dependency factory (`dependencies=[timeout(5)]`; see

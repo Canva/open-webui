@@ -58,7 +58,7 @@ dev-rebuild-models:
 # Only needed when iterating on revisions; the Docker `app` container
 # migrates itself on boot.
 #
-# The default `Settings.DATABASE_URL` points at hostname `mysql` (the
+# The default `Settings.database_url` (env var `DATABASE_URL`) points at hostname `mysql` (the
 # docker compose service name), which only resolves inside the compose
 # network. Override here so the host invocation lands on the published
 # port (`13306` -> container `3306`, see `infra/docker-compose.yml`).

@@ -3,7 +3,7 @@
 The metadata that Alembic compares against is ``app.db.base.Base.metadata``;
 the ORM modules under ``app.models`` register their tables on it at import
 time. The database URL is read from
-``app.core.config.settings.DATABASE_URL``.
+``app.core.config.settings.database_url``.
 
 Both ``app.core.config`` and ``app.models.*`` imports are deferred to call
 time so this module can be parsed and imported even before the
@@ -36,7 +36,7 @@ def _settings_url() -> str:
     """
     from app.core.config import settings
 
-    return settings.DATABASE_URL
+    return settings.database_url
 
 
 def _target_metadata() -> MetaData:
@@ -77,8 +77,8 @@ async def run_async_migrations() -> None:
     staging/prod), the same ``do_connect`` hook used by the runtime
     engine is registered on this Alembic engine's sync side — see
     :mod:`app.core.iam_auth`. The migration Job authenticates as
-    ``settings.DATABASE_IAM_AUTH_MIGRATE_USER`` (a separate setting from
-    ``DATABASE_IAM_AUTH_USER`` so the future least-privilege split lands
+    ``settings.database_iam_auth_migrate_user`` (a separate setting from
+    ``database_iam_auth_user`` so the future least-privilege split lands
     as a values-file change, not a code change — see
     ``rebuild/docs/best-practises/database-best-practises.md`` § B.9). Today both env vars hold the
     same single IAM user with ``ALL PRIVILEGES``; the helper picks AWS
@@ -99,7 +99,7 @@ async def run_async_migrations() -> None:
         attach_iam_auth_to_engine(
             engine,
             dialect="mysql",
-            user=settings.DATABASE_IAM_AUTH_MIGRATE_USER,
+            user=settings.database_iam_auth_migrate_user,
         )
     async with engine.connect() as connection:
         await connection.run_sync(_do_run_migrations)

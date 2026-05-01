@@ -421,7 +421,7 @@ async def stream_assistant_response(
 
     try:
         try:
-            async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS):
+            async with asyncio.timeout(settings.sse_stream_timeout_seconds):
                 async for frame in _run_provider_loop(
                     provider=provider,
                     db=db,
@@ -601,7 +601,7 @@ async def _close_with_timeout(
         "timeout",
         {
             "assistant_message_id": assistant_msg.id,
-            "limit_seconds": settings.SSE_STREAM_TIMEOUT_SECONDS,
+            "limit_seconds": settings.sse_stream_timeout_seconds,
         },
     )
 

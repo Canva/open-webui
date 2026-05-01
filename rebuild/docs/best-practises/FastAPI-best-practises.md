@@ -104,8 +104,8 @@ These apply to **any** FastAPI codebase; if you're tempted to break one of them,
 
   @asynccontextmanager
   async def lifespan(app: FastAPI):
-      app.state.engine = create_async_engine(settings.DATABASE_URL, ...)
-      app.state.redis = redis.from_url(settings.REDIS_URL)
+      app.state.engine = create_async_engine(settings.database_url, ...)
+      app.state.redis = redis.from_url(settings.redis_url)
       app.state.provider = OpenAICompatibleProvider()
       app.state.scheduler = AsyncIOScheduler()
       app.state.scheduler.add_job(automation_tick, "interval", seconds=30, id="automation_tick", max_instances=1, coalesce=True)
@@ -316,6 +316,21 @@ Both helpers exist precisely so the test suite can monkeypatch a single symbol t
 
 `SecretStr` for any secret — keeps it out of accidental log lines.
 
+**Casing convention.** Every module that reads env-driven configuration under `rebuild/` (the backend at `app/core/config.py`, the agent platform at `infra/agent-platform/app/config.py`, any future helper) follows one shape:
+
+**DO**
+
+- **Subclass `pydantic_settings.BaseSettings`** for every `Settings` class. Construct one instance at import time and treat it as immutable; never read `os.environ` directly anywhere else under `app/`.
+- **Declare attribute names in `snake_case`** per PEP 8. Read in code as `settings.database_url`, `settings.model_gateway_base_url`, `settings.sse_stream_timeout_seconds`.
+- **Set `model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")`.** `case_sensitive=False` is what lets the canonical 12-factor UPPER_SNAKE env-var keys (`DATABASE_URL=...`, `MODEL_GATEWAY_API_KEY=...`) keep populating the lowercase Python attribute without per-field `alias=` plumbing.
+- **Keep env-var keys in UPPER_SNAKE_CASE** in `.env` / `.env.example`, in `infra/docker-compose.yml`'s `environment:` blocks, in Helm values, and in Kubernetes manifests. The shell convention is the contract with operators; only the Python attribute side moves to PEP 8.
+
+**DON'T**
+
+- **Don't declare `Settings` attributes in UPPER_SNAKE_CASE.** That spelling is now reserved for env-var keys. Mixing the two casings on the same field causes silent attribute errors at call sites that picked the wrong form, and the project pins one shape so the mistake is impossible.
+- **Don't rename env-var keys to lowercase** in `.env.example`, compose files, Helm values, or shell scripts. `case_sensitive=False` exists precisely so the env side keeps the platform convention; downgrading them breaks every CI/k8s tool that reads `DATABASE_URL`-style keys.
+- **Don't pass UPPER_SNAKE kwargs to the `Settings(...)` constructor in tests.** Python keyword arguments resolve against the Python attribute name (lowercase), not the env-var alias; `Settings(DATABASE_URL=...)` raises. Use `Settings(database_url=...)` or set the env via `monkeypatch.setenv("DATABASE_URL", ...)`.
+
 ### B.4 Single `OpenAICompatibleProvider` instance
 
 The provider is constructed in `lifespan` and stored on `app.state.provider`. Routes get it via a tiny dep:
@@ -453,7 +468,7 @@ Before opening a PR that adds or changes a router, dependency, schema, or servic
 - [`rebuild/docs/plans/m0-foundations.md`](../plans/m0-foundations.md) — `Settings`, `get_user`, `get_session`, lifespan, migration helpers, ruff/mypy config, test scaffolding.
 - [`rebuild/docs/plans/m2-conversations.md`](../plans/m2-conversations.md) — the canonical example of a streaming endpoint, a service module, and per-domain Pydantic schemas with `extra="forbid"`.
 - [`rebuild/docs/plans/m4-channels.md`](../plans/m4-channels.md) — service/realtime split, mention parser, file upload + streaming download.
-- [`rebuild/docs/plans/m5-automations.md`](../plans/m5-automations.md) — APScheduler + `SKIP LOCKED` background work, lifespan-hosted scheduler, run-now inline path, test-only endpoint gated by `settings.ENV`.
+- [`rebuild/docs/plans/m5-automations.md`](../plans/m5-automations.md) — APScheduler + `SKIP LOCKED` background work, lifespan-hosted scheduler, run-now inline path, test-only endpoint gated by `settings.env`.
 - [`rebuild/docs/plans/m6-hardening.md`](../plans/m6-hardening.md) — middleware ordering, OTel hooks, per-route timeouts, rate-limit dependency factory, deploy pipeline.
 - [`rebuild/docs/best-practises/database-best-practises.md`](database-best-practises.md) — sister document covering everything DB-shaped.
 

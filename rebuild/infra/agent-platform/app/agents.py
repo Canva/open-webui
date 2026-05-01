@@ -26,9 +26,9 @@ def build_agents(settings: Settings) -> dict[str, AgentEntry]:
     HTTP call, so baking one in here would double-stack. See the plan's
     ``app/agents.py`` section for the locked rationale.
     """
-    provider = OpenAIProvider(base_url=f"{settings.OLLAMA_BASE_URL}/v1", api_key="ollama")
+    provider = OpenAIProvider(base_url=f"{settings.ollama_base_url}/v1", api_key="ollama")
     out: dict[str, AgentEntry] = {}
-    for defn in settings.MODELS:
+    for defn in settings.models:
         model = OpenAIModel(defn.ollama_tag, provider=provider)
         out[defn.id] = AgentEntry(
             definition=defn,

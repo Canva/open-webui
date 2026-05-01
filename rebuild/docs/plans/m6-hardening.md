@@ -17,13 +17,13 @@ Take the rebuild from "feature complete on a developer laptop" to "running in pr
 - `rebuild/comms/`: Slack pre-cutover post, Slack post-cutover post, in-product banner copy, and FAQ markdown.
 - `rebuild/backend/tests/load/k6_chat.js`: k6 load script targeting the chat completion endpoint.
 - `rebuild/backend/tests/chaos/`: pytest-driven chaos scenarios (kill-pod-mid-stream, kill-scheduler-mid-tick, kill-migration-pod-mid-apply).
-- `rebuild/backend/tests/integration/test_trusted_proxy.py`: asserts the `TrustedIpMiddleware` strips `X-Forwarded-Email` from requests outside `settings.TRUSTED_PROXY_CIDRS` and emits a redacted `security.trusted_proxy.miss` log line; covers both the inside-CIDR (200 with the expected `User`) and outside-CIDR (header stripped, route returns 401) paths. Referenced by the M6 acceptance criterion on the trusted-proxy boundary.
+- `rebuild/backend/tests/integration/test_trusted_proxy.py`: asserts the `TrustedIpMiddleware` strips `X-Forwarded-Email` from requests outside `settings.trusted_proxy_cidrs` and emits a redacted `security.trusted_proxy.miss` log line; covers both the inside-CIDR (200 with the expected `User`) and outside-CIDR (header stripped, route returns 401) paths. Referenced by the M6 acceptance criterion on the trusted-proxy boundary.
 - Smoke E2E pack (5 specs) in `rebuild/frontend/tests/smoke/` reused as the post-deploy gate.
 - A grafana dashboard JSON in `rebuild/observability/dashboards/openwebui-rebuild.json` covering the signals listed below, importable into Canva's standard Grafana stack.
 
 ## Settings additions
 
-M6 extends the M0 `Settings` class with the production knobs needed for observability, rate limits, security, file upload, and launch comms. The casing convention from M0 (UPPER_SNAKE_CASE attributes matching env var names) applies; access is `settings.OTEL_*`, `settings.RATELIMIT_*`, `settings.TRUSTED_PROXY_CIDRS`, etc. everywhere.
+M6 extends the M0 `Settings` class with the production knobs needed for observability, rate limits, security, file upload, and launch comms. The casing convention from M0 applies (env-var keys UPPER_SNAKE / Python attributes lowercase, bridged by `case_sensitive=False` — see [m0-foundations.md § Settings(BaseSettings) "Casing convention (locked)"](m0-foundations.md#settingsbasesettings)); the env-var keys appear in the "Field" column below as `OTEL_*`, `RATELIMIT_*`, `TRUSTED_PROXY_CIDRS`, etc., and Python attribute access is `settings.otel_*`, `settings.ratelimit_*`, `settings.trusted_proxy_cidrs`, etc. everywhere.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -132,9 +132,9 @@ Two extra panels (no SLO, monitoring only): pod CPU/memory utilisation and per-p
 
 | Bucket | Key | Limit (default) | Cost | Failure mode |
 |---|---|---|---|---|
-| `chat_tokens` | `rl:chat:{user_email}` | 60 000 tokens / minute (`settings.RATELIMIT_CHAT_TOKENS_PER_MIN`) | tokens estimated by `tiktoken` for the request, then reconciled with actual usage from the gateway response | 429 with `Retry-After`; SSE: 1 frame `{"error":"rate_limited"}` then close |
-| `file_uploads` | `rl:upload:{user_email}` | 30 requests / minute (`settings.RATELIMIT_FILE_UPLOADS_PER_MIN`) | 1 per request | 429 with `Retry-After`; multipart form rejected before stream-to-DB |
-| `webhook_ingress` | `rl:webhook:{webhook_id}` | 60 requests / minute (`settings.RATELIMIT_WEBHOOK_PER_MIN`) | 1 per request | 429 with `Retry-After`; webhook caller's job to retry |
+| `chat_tokens` | `rl:chat:{user_email}` | 60 000 tokens / minute (`settings.ratelimit_chat_tokens_per_min`) | tokens estimated by `tiktoken` for the request, then reconciled with actual usage from the gateway response | 429 with `Retry-After`; SSE: 1 frame `{"error":"rate_limited"}` then close |
+| `file_uploads` | `rl:upload:{user_email}` | 30 requests / minute (`settings.ratelimit_file_uploads_per_min`) | 1 per request | 429 with `Retry-After`; multipart form rejected before stream-to-DB |
+| `webhook_ingress` | `rl:webhook:{webhook_id}` | 60 requests / minute (`settings.ratelimit_webhook_per_min`) | 1 per request | 429 with `Retry-After`; webhook caller's job to retry |
 
 `Settings` exposes overrides per env var (`RATELIMIT_CHAT_TOKENS_PER_MIN`, etc.) so that production can be raised without a code change once we have baseline numbers.
 
@@ -184,7 +184,7 @@ The dispatch table below documents the project-wide policy; the actual values li
 
 ### SSE stream timeout
 
-Defined in code as `SSE_STREAM_TIMEOUT_SECONDS = 300`. Implementation: the streaming generator (M2, `app.services.chat_stream.stream_assistant_response` — the post-validation half of the prepare/stream split documented in [m2-conversations.md § Streaming pipeline](m2-conversations.md#streaming-pipeline)) wraps the upstream `OpenAICompatibleProvider.stream()` iteration in `async with asyncio.timeout(settings.SSE_STREAM_TIMEOUT_SECONDS)` with a 5-minute deadline. When the deadline trips, the generator catches `asyncio.TimeoutError`, emits the M2-defined `timeout` SSE event (`event: timeout\ndata: {"assistant_message_id": "...", "limit_seconds": 300}\n\n`), persists the assistant message with `cancelled=True, done=True`, and returns. The client renders a "Stream timed out at 5 minutes; click regenerate to continue" inline notice keyed off the `timeout` event. This is the same persistence shape as user-cancellation from M2; M6 only sets the value of the constant, it does not introduce a new event type. The `timeout(300)` route-layer dependency (see § Per-route HTTP timeouts above) is set to the same value as a backstop, but the in-generator deadline is the primary cap so the persist-partial branch always owns the cleanup path.
+Defined in code as `sse_stream_timeout_seconds = 300` (env-var key `SSE_STREAM_TIMEOUT_SECONDS`). Implementation: the streaming generator (M2, `app.services.chat_stream.stream_assistant_response` — the post-validation half of the prepare/stream split documented in [m2-conversations.md § Streaming pipeline](m2-conversations.md#streaming-pipeline)) wraps the upstream `OpenAICompatibleProvider.stream()` iteration in `async with asyncio.timeout(settings.sse_stream_timeout_seconds)` with a 5-minute deadline. When the deadline trips, the generator catches `asyncio.TimeoutError`, emits the M2-defined `timeout` SSE event (`event: timeout\ndata: {"assistant_message_id": "...", "limit_seconds": 300}\n\n`), persists the assistant message with `cancelled=True, done=True`, and returns. The client renders a "Stream timed out at 5 minutes; click regenerate to continue" inline notice keyed off the `timeout` event. This is the same persistence shape as user-cancellation from M2; M6 only sets the value of the constant, it does not introduce a new event type. The `timeout(300)` route-layer dependency (see § Per-route HTTP timeouts above) is set to the same value as a backstop, but the in-generator deadline is the primary cap so the persist-partial branch always owns the cleanup path.
 
 ### APScheduler tick — short statement timeout
 
@@ -213,7 +213,7 @@ The middleware is mounted **first** (outermost) so a misconfigured Ingress can n
 
 `fastapi.middleware.cors.CORSMiddleware` is configured with:
 
-- `allow_origins=settings.CORS_ALLOW_ORIGINS` — typically a single entry in prod, the OAuth proxy's external URL.
+- `allow_origins=settings.cors_allow_origins` — typically a single entry in prod, the OAuth proxy's external URL.
 - `allow_credentials=True` (the proxy may forward a session cookie from its side, even though we don't use it).
 - `allow_methods=["GET","POST","PUT","PATCH","DELETE"]`.
 - `allow_headers=["content-type","x-correlation-id","traceparent"]` — explicit allowlist, no wildcards.
@@ -235,7 +235,7 @@ A second middleware `SecurityHeadersMiddleware` adds, on every response:
 - `X-Frame-Options: DENY`.
 - `Referrer-Policy: strict-origin-when-cross-origin`.
 - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`.
-- `Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss: ${CORS_ALLOW_ORIGINS_JOINED}; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'` — `CORS_ALLOW_ORIGINS_JOINED` is the space-joined list from `settings.CORS_ALLOW_ORIGINS`.
+- `Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss: ${CORS_ALLOW_ORIGINS_JOINED}; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'` — `CORS_ALLOW_ORIGINS_JOINED` is the space-joined list from `settings.cors_allow_origins`.
 
 CSP includes `'unsafe-inline'` for styles because **SvelteKit's SSR injects inline `<style>` blocks** (for scoped styles, transitions, and arbitrary-value Tailwind classes) into the rendered HTML — `style-src 'self' 'unsafe-inline'` keeps that working without weakening any other directive. Scripts are `'self'` only because `adapter-node` produces a single bundle and we do not inline scripts. Markdown renderer (M2) sanitises via DOMPurify before insertion, so the strict CSP holds even with rich content.
 
@@ -518,7 +518,7 @@ Lives at `rebuild/frontend/tests/smoke/`, runs against staging post-deploy and a
 2. `02-chat-stream.spec.ts` — login (header inject), create chat, send message, assert tokens stream, assert the assistant message persists across reload. The OpenAI mock from M0 is **not** used in prod-smoke; a real model gateway call is made and we assert any non-error response of length > 0.
 3. `03-share-and-read.spec.ts` — owner creates a share, second BrowserContext reads it. Reused from M3's E2E.
 4. `04-channel-realtime.spec.ts` — two contexts, one posts in a channel, the other receives the delta within 1 s. Reused from M4's E2E.
-5. `05-automation-tick.spec.ts` — create a `FREQ=MINUTELY` automation, hit `/test/scheduler/tick` (test-only endpoint guarded by `settings.ENV in {"test", "staging"}`), assert the run record appears. Skipped in prod-smoke; staging only.
+5. `05-automation-tick.spec.ts` — create a `FREQ=MINUTELY` automation, hit `/test/scheduler/tick` (test-only endpoint guarded by `settings.env in {"test", "staging"}`), assert the run record appears. Skipped in prod-smoke; staging only.
 
 Smoke runs sequentially (no parallelism) against shared resources, capped at 90 s. Failure aborts the deploy.
 
@@ -574,7 +574,7 @@ The visual-regression layer from `rebuild.md` § 8 Layer 4 spans every milestone
 - [ ] Per-user rate limits enforce against `X-Forwarded-Email`, including the token-counting bucket for chat completions; over-limit responses return `429` with `Retry-After`.
 - [ ] All routes have an explicit timeout from the dispatch table; default catch-all is 15 s; SSE has a 5-min hard cap; the scheduler tick uses `MAX_EXECUTION_TIME(2000)`.
 - [ ] `TRUSTED_PROXY_CIDRS` is required in prod; a request from outside the allowlist has its `X-Forwarded-Email` header stripped before reaching the auth dependency. Explicitly tested by `tests/integration/test_trusted_proxy.py::test_spoofed_header_outside_cidr_is_stripped` which: (a) sends `X-Forwarded-Email` from an IP inside `TRUSTED_PROXY_CIDRS` and asserts a 200 with the expected `User`, (b) sends the same header from an IP outside the allowlist and asserts the request reaches the route without `request.scope["headers"]` containing `x-forwarded-email`, resulting in a 401. The same test asserts the `security.trusted_proxy.miss` log line is emitted with the source IP redacted.
-- [ ] CORS is locked to `settings.CORS_ALLOW_ORIGINS`; security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) are present on every response and verified by an E2E.
+- [ ] CORS is locked to `settings.cors_allow_origins`; security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) are present on every response and verified by an E2E.
 - [ ] File upload rejects non-allowed MIME types, mismatched declared/sniffed types, and files > 5 MiB.
 - [ ] Webhook tokens are stored as SHA-256 hashes; plaintext appears only in the creation response.
 - [ ] SSE keep-alive and socket.io `ping_interval` both wired to `STREAM_HEARTBEAT_SECONDS` (M0 constant; default 15 s); socket.io `ping_timeout = 2 * STREAM_HEARTBEAT_SECONDS`; idle disconnect at 30 min. No hard-coded heartbeat cadence anywhere in the codebase (verified by `rg -n "ping_interval=|keep-alive.*15"` returning only the constant import).

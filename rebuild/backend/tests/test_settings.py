@@ -53,35 +53,35 @@ def _fresh_settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> object:
 def test_defaults_match_table(monkeypatch: pytest.MonkeyPatch) -> None:
     """Spot-check every default in the m0 plan § Settings(BaseSettings) table."""
     s = _fresh_settings(monkeypatch)
-    assert s.ENV == "dev"
-    assert s.HOST == "0.0.0.0"
-    assert s.PORT == 8080
-    assert s.LOG_LEVEL == "INFO"
-    assert s.DATABASE_URL == ("mysql+asyncmy://rebuild:rebuild@mysql:3306/rebuild?charset=utf8mb4")
-    assert s.DB_POOL_SIZE == 10
-    assert s.DB_POOL_MAX_OVERFLOW == 5
-    assert s.DB_POOL_RECYCLE_SECONDS == 1800
-    assert s.REDIS_URL == "redis://redis:6379/0"
-    assert s.MODEL_GATEWAY_BASE_URL is None
-    assert s.MODEL_GATEWAY_API_KEY is None
-    assert s.TRUSTED_EMAIL_HEADER == "X-Forwarded-Email"
-    assert s.TRUSTED_NAME_HEADER == "X-Forwarded-Name"
-    assert s.TRUSTED_EMAIL_DOMAIN_ALLOWLIST == []
-    assert s.MAX_UPLOAD_BYTES == 5_242_880
-    assert s.CORS_ALLOW_ORIGINS == []
-    assert s.READYZ_DB_TIMEOUT_MS == 1000
-    assert s.READYZ_REDIS_TIMEOUT_MS == 500
+    assert s.env == "dev"
+    assert s.host == "0.0.0.0"
+    assert s.port == 8080
+    assert s.log_level == "INFO"
+    assert s.database_url == ("mysql+asyncmy://rebuild:rebuild@mysql:3306/rebuild?charset=utf8mb4")
+    assert s.db_pool_size == 10
+    assert s.db_pool_max_overflow == 5
+    assert s.db_pool_recycle_seconds == 1800
+    assert s.redis_url == "redis://redis:6379/0"
+    assert s.model_gateway_base_url is None
+    assert s.model_gateway_api_key is None
+    assert s.trusted_email_header == "X-Forwarded-Email"
+    assert s.trusted_name_header == "X-Forwarded-Name"
+    assert s.trusted_email_domain_allowlist == []
+    assert s.max_upload_bytes == 5_242_880
+    assert s.cors_allow_origins == []
+    assert s.readyz_db_timeout_ms == 1000
+    assert s.readyz_redis_timeout_ms == 500
     # IAM auth is off by default — the dev compose stack uses the static
     # MySQL container password baked into infra/docker-compose.yml.
-    assert s.DATABASE_IAM_AUTH is False
-    assert s.DATABASE_IAM_AUTH_REGION is None
-    assert s.DATABASE_IAM_AUTH_HOST is None
-    assert s.DATABASE_IAM_AUTH_PORT is None
+    assert s.database_iam_auth is False
+    assert s.database_iam_auth_region is None
+    assert s.database_iam_auth_host is None
+    assert s.database_iam_auth_port is None
     # Per-engine IAM user overrides default to None — the runtime and
     # Alembic engines fall back to the URL username when these are unset.
     # Production sets both explicitly (today they hold the same value).
-    assert s.DATABASE_IAM_AUTH_USER is None
-    assert s.DATABASE_IAM_AUTH_MIGRATE_USER is None
+    assert s.database_iam_auth_user is None
+    assert s.database_iam_auth_migrate_user is None
 
 
 def test_iam_auth_with_static_password_is_rejected(
@@ -133,8 +133,8 @@ def test_iam_auth_with_username_only_is_accepted(
         DATABASE_URL="mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com:3306/rebuild?ssl=true",
         DATABASE_IAM_AUTH_REGION="us-east-1",
     )
-    assert s.DATABASE_IAM_AUTH is True
-    assert s.DATABASE_IAM_AUTH_REGION == "us-east-1"
+    assert s.database_iam_auth is True
+    assert s.database_iam_auth_region == "us-east-1"
 
 
 def test_iam_auth_today_prod_shape_with_explicit_users_is_accepted(
@@ -153,8 +153,8 @@ def test_iam_auth_today_prod_shape_with_explicit_users_is_accepted(
         DATABASE_IAM_AUTH_USER="rebuild_app",
         DATABASE_IAM_AUTH_MIGRATE_USER="rebuild_app",
     )
-    assert s.DATABASE_IAM_AUTH_USER == "rebuild_app"
-    assert s.DATABASE_IAM_AUTH_MIGRATE_USER == "rebuild_app"
+    assert s.database_iam_auth_user == "rebuild_app"
+    assert s.database_iam_auth_migrate_user == "rebuild_app"
 
 
 def test_iam_auth_future_split_shape_with_distinct_users_is_accepted(
@@ -173,8 +173,8 @@ def test_iam_auth_future_split_shape_with_distinct_users_is_accepted(
         DATABASE_IAM_AUTH_USER="rebuild_app",
         DATABASE_IAM_AUTH_MIGRATE_USER="rebuild_migrate",
     )
-    assert s.DATABASE_IAM_AUTH_USER == "rebuild_app"
-    assert s.DATABASE_IAM_AUTH_MIGRATE_USER == "rebuild_migrate"
+    assert s.database_iam_auth_user == "rebuild_app"
+    assert s.database_iam_auth_migrate_user == "rebuild_migrate"
 
 
 def test_iam_auth_url_userless_with_overrides_is_accepted(
@@ -192,8 +192,8 @@ def test_iam_auth_url_userless_with_overrides_is_accepted(
         DATABASE_IAM_AUTH_USER="rebuild_app",
         DATABASE_IAM_AUTH_MIGRATE_USER="rebuild_app",
     )
-    assert s.DATABASE_IAM_AUTH_USER == "rebuild_app"
-    assert s.DATABASE_IAM_AUTH_MIGRATE_USER == "rebuild_app"
+    assert s.database_iam_auth_user == "rebuild_app"
+    assert s.database_iam_auth_migrate_user == "rebuild_app"
 
 
 def test_cors_allow_origins_csv_parses(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,7 +207,7 @@ def test_cors_allow_origins_csv_parses(monkeypatch: pytest.MonkeyPatch) -> None:
     on commas — the dispatch flagged this as the contract.
     """
     s = _fresh_settings(monkeypatch, CORS_ALLOW_ORIGINS="a,b")
-    assert s.CORS_ALLOW_ORIGINS == ["a", "b"]
+    assert s.cors_allow_origins == ["a", "b"]
 
 
 def test_trusted_email_domain_allowlist_csv_parses(
@@ -217,21 +217,21 @@ def test_trusted_email_domain_allowlist_csv_parses(
         monkeypatch,
         TRUSTED_EMAIL_DOMAIN_ALLOWLIST="canva.com,example.org",
     )
-    assert s.TRUSTED_EMAIL_DOMAIN_ALLOWLIST == ["canva.com", "example.org"]
+    assert s.trusted_email_domain_allowlist == ["canva.com", "example.org"]
 
 
 def test_secret_str_does_not_leak_in_repr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     s = _fresh_settings(monkeypatch, MODEL_GATEWAY_API_KEY="super-secret-key")
-    assert isinstance(s.MODEL_GATEWAY_API_KEY, SecretStr)
+    assert isinstance(s.model_gateway_api_key, SecretStr)
     # Neither repr nor str of the SecretStr (or the parent Settings) should
     # contain the literal value. SecretStr renders `**********`.
-    assert "super-secret-key" not in repr(s.MODEL_GATEWAY_API_KEY)
-    assert "super-secret-key" not in str(s.MODEL_GATEWAY_API_KEY)
+    assert "super-secret-key" not in repr(s.model_gateway_api_key)
+    assert "super-secret-key" not in str(s.model_gateway_api_key)
     assert "super-secret-key" not in repr(s)
     # Caller still has an escape hatch.
-    assert s.MODEL_GATEWAY_API_KEY.get_secret_value() == "super-secret-key"
+    assert s.model_gateway_api_key.get_secret_value() == "super-secret-key"
 
 
 def test_env_literal_rejects_qa(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,4 +245,4 @@ def test_env_literal_accepts_staging(
 ) -> None:
     """Sibling positive: ``staging`` is required by m4/m5 gates."""
     s = _fresh_settings(monkeypatch, ENV="staging")
-    assert s.ENV == "staging"
+    assert s.env == "staging"

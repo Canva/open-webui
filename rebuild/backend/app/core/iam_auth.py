@@ -8,14 +8,14 @@ container password from ``infra/docker-compose.yml`` and never imports
 boto3.
 
 The on/off flag is :func:`is_iam_auth_enabled`, which reads
-``settings.DATABASE_IAM_AUTH``. When on:
+``settings.database_iam_auth``. When on:
 
 * ``DATABASE_URL`` carries the IAM database username and **no password**.
 * :func:`attach_iam_auth_to_engine` registers a SQLAlchemy ``do_connect``
   listener on the engine's sync side. The hook fires once per *physical*
   connection — before the driver's ``connect()`` call — so pool churn
   (recycle / pre-ping / overflow) is the only thing that needs to outpace
-  the token's TTL. ``settings.DB_POOL_RECYCLE_SECONDS`` is the single
+  the token's TTL. ``settings.db_pool_recycle_seconds`` is the single
   knob; set below 900 if you want belt-and-braces.
 * boto3 is imported lazily inside :func:`generate_iam_auth_token` so the
   dev path never pays for it.
@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 
 
 def is_iam_auth_enabled() -> bool:
-    """Return ``True`` when ``settings.DATABASE_IAM_AUTH`` is on.
+    """Return ``True`` when ``settings.database_iam_auth`` is on.
 
     Reads the live ``settings`` object so test fixtures that flip the
     field via ``override_settings`` are reflected immediately. The import
@@ -62,13 +62,13 @@ def is_iam_auth_enabled() -> bool:
     """
     from app.core.config import settings
 
-    return bool(settings.DATABASE_IAM_AUTH)
+    return bool(settings.database_iam_auth)
 
 
 def _resolve_region() -> str | None:
     """Resolve the AWS region for the ``rds:GenerateDBAuthToken`` call.
 
-    Falls through ``settings.DATABASE_IAM_AUTH_REGION`` →
+    Falls through ``settings.database_iam_auth_region`` →
     ``AWS_REGION`` → ``AWS_DEFAULT_REGION`` (the standard boto3 lookup
     chain). Returns ``None`` if none are set; the caller is expected to
     raise with a clear message in that case.
@@ -76,7 +76,7 @@ def _resolve_region() -> str | None:
     from app.core.config import settings
 
     return (
-        settings.DATABASE_IAM_AUTH_REGION
+        settings.database_iam_auth_region
         or os.environ.get("AWS_REGION")
         or os.environ.get("AWS_DEFAULT_REGION")
     )
@@ -91,13 +91,13 @@ def resolve_iam_endpoint(
 
     RDS IAM tokens are signed for a specific cluster/instance endpoint —
     a token minted against a CNAME / Route 53 alias is rejected at
-    connect time. ``settings.DATABASE_IAM_AUTH_HOST`` lets the caller
+    connect time. ``settings.database_iam_auth_host`` lets the caller
     override the host the token is signed for when ``DATABASE_URL`` has
     to use a friendlier alias.
 
     ``user_override`` is the per-engine IAM database user to authenticate
-    as. The runtime engine passes ``settings.DATABASE_IAM_AUTH_USER`` and
-    the Alembic engine passes ``settings.DATABASE_IAM_AUTH_MIGRATE_USER``;
+    as. The runtime engine passes ``settings.database_iam_auth_user`` and
+    the Alembic engine passes ``settings.database_iam_auth_migrate_user``;
     both fall back to the username embedded in ``database_url`` when the
     override is ``None``. The two-setting split is what lets
     ``values-prod.yaml`` flip the migration credential to a separate
@@ -110,11 +110,11 @@ def resolve_iam_endpoint(
     from app.core.config import settings
 
     parsed = urlparse(database_url)
-    host = settings.DATABASE_IAM_AUTH_HOST or parsed.hostname
+    host = settings.database_iam_auth_host or parsed.hostname
 
     port: int
-    if settings.DATABASE_IAM_AUTH_PORT is not None:
-        port = settings.DATABASE_IAM_AUTH_PORT
+    if settings.database_iam_auth_port is not None:
+        port = settings.database_iam_auth_port
     elif parsed.port is not None:
         port = parsed.port
     else:
@@ -194,8 +194,8 @@ def attach_iam_auth_to_engine(
         Controls the MySQL-specific ``auth_plugin_map`` connect-arg.
     user:
         Optional per-engine IAM database user override. Pass
-        ``settings.DATABASE_IAM_AUTH_USER`` from the runtime engine and
-        ``settings.DATABASE_IAM_AUTH_MIGRATE_USER`` from the Alembic
+        ``settings.database_iam_auth_user`` from the runtime engine and
+        ``settings.database_iam_auth_migrate_user`` from the Alembic
         engine. ``None`` falls back to the username embedded in the
         engine URL — the dev path and the today-prod path
         (``DATABASE_IAM_AUTH_USER == DATABASE_IAM_AUTH_MIGRATE_USER ==

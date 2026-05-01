@@ -40,13 +40,13 @@ from app.services.stream_registry import StreamRegistry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    configure_logging(settings.LOG_LEVEL)
+    configure_logging(settings.log_level)
     # Redis pool first — the StreamRegistry below holds a reference to it
     # for pubsub subscribe/publish. ``decode_responses=False`` keeps the
     # bytes payloads we publish on cancel (``b"1"``) untouched; the
     # registry never inspects the value.
     redis = Redis.from_url(
-        settings.REDIS_URL,
+        settings.redis_url,
         decode_responses=False,
         max_connections=10,
     )
@@ -69,10 +69,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="open-webui rebuild", version="0.0.0", lifespan=lifespan)
-    if settings.CORS_ALLOW_ORIGINS:
+    if settings.cors_allow_origins:
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=settings.CORS_ALLOW_ORIGINS,
+            allow_origins=settings.cors_allow_origins,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],

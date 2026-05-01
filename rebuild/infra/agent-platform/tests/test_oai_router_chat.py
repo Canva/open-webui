@@ -40,7 +40,7 @@ def _build_test_agent_dict(
     Single ``ModelDef`` (the platform default), single agent — the
     minimum surface needed to exercise ``_stream_response``.
     """
-    defn = settings.MODELS[0]
+    defn = settings.models[0]
     agent: Agent[None, str] = Agent(
         model=TestModel(custom_output_text=output_text),
         output_type=str,

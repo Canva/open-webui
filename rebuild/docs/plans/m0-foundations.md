@@ -185,7 +185,7 @@ All configuration lives in `app/core/config.py`. The class loads from environmen
 
 Pydantic-settings 2 only auto-decodes list-typed fields as JSON, so `TRUSTED_EMAIL_DOMAIN_ALLOWLIST` and `CORS_ALLOW_ORIGINS` are declared as `Annotated[list[str], NoDecode]` and paired with a `field_validator(mode="before")` that splits on commas (treating `""` and `None` as `[]`). The `SecretStr` type prevents `MODEL_GATEWAY_API_KEY` from leaking into `repr(settings)` or log lines.
 
-**Casing convention (locked).** Every field on `Settings` is declared with the same UPPER_SNAKE_CASE name as its env var; access from code is therefore always `settings.MODEL_GATEWAY_BASE_URL`, never `settings.model_gateway_base_url`. The convention is uniform across every milestone (M2–M6). Pydantic-settings 2 supports either casing, but mixing them causes silent attribute errors when the wrong case is used at a call site, so the project pins one. Later milestones that extend `Settings` with new fields (M2's `SSE_STREAM_TIMEOUT_SECONDS`, M5's `AUTOMATION_*` knobs, M6's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`) follow the same UPPER_SNAKE_CASE rule and are listed in their plans' "Settings additions" subsection. The launch-banner cutoff (`PUBLIC_LAUNCH_BANNER_UNTIL`) is intentionally **not** a backend `Settings` field — it lives only on the SvelteKit side as a `PUBLIC_*` static env var (see `m6-hardening.md` § In-product banner).
+**Casing convention (locked).** The "Field" column above lists each setting under its **env-var key** (UPPER_SNAKE_CASE) — that's the canonical 12-factor / shell / Helm / docker-compose contract. The matching **Python attribute** on the `Settings` class is the same name in `snake_case`: `DATABASE_URL` (env) ↔ `settings.database_url` (Python), `MODEL_GATEWAY_BASE_URL` ↔ `settings.model_gateway_base_url`, `SSE_STREAM_TIMEOUT_SECONDS` ↔ `settings.sse_stream_timeout_seconds`, etc. The bridge is `model_config = SettingsConfigDict(case_sensitive=False, ...)` on `Settings`, which lets pydantic-settings populate the lowercase attribute from the UPPER_SNAKE env-var without per-field `alias=` plumbing. The rule is uniform across every milestone (M2–M6) and across the agent platform's own `Settings` (`infra/agent-platform/app/config.py`). Later milestones that extend `Settings` with new fields (M2's `SSE_STREAM_TIMEOUT_SECONDS`, M5's `AUTOMATION_*` knobs, M6's `OTEL_*`, `LOG_FORMAT`, `TRUSTED_PROXY_CIDRS`, `RATELIMIT_*`, `ALLOWED_FILE_TYPES`) are documented under their UPPER_SNAKE env-var keys in each plan's "Settings additions" subsection and read in code as `settings.<lowercase>`. Tests that construct a `Settings(...)` instance directly pass kwargs by the lowercase attribute name (Python kwargs ignore `case_sensitive`); tests that drive the env-var path (`monkeypatch.setenv("DATABASE_URL", ...)`) keep the UPPER_SNAKE key. The launch-banner cutoff (`PUBLIC_LAUNCH_BANNER_UNTIL`) is intentionally **not** a backend `Settings` field — it lives only on the SvelteKit side as a `PUBLIC_*` static env var (see `m6-hardening.md` § In-product banner). See [`rebuild/docs/best-practises/FastAPI-best-practises.md` § B.3](../best-practises/FastAPI-best-practises.md#b3-single-settingsbasesettings) for the full DO/DON'T list.
 
 ### IAM database authentication
 
@@ -197,10 +197,10 @@ Production deployments at Canva connect to **AWS Aurora MySQL** behind **IAM dat
 
 | Symbol | Purpose |
 |---|---|
-| `is_iam_auth_enabled() -> bool` | Single source of truth for the on/off flag (reads `settings.DATABASE_IAM_AUTH`). |
+| `is_iam_auth_enabled() -> bool` | Single source of truth for the on/off flag (reads `settings.database_iam_auth`). |
 | `resolve_iam_endpoint(database_url, *, user_override=None) -> tuple[host, port, user]` | Parses the URL once, applies the `DATABASE_IAM_AUTH_HOST`/`PORT` overrides, and resolves the user as `user_override or parsed.username`. Raises a clear `RuntimeError` when host or user is missing. The `user_override` parameter is what carries `DATABASE_IAM_AUTH_USER` (runtime engine) and `DATABASE_IAM_AUTH_MIGRATE_USER` (Alembic engine) into the token-mint. |
 | `generate_iam_auth_token(host, port, user, region=None) -> str` | Wraps `boto3.client('rds').generate_db_auth_token(...)`. boto3 is imported inside this function. |
-| `attach_iam_auth_to_engine(engine, *, dialect, user=None)` | Registers the `do_connect` listener on the engine's sync side (`async_engine.sync_engine` for `AsyncEngine`). The `user` kwarg is the per-engine IAM user override; the runtime engine passes `settings.DATABASE_IAM_AUTH_USER`, the Alembic engine passes `settings.DATABASE_IAM_AUTH_MIGRATE_USER`. The listener also overwrites `cparams['user']` to that resolved user, so the URL-derived username never wins over the override. On MySQL it also seeds `auth_plugin_map={'mysql_clear_password': None}` so PyMySQL/asyncmy hand the token to RDS verbatim instead of hashing it against `mysql_native_password`. |
+| `attach_iam_auth_to_engine(engine, *, dialect, user=None)` | Registers the `do_connect` listener on the engine's sync side (`async_engine.sync_engine` for `AsyncEngine`). The `user` kwarg is the per-engine IAM user override; the runtime engine passes `settings.database_iam_auth_user`, the Alembic engine passes `settings.database_iam_auth_migrate_user`. The listener also overwrites `cparams['user']` to that resolved user, so the URL-derived username never wins over the override. On MySQL it also seeds `auth_plugin_map={'mysql_clear_password': None}` so PyMySQL/asyncmy hand the token to RDS verbatim instead of hashing it against `mysql_native_password`. |
 | `url_with_iam_token(database_url) -> str` | One-shot helper that returns `database_url` with a freshly-minted token URL-encoded into the password slot. Used only by the rare consumer that doesn't sit behind a SQLAlchemy pool we can hook (none in M0; reserved for future tooling). |
 
 **Engine wiring (`app/core/db.py`).** After the engine is constructed, exactly one branch:
@@ -208,19 +208,19 @@ Production deployments at Canva connect to **AWS Aurora MySQL** behind **IAM dat
 ```python
 from app.core.iam_auth import attach_iam_auth_to_engine, is_iam_auth_enabled
 
-engine = create_async_engine(settings.DATABASE_URL, ...)
+engine = create_async_engine(settings.database_url, ...)
 if is_iam_auth_enabled():
-    attach_iam_auth_to_engine(engine, dialect="mysql", user=settings.DATABASE_IAM_AUTH_USER)
+    attach_iam_auth_to_engine(engine, dialect="mysql", user=settings.database_iam_auth_user)
 ```
 
 The dialect is hard-coded to `"mysql"` because the rebuild's `DATABASE_URL` is locked to MySQL via `rebuild.md` §2 (no Postgres path); the parameter exists on the helper for symmetry with the legacy fork and to keep the contract obvious to readers. The `user` kwarg defaults to `None` (i.e. fall back to the URL username), which is what makes the dev path keep working unmodified.
 
-**Alembic wiring (`backend/alembic/env.py`).** Alembic uses its own short-lived async engine inside `run_async_migrations()`. The same hook applies, registered on the sync side of the async engine immediately after `async_engine_from_config(...)`, but with `user=settings.DATABASE_IAM_AUTH_MIGRATE_USER` instead of `DATABASE_IAM_AUTH_USER`:
+**Alembic wiring (`backend/alembic/env.py`).** Alembic uses its own short-lived async engine inside `run_async_migrations()`. The same hook applies, registered on the sync side of the async engine immediately after `async_engine_from_config(...)`, but with `user=settings.database_iam_auth_migrate_user` instead of `settings.database_iam_auth_user`:
 
 ```python
 if is_iam_auth_enabled():
     attach_iam_auth_to_engine(
-        engine, dialect="mysql", user=settings.DATABASE_IAM_AUTH_MIGRATE_USER
+        engine, dialect="mysql", user=settings.database_iam_auth_migrate_user
     )
 ```
 
@@ -241,12 +241,12 @@ Today both env vars resolve to the same single IAM user with `ALL PRIVILEGES`, s
 **`upsert_user_from_headers(db, *, email, name) -> User`** is the pure helper that contains the entire "trusted header → `User` row" contract. It is `async`, takes an `AsyncSession` plus the already-extracted/validated email and optional name, and:
 
 1. Lowercases + URL-decodes the email.
-2. If `settings.TRUSTED_EMAIL_DOMAIN_ALLOWLIST` is non-empty and the email domain is not in it, raises `HTTPException(status_code=401, detail="email domain not allowed")`.
+2. If `settings.trusted_email_domain_allowlist` is non-empty and the email domain is not in it, raises `HTTPException(status_code=401, detail="email domain not allowed")`.
 3. Looks up `User` by email via `await db.scalar(select(User).where(User.email == email))`.
 4. If absent, inserts with `name = unquote(name or email)`. Uses `INSERT ... ON DUPLICATE KEY UPDATE id = id` to remain idempotent under concurrent first-time logins.
 5. Returns the `User` row.
 
-**`get_user(request, db) -> User`** is the FastAPI dependency. It reads the header named by `settings.TRUSTED_EMAIL_HEADER` (default `X-Forwarded-Email`), raises `HTTPException(status_code=401, detail="missing trusted header")` if missing or empty, then delegates to `upsert_user_from_headers(db, email=email, name=request.headers.get(settings.TRUSTED_NAME_HEADER))`.
+**`get_user(request, db) -> User`** is the FastAPI dependency. It reads the header named by `settings.trusted_email_header` (default `X-Forwarded-Email`), raises `HTTPException(status_code=401, detail="missing trusted header")` if missing or empty, then delegates to `upsert_user_from_headers(db, email=email, name=request.headers.get(settings.trusted_name_header))`.
 
 The two-symbol split is deliberate: M4's socket.io `connect` handler authenticates from the same trusted headers but lives outside the FastAPI request lifecycle, so it cannot use `Depends(get_user)`. Instead it opens its own `AsyncSessionLocal()` and calls `upsert_user_from_headers` directly. Keeping the upsert in a pure helper means the auth contract has exactly one implementation; if the day ever comes when "first login" needs to also write a `last_seen_at` or an audit row, it's one line in one file.
 
@@ -1146,7 +1146,7 @@ The following must run green in CI before the milestone is closed.
 - [ ] `curl localhost:8080/healthz` returns `200`; `curl localhost:8080/readyz` returns `200` while compose is healthy.
 - [ ] `cd rebuild && make migrate` runs `alembic upgrade head` against the dev MySQL and the `user` table is present with `utf8mb4_0900_ai_ci` collation and `InnoDB` engine. Re-running `make migrate` immediately afterwards produces zero DDL (verified by `tests/test_migrations.py::test_upgrade_head_is_idempotent`).
 - [ ] `app/db/migration_helpers.py` exists and exposes the full helper surface (`create_table_if_not_exists`, `drop_table_if_exists`, `create_index_if_not_exists`, `drop_index_if_exists`, `add_column_if_not_exists`, `drop_column_if_exists`, `create_foreign_key_if_not_exists`, `drop_constraint_if_exists`, `create_check_constraint_if_not_exists`, `execute_if`); the four migration-contract tests (`test_upgrade_head_is_idempotent`, `test_downgrade_base_is_idempotent`, `test_partial_upgrade_recovers`, `test_no_bare_op_calls`) run green in CI.
-- [ ] `app/core/iam_auth.py` exists, `Settings` exposes `DATABASE_IAM_AUTH` / `DATABASE_IAM_AUTH_REGION` / `DATABASE_IAM_AUTH_HOST` / `DATABASE_IAM_AUTH_PORT` / `DATABASE_IAM_AUTH_USER` / `DATABASE_IAM_AUTH_MIGRATE_USER`, `app/core/db.py` calls `attach_iam_auth_to_engine(..., user=settings.DATABASE_IAM_AUTH_USER)` and `backend/alembic/env.py` calls it with `user=settings.DATABASE_IAM_AUTH_MIGRATE_USER` when the flag is on. `tests/test_iam_auth.py` covers token mint, host/port overrides, the user-override fallback chain (URL username → `DATABASE_IAM_AUTH_USER` / `DATABASE_IAM_AUTH_MIGRATE_USER`), the validator that rejects `IAM=True` with a populated URL password, and the no-region failure mode (boto3 monkey-patched; no real AWS call).
+- [ ] `app/core/iam_auth.py` exists, `Settings` exposes `database_iam_auth` / `database_iam_auth_region` / `database_iam_auth_host` / `database_iam_auth_port` / `database_iam_auth_user` / `database_iam_auth_migrate_user` (env-var keys: `DATABASE_IAM_AUTH` / `DATABASE_IAM_AUTH_REGION` / `DATABASE_IAM_AUTH_HOST` / `DATABASE_IAM_AUTH_PORT` / `DATABASE_IAM_AUTH_USER` / `DATABASE_IAM_AUTH_MIGRATE_USER`), `app/core/db.py` calls `attach_iam_auth_to_engine(..., user=settings.database_iam_auth_user)` and `backend/alembic/env.py` calls it with `user=settings.database_iam_auth_migrate_user` when the flag is on. `tests/test_iam_auth.py` covers token mint, host/port overrides, the user-override fallback chain (URL username → `DATABASE_IAM_AUTH_USER` / `DATABASE_IAM_AUTH_MIGRATE_USER`), the validator that rejects `IAM=True` with a populated URL password, and the no-region failure mode (boto3 monkey-patched; no real AWS call).
 - [ ] `app/core/auth.py` exposes both `upsert_user_from_headers(db, *, email, name)` and the `get_user` dep; `get_user` calls the helper. `tests/test_auth.py` covers both call shapes.
 - [ ] `app/core/deps.py` exports `CurrentUser` and `DbSession`; `app/routers/me.py` uses `user: CurrentUser` (not `user: User = Depends(get_user)`).
 - [ ] `app/schemas/_base.py` exports `StrictModel`; `UserRead` inherits from it; `tests/test_strict_model.py` asserts that posting `{"id": "...", "email": "...", "extra": 1}` to a stub endpoint returns 422.

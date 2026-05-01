@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_SECONDS) as c:
         for attempt in range(_PROBE_ATTEMPTS):
             try:
-                r = await c.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
+                r = await c.get(f"{settings.ollama_base_url}/api/tags")
                 r.raise_for_status()
                 last_exc = None
                 break
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     await asyncio.sleep(_PROBE_BACKOFF_SECONDS)
     if last_exc is not None:
         raise RuntimeError(
-            f"agent-platform could not reach ollama at {settings.OLLAMA_BASE_URL} "
+            f"agent-platform could not reach ollama at {settings.ollama_base_url} "
             f"after {_PROBE_ATTEMPTS} attempts: {last_exc}"
         ) from last_exc
     app.state.agents = build_agents(settings)

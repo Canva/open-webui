@@ -20,7 +20,7 @@ from app.config import ModelDef, Settings
 
 def test_build_agents_default_catalog_returns_single_dev_entry() -> None:
     settings = Settings(
-        MODELS=[
+        models=[
             ModelDef(id="dev", label="Dev (Qwen 2.5, 0.5B)", ollama_tag="qwen2.5:0.5b"),
         ]
     )
@@ -40,7 +40,7 @@ def test_build_agents_default_catalog_returns_single_dev_entry() -> None:
 
 def test_build_agents_multi_model_catalog_keeps_each_alias() -> None:
     settings = Settings(
-        MODELS=[
+        models=[
             ModelDef(id="a", label="A", ollama_tag="t1"),
             ModelDef(id="b", label="B", ollama_tag="t2"),
         ]
@@ -59,7 +59,7 @@ def test_build_agents_unknown_alias_returns_none() -> None:
     for unknown aliases so the router's 404 branch can fire cleanly.
     """
     settings = Settings(
-        MODELS=[
+        models=[
             ModelDef(id="dev", label="Dev", ollama_tag="qwen2.5:0.5b"),
         ]
     )

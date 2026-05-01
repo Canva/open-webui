@@ -3,7 +3,7 @@
 boto3 is monkey-patched throughout — none of these tests make a real AWS
 API call. The contract we care about is:
 
-1. The on/off flag honours ``settings.DATABASE_IAM_AUTH``.
+1. The on/off flag honours ``settings.database_iam_auth``.
 2. ``resolve_iam_endpoint`` parses the URL, applies the host/port
    overrides, honours the ``user_override`` kwarg, and rejects a URL
    without a username when no override is supplied.
@@ -12,8 +12,8 @@ API call. The contract we care about is:
    → AWS_REGION → AWS_DEFAULT_REGION).
 4. ``attach_iam_auth_to_engine`` registers a ``do_connect`` listener
    that injects the minted token into ``cparams['password']``, threads
-   the per-engine ``user`` override (``DATABASE_IAM_AUTH_USER`` for
-   runtime / ``DATABASE_IAM_AUTH_MIGRATE_USER`` for Alembic) into both
+   the per-engine ``user`` override (``database_iam_auth_user`` for
+   runtime / ``database_iam_auth_migrate_user`` for Alembic) into both
    the token mint and ``cparams['user']``, and (on MySQL) seeds
    ``auth_plugin_map={'mysql_clear_password': None}`` for asyncmy /
    PyMySQL to hand the token to RDS verbatim.
@@ -34,9 +34,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 
 def test_is_iam_auth_enabled_reflects_settings(override_settings: Any) -> None:
-    with override_settings(DATABASE_IAM_AUTH=False):
+    with override_settings(database_iam_auth=False):
         assert iam_auth.is_iam_auth_enabled() is False
-    with override_settings(DATABASE_IAM_AUTH=True):
+    with override_settings(database_iam_auth=True):
         assert iam_auth.is_iam_auth_enabled() is True
 
 
@@ -48,8 +48,8 @@ def test_is_iam_auth_enabled_reflects_settings(override_settings: Any) -> None:
 def test_resolve_iam_endpoint_uses_url_components(override_settings: Any) -> None:
     """No overrides set: pull host/port/user straight from the URL."""
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host=None,
+        database_iam_auth_port=None,
     ):
         host, port, user = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com:3307/rebuild"
@@ -62,8 +62,8 @@ def test_resolve_iam_endpoint_uses_url_components(override_settings: Any) -> Non
 def test_resolve_iam_endpoint_default_port_is_3306(override_settings: Any) -> None:
     """No port in URL or override: fall back to the MySQL default."""
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host=None,
+        database_iam_auth_port=None,
     ):
         host, port, user = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com/rebuild"
@@ -76,8 +76,8 @@ def test_resolve_iam_endpoint_default_port_is_3306(override_settings: Any) -> No
 def test_resolve_iam_endpoint_host_override_wins(override_settings: Any) -> None:
     """RDS signs tokens for the cluster endpoint; alias must be overridden."""
     with override_settings(
-        DATABASE_IAM_AUTH_HOST="cluster-XYZ.us-east-1.rds.amazonaws.com",
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host="cluster-XYZ.us-east-1.rds.amazonaws.com",
+        database_iam_auth_port=None,
     ):
         host, _, _ = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://rebuild_app@db.canva-internal.com:3306/rebuild"
@@ -87,8 +87,8 @@ def test_resolve_iam_endpoint_host_override_wins(override_settings: Any) -> None
 
 def test_resolve_iam_endpoint_port_override_wins(override_settings: Any) -> None:
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=3308,
+        database_iam_auth_host=None,
+        database_iam_auth_port=3308,
     ):
         _, port, _ = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com:3306/rebuild"
@@ -100,8 +100,8 @@ def test_resolve_iam_endpoint_rejects_missing_user(override_settings: Any) -> No
     """No username and no override is a hard fail — RDS signs ``user@host``."""
     with (
         override_settings(
-            DATABASE_IAM_AUTH_HOST=None,
-            DATABASE_IAM_AUTH_PORT=None,
+            database_iam_auth_host=None,
+            database_iam_auth_port=None,
         ),
         pytest.raises(RuntimeError, match="user="),
     ):
@@ -114,8 +114,8 @@ def test_resolve_iam_endpoint_user_override_wins(override_settings: Any) -> None
     Job's IAM identity without touching ``DATABASE_URL``.
     """
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host=None,
+        database_iam_auth_port=None,
     ):
         _, _, user = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com:3306/rebuild",
@@ -133,8 +133,8 @@ def test_resolve_iam_endpoint_user_override_satisfies_missing_url_user(
     entirely in ``DATABASE_IAM_AUTH_USER`` / ``DATABASE_IAM_AUTH_MIGRATE_USER``.
     """
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host=None,
+        database_iam_auth_port=None,
     ):
         host, _, user = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://cluster.us-east-1.rds.amazonaws.com:3306/rebuild",
@@ -151,8 +151,8 @@ def test_resolve_iam_endpoint_falls_back_to_url_user_when_override_is_none(
     dev-path / today-prod shape where both engines share one IAM user.
     """
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host=None,
+        database_iam_auth_port=None,
     ):
         _, _, user = iam_auth.resolve_iam_endpoint(
             "mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com:3306/rebuild",
@@ -202,7 +202,7 @@ def test_generate_token_calls_boto3(
 
     monkeypatch.setitem(__import__("sys").modules, "boto3", _FakeBoto3Module)
 
-    with override_settings(DATABASE_IAM_AUTH_REGION="us-east-1"):
+    with override_settings(database_iam_auth_region="us-east-1"):
         token = iam_auth.generate_iam_auth_token(
             host="cluster.us-east-1.rds.amazonaws.com",
             port=3306,
@@ -238,7 +238,7 @@ def test_generate_token_falls_back_to_aws_region(
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
 
-    with override_settings(DATABASE_IAM_AUTH_REGION=None):
+    with override_settings(database_iam_auth_region=None):
         token = iam_auth.generate_iam_auth_token(
             host="h",
             port=3306,
@@ -255,7 +255,7 @@ def test_generate_token_without_region_fails_clearly(
     monkeypatch.delenv("AWS_REGION", raising=False)
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     with (
-        override_settings(DATABASE_IAM_AUTH_REGION=None),
+        override_settings(database_iam_auth_region=None),
         pytest.raises(RuntimeError, match="no AWS region"),
     ):
         iam_auth.generate_iam_auth_token(host="h", port=3306, user="u")
@@ -315,10 +315,10 @@ def test_attach_iam_auth_async_engine_injects_token(
     )
     try:
         with override_settings(
-            DATABASE_IAM_AUTH=True,
-            DATABASE_IAM_AUTH_HOST=None,
-            DATABASE_IAM_AUTH_PORT=None,
-            DATABASE_IAM_AUTH_REGION="us-east-1",
+            database_iam_auth=True,
+            database_iam_auth_host=None,
+            database_iam_auth_port=None,
+            database_iam_auth_region="us-east-1",
         ):
             iam_auth.attach_iam_auth_to_engine(async_engine, dialect="mysql")
             cparams = _fire_do_connect(async_engine)
@@ -356,10 +356,10 @@ def test_attach_iam_auth_user_override_threads_to_token_and_cparams(
     )
     try:
         with override_settings(
-            DATABASE_IAM_AUTH=True,
-            DATABASE_IAM_AUTH_HOST=None,
-            DATABASE_IAM_AUTH_PORT=None,
-            DATABASE_IAM_AUTH_REGION="us-east-1",
+            database_iam_auth=True,
+            database_iam_auth_host=None,
+            database_iam_auth_port=None,
+            database_iam_auth_region="us-east-1",
         ):
             iam_auth.attach_iam_auth_to_engine(
                 async_engine, dialect="mysql", user="rebuild_migrate"
@@ -391,10 +391,10 @@ def test_attach_iam_auth_sync_engine_works(
     )
     try:
         with override_settings(
-            DATABASE_IAM_AUTH=True,
-            DATABASE_IAM_AUTH_HOST=None,
-            DATABASE_IAM_AUTH_PORT=None,
-            DATABASE_IAM_AUTH_REGION="us-east-1",
+            database_iam_auth=True,
+            database_iam_auth_host=None,
+            database_iam_auth_port=None,
+            database_iam_auth_region="us-east-1",
         ):
             iam_auth.attach_iam_auth_to_engine(sync_engine, dialect="mysql")
             cparams = _fire_do_connect(sync_engine)
@@ -429,10 +429,10 @@ def test_attach_iam_auth_non_mysql_dialect_skips_auth_plugin_map(
     )
     try:
         with override_settings(
-            DATABASE_IAM_AUTH=True,
-            DATABASE_IAM_AUTH_HOST=None,
-            DATABASE_IAM_AUTH_PORT=None,
-            DATABASE_IAM_AUTH_REGION="us-east-1",
+            database_iam_auth=True,
+            database_iam_auth_host=None,
+            database_iam_auth_port=None,
+            database_iam_auth_region="us-east-1",
         ):
             iam_auth.attach_iam_auth_to_engine(sync_engine, dialect="postgresql")
             cparams = _fire_do_connect(sync_engine)
@@ -463,8 +463,8 @@ def test_url_with_iam_token_embeds_minted_token(
     )
 
     with override_settings(
-        DATABASE_IAM_AUTH_HOST=None,
-        DATABASE_IAM_AUTH_PORT=None,
+        database_iam_auth_host=None,
+        database_iam_auth_port=None,
     ):
         url = iam_auth.url_with_iam_token(
             "mysql+asyncmy://rebuild_app@cluster.us-east-1.rds.amazonaws.com:3306/rebuild"

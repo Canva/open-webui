@@ -11,7 +11,7 @@ Deliver scheduled, server-side prompt execution for the slim rebuild: users defi
 - `rebuild/backend/app/services/scheduler.py` — APScheduler `AsyncIOScheduler` setup, tick handler, `SELECT … FOR UPDATE SKIP LOCKED` claim query, per-row dispatch into `asyncio.create_task`.
 - `rebuild/backend/app/services/automation_executor.py` — execute pipeline that loads context, calls `OpenAICompatibleProvider.stream(...)`, accumulates output, and writes the result to a chat or channel.
 - `rebuild/backend/app/routers/automations.py` — REST endpoints listed under [API surface](#api-surface).
-- `rebuild/backend/app/routers/_test_hooks.py` — `/test/scheduler/tick` endpoint registered only when `settings.ENV in {"test", "staging"}` (the M6 smoke pack runs against staging and needs to fast-forward without waiting for the natural tick).
+- `rebuild/backend/app/routers/_test_hooks.py` — `/test/scheduler/tick` endpoint registered only when `settings.env in {"test", "staging"}` (the M6 smoke pack runs against staging and needs to fast-forward without waiting for the natural tick).
 - `rebuild/backend/alembic/versions/0005_m5_automations.py` — single Alembic revision adding the two tables and their indexes.
 - `rebuild/backend/app/main.py` — wire the scheduler into the FastAPI lifespan (`startup`/`shutdown`) so it runs in the same process as the API.
 - `rebuild/frontend/src/routes/(app)/automations/+layout.svelte` — instantiates `AutomationsStore` and provides it via `setContext` so both the list and detail routes share one client-side cache (per-request scope, no module-level state — see [m0-foundations.md § Frontend conventions (cross-cutting)](m0-foundations.md#frontend-conventions-cross-cutting)).
@@ -226,7 +226,7 @@ Supported `FREQ` values (whitelist enforced at validation time): `MINUTELY`, `HO
 
 Limits enforced at validation time:
 
-- Effective interval must be ≥ **5 minutes**. Computed by calling `next_fire` twice and measuring the gap; if the gap is less than 300 seconds, the rule is rejected. This catches `FREQ=MINUTELY` (1-minute interval) and `FREQ=MINUTELY;INTERVAL=2`, but allows `FREQ=MINUTELY;INTERVAL=5`. The 5-minute floor is configurable via `settings.AUTOMATION_MIN_INTERVAL_SECONDS` for tests (E2E lowers it to 60 seconds so `FREQ=MINUTELY` is accepted).
+- Effective interval must be ≥ **5 minutes**. Computed by calling `next_fire` twice and measuring the gap; if the gap is less than 300 seconds, the rule is rejected. This catches `FREQ=MINUTELY` (1-minute interval) and `FREQ=MINUTELY;INTERVAL=2`, but allows `FREQ=MINUTELY;INTERVAL=5`. The 5-minute floor is configurable via `settings.automation_min_interval_seconds` for tests (E2E lowers it to 60 seconds so `FREQ=MINUTELY` is accepted).
 - The rule must produce at least one occurrence in the next 10 years (otherwise it is "effectively dead" — typical of malformed `UNTIL=` clauses pointing into the past). Returning `None` from `next_fire` triggers a 422.
 - One-shot rules (`COUNT=1`) are allowed and behave naturally: after their single execution, `next_run_at` becomes `NULL` and the scheduler stops picking them up.
 
@@ -265,7 +265,7 @@ async def tick() -> None:
                     Automation.next_run_at <= now,
                 )
                 .order_by(Automation.next_run_at)
-                .limit(settings.AUTOMATION_BATCH_SIZE)  # default 25
+                .limit(settings.automation_batch_size)  # default 25
                 .with_for_update(skip_locked=True)
             )
             due = (await session.execute(stmt)).scalars().all()
@@ -327,16 +327,16 @@ This was the explicit decision in the top-level plan ("APScheduler is fine; no C
 # rebuild/backend/app/routers/_test_hooks.py
 @router.post("/test/scheduler/tick", include_in_schema=False)
 async def force_tick() -> dict[str, int]:
-    if settings.ENV not in {"test", "staging"}:
+    if settings.env not in {"test", "staging"}:
         raise HTTPException(status_code=404)
     from app.services.scheduler import tick
     await tick()
     return {"ok": 1}
 ```
 
-Registered in `app/main.py` only when `settings.ENV in {"test", "staging"}`. The E2E suite calls this endpoint via Playwright's `request.post()` to fast-forward the scheduler instead of waiting 30 seconds; the M6 staging smoke pack uses the same endpoint to validate the scheduler end-to-end without 30-second waits in the smoke job. Production (`ENV == "prod"`) returns 404. The unit and integration suites import `tick` directly.
+Registered in `app/main.py` only when `settings.env in {"test", "staging"}`. The E2E suite calls this endpoint via Playwright's `request.post()` to fast-forward the scheduler instead of waiting 30 seconds; the M6 staging smoke pack uses the same endpoint to validate the scheduler end-to-end without 30-second waits in the smoke job. Production (`ENV == "prod"`) returns 404. The unit and integration suites import `tick` directly.
 
-Both gates are deliberate. The startup-time registration is the **primary** control — production never even mounts the route, so a refactor that breaks the inner `if` cannot expose it. The runtime `if settings.ENV not in {"test", "staging"}` check inside the handler is **defence in depth** against the failure mode where a future refactor accidentally moves the registration outside the env conditional (e.g. someone unifies all routers into a single registration block to "simplify"). Both checks read from the same `settings.ENV` source of truth, so they cannot disagree.
+Both gates are deliberate. The startup-time registration is the **primary** control — production never even mounts the route, so a refactor that breaks the inner `if` cannot expose it. The runtime `if settings.env not in {"test", "staging"}` check inside the handler is **defence in depth** against the failure mode where a future refactor accidentally moves the registration outside the env conditional (e.g. someone unifies all routers into a single registration block to "simplify"). Both checks read from the same `settings.env` source of truth, so they cannot disagree.
 
 ## Execute pipeline
 
@@ -393,7 +393,7 @@ Crucially, on error we **still advance** `last_run_at` and `next_run_at`. This p
 
 ### Cancellation and timeouts
 
-Each `_execute` is wrapped in `asyncio.wait_for(..., timeout=settings.AUTOMATION_TIMEOUT_SECONDS)` with a default of 120 seconds. A timeout is treated as an error with `error="timeout after Ns"`. This caps the worst-case impact of a misbehaving model on the scheduler.
+Each `_execute` is wrapped in `asyncio.wait_for(..., timeout=settings.automation_timeout_seconds)` with a default of 120 seconds. A timeout is treated as an error with `error="timeout after Ns"`. This caps the worst-case impact of a misbehaving model on the scheduler.
 
 ### Run-now path
 
@@ -407,7 +407,7 @@ This guarantees the response body reflects the actual outcome, which the UI reli
 
 ## Settings additions
 
-M5 extends the M0 `Settings` class with three new fields. The casing convention from M0 (UPPER_SNAKE_CASE attributes matching env var names) applies; access is `settings.AUTOMATION_*` everywhere in the scheduler/executor/router code.
+M5 extends the M0 `Settings` class with three new fields. The casing convention from M0 applies (env-var keys UPPER_SNAKE / Python attributes lowercase, bridged by `case_sensitive=False` — see [m0-foundations.md § Settings(BaseSettings) "Casing convention (locked)"](m0-foundations.md#settingsbasesettings)); the env-var keys appear in the "Field" column below as `AUTOMATION_*` and the Python attribute access is `settings.automation_*` everywhere in the scheduler/executor/router code.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -512,7 +512,7 @@ A single recorded SSE cassette `tests/fixtures/llm/automation_minutely.sse` cove
 - [ ] `test_partial_upgrade_recovers` includes an M5 case: pre-create `automation` only (raw DDL, no indexes, no check), then `alembic upgrade head` produces `automation_run`, all four named indexes, and both `ck_automation_*` check constraints without operator intervention.
 - [ ] `POST /api/automations` rejects malformed RRULEs with 422 and a human-readable detail.
 - [ ] `POST /api/automations` rejects payloads with both `target_chat_id` and `target_channel_id`, or neither, with 422.
-- [ ] `POST /api/automations` rejects RRULEs with effective interval below `settings.AUTOMATION_MIN_INTERVAL_SECONDS` (default 300, i.e. 5 minutes).
+- [ ] `POST /api/automations` rejects RRULEs with effective interval below `settings.automation_min_interval_seconds` (default 300, i.e. 5 minutes).
 - [ ] APScheduler runs in-process, ticks every 30s, claims due automations with `FOR UPDATE SKIP LOCKED`, and dispatches `_execute` via `asyncio.create_task`.
 - [ ] Two concurrent processes against the same DB never produce duplicate `automation_run` rows for the same `(automation_id, tick)` window (verified by the integration test).
 - [ ] Killing the worker process mid-`_execute` (`kill -9` simulated by `CancelledError`) does **not** advance `next_run_at`, and the next tick re-claims the automation. The orphaned `pending`/`running` row is swept to `error` on next API boot.
@@ -524,7 +524,7 @@ A single recorded SSE cassette `tests/fixtures/llm/automation_minutely.sse` cove
 - [ ] `POST /api/automations/preview-rrule` returns `{next_runs: [t0, t1, t2, t3, t4]}` for a valid `FREQ=HOURLY` RRULE and 422 for `"FREQ=NOT_REAL"`. Sub-`AUTOMATION_MIN_INTERVAL_SECONDS` rules return `next_runs` (the helper validates RRULE syntax only; the interval-floor check lives on `POST /api/automations` so the editor can surface a softer warning before commit).
 - [ ] DST correctness: a `FREQ=DAILY;BYHOUR=9;BYMINUTE=0` automation owned by a user with `timezone='Australia/Sydney'` fires at 09:00 local on the day of the DST transition (verified by a unit test that inspects three consecutive `next_fire` results across the boundary).
 - [ ] One-shot rules (`COUNT=1`) execute exactly once and then `next_run_at IS NULL`; the scheduler stops picking them up.
-- [ ] `/test/scheduler/tick` is registered only when `settings.ENV in {"test", "staging"}`; the route is absent in production (returns 404).
+- [ ] `/test/scheduler/tick` is registered only when `settings.env in {"test", "staging"}`; the route is absent in production (returns 404).
 - [ ] Visual-regression baselines `automation-list.png` and `automation-editor.png` captured under `rebuild/frontend/tests/visual-baselines/m4/` (Git LFS) against the deterministic editor + run-history fixture.
 - [ ] The E2E test `automation-minutely.spec.ts` passes deterministically against the recorded SSE cassette.
 - [ ] `AutomationsStore` lives at `lib/stores/automations.svelte.ts` (not `.ts`), exports a class instantiated via `setContext` in `(app)/automations/+layout.svelte`. The run-now `setInterval` polling and 60s deadline `setTimeout` in `<AutomationEditor>` live inside a single `$effect(() => { …; return () => cleanup(); })`. No module-scope timers anywhere under `frontend/src/lib/stores/` (verified by the M0 grep gate). `<RRulePicker>` exposes its rule via `value = $bindable<string>('')` and is the only `$bindable` introduced by M5.

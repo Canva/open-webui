@@ -11,7 +11,7 @@ header dependency):
   delegates to the helper.
 
 Both lowercase + URL-decode the email, optionally enforce
-``settings.TRUSTED_EMAIL_DOMAIN_ALLOWLIST``, and use MySQL's
+``settings.trusted_email_domain_allowlist``, and use MySQL's
 ``INSERT ... ON DUPLICATE KEY UPDATE id = id`` for race-free idempotent
 first-login on the unique-email constraint.
 """
@@ -41,7 +41,7 @@ async def upsert_user_from_headers(
 
     Steps:
       1. Lowercase + URL-decode the email.
-      2. Enforce ``settings.TRUSTED_EMAIL_DOMAIN_ALLOWLIST`` if non-empty.
+      2. Enforce ``settings.trusted_email_domain_allowlist`` if non-empty.
       3. Look up the row by ``email`` (the unique constraint).
       4. If absent, ``INSERT ... ON DUPLICATE KEY UPDATE id = id`` so the
          path is race-free under concurrent first-time logins.
@@ -49,9 +49,9 @@ async def upsert_user_from_headers(
          from an upsert) and commit.
     """
     email = unquote(email).strip().lower()
-    if settings.TRUSTED_EMAIL_DOMAIN_ALLOWLIST:
+    if settings.trusted_email_domain_allowlist:
         domain = email.split("@", 1)[1] if "@" in email else ""
-        if domain not in settings.TRUSTED_EMAIL_DOMAIN_ALLOWLIST:
+        if domain not in settings.trusted_email_domain_allowlist:
             raise HTTPException(status_code=401, detail="email domain not allowed")
 
     user = await db.scalar(select(User).where(User.email == email))
@@ -84,8 +84,8 @@ async def get_user(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> User:
     """FastAPI dependency: resolve the current ``User`` from trusted headers."""
-    email = request.headers.get(settings.TRUSTED_EMAIL_HEADER)
+    email = request.headers.get(settings.trusted_email_header)
     if not email:
         raise HTTPException(status_code=401, detail="missing trusted header")
-    name = request.headers.get(settings.TRUSTED_NAME_HEADER)
+    name = request.headers.get(settings.trusted_name_header)
     return await upsert_user_from_headers(db, email=email, name=name)
