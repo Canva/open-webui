@@ -24,6 +24,19 @@ hold (m0 plan § Alembic helper test gate):
    ``share_id`` column without operator intervention. Asserts the M2
    acceptance-criteria recovery contract from
    ``rebuild/docs/plans/m2-conversations.md``.
+
+3c. ``test_partial_upgrade_recovers_m3`` — half-applied M3 schema
+   (M0 + M2 fully applied at ``alembic_version='0002_m2_chat_folder'``,
+   ``shared_chat`` pre-created via raw DDL with both cross-table FKs
+   and both secondary indexes, but the M3-owned FK
+   ``fk_chat_share_id`` and unique index ``ix_chat_share_id`` on
+   ``chat`` were never created) + ``alembic upgrade head`` adds the
+   missing FK and unique index without operator intervention. Asserts
+   the M3 acceptance-criteria recovery contract from
+   ``rebuild/docs/plans/m3-sharing.md`` § Acceptance criteria §2 —
+   including the critical ``NON_UNIQUE = 0`` invariant on
+   ``ix_chat_share_id`` (a non-unique index would let a future bug
+   mint two shares for the same chat).
 4. ``test_no_bare_op_calls`` — AST walk of ``backend/alembic/versions/``;
    bare ``op.create_*`` / ``op.drop_*`` / ``op.add_column`` / etc. are
    forbidden (use the helpers). Also: every ``execute_if(...)`` whose
@@ -81,12 +94,31 @@ def _alembic_config() -> Config:
 
 
 async def _async_drop_everything(database_url: str) -> None:
+    """Drop every table in the test schema, in any order.
+
+    ``FOREIGN_KEY_CHECKS=0`` is set for the duration so the wipe does
+    not have to topologically sort tables by FK dependency. The
+    alternative — dropping in dependency order — works for the M0/M2
+    shape (alphabetical happens to be a valid order: chat → folder →
+    user; user has no incoming FK from anything alphabetically before
+    it) but breaks the moment any later milestone introduces a cross-
+    table FK that violates that accident, e.g. M3's ``shared_chat →
+    chat``. Disabling the check is the standard test-fixture pattern
+    and is scoped to this single connection — it does not affect any
+    runtime engine.
+    """
     engine = create_async_engine(database_url, future=True)
     try:
         async with engine.begin() as conn:
-            tables = await conn.run_sync(lambda sync_conn: sa.inspect(sync_conn).get_table_names())
-            for table in tables:
-                await conn.execute(sa.text(f"DROP TABLE IF EXISTS `{table}`"))
+            await conn.execute(sa.text("SET FOREIGN_KEY_CHECKS = 0"))
+            try:
+                tables = await conn.run_sync(
+                    lambda sync_conn: sa.inspect(sync_conn).get_table_names()
+                )
+                for table in tables:
+                    await conn.execute(sa.text(f"DROP TABLE IF EXISTS `{table}`"))
+            finally:
+                await conn.execute(sa.text("SET FOREIGN_KEY_CHECKS = 1"))
     finally:
         await engine.dispose()
 
@@ -179,6 +211,40 @@ async def _async_list_fk_names(database_url: str, table: str) -> set[str]:
         await engine.dispose()
 
 
+async def _async_is_index_unique(database_url: str, table: str, index_name: str) -> bool:
+    """Return ``True`` when ``table.index_name`` is declared UNIQUE.
+
+    Pokes ``INFORMATION_SCHEMA.STATISTICS.NON_UNIQUE`` directly: MySQL
+    encodes uniqueness as the integer ``0`` (unique) / ``1`` (non-
+    unique) on every index row in that view. Used by the M3
+    partial-recovery test to confirm that ``ix_chat_share_id`` was
+    actually created with ``unique=True`` — a non-unique index would
+    let a future bug mint two ``shared_chat`` rows pointing at the
+    same chat and silently break the "at most one active share per
+    chat" invariant. Returns ``False`` if the index is absent.
+    """
+    engine = create_async_engine(database_url, future=True)
+    try:
+        async with engine.connect() as conn:
+            row = (
+                await conn.execute(
+                    sa.text(
+                        "SELECT NON_UNIQUE FROM INFORMATION_SCHEMA.STATISTICS "
+                        "WHERE TABLE_SCHEMA = DATABASE() "
+                        "AND TABLE_NAME = :table "
+                        "AND INDEX_NAME = :index_name "
+                        "LIMIT 1"
+                    ),
+                    {"table": table, "index_name": index_name},
+                )
+            ).first()
+            if row is None:
+                return False
+            return int(row[0]) == 0
+    finally:
+        await engine.dispose()
+
+
 async def _async_column_extra(database_url: str, table: str, column: str) -> str | None:
     """Return the MySQL ``INFORMATION_SCHEMA.COLUMNS.EXTRA`` string for a
     column (or ``None`` if the column is absent). For a STORED generated
@@ -240,15 +306,17 @@ def test_upgrade_head_is_idempotent(fresh_db: str) -> None:
 
     command.upgrade(cfg, "head")
     after_first = _run(_async_list_tables(fresh_db))
-    # M0 baseline + M2 conversation surface — both must land via the
-    # head walk. Asserting on the M2 tables here (rather than only in a
-    # separate M2 test) means any future revision that quietly breaks
-    # M2's idempotent re-application is caught by this single contract
-    # test, in line with the dispatch's "the existing head walk already
-    # covers the new revision" requirement.
+    # M0 baseline + M2 conversation surface + M3 sharing — all must
+    # land via the head walk. Asserting on every milestone's tables
+    # here (rather than only in their dedicated tests) means any future
+    # revision that quietly breaks an earlier milestone's idempotent
+    # re-application is caught by this single contract test, in line
+    # with the dispatch's "the existing head walk already covers the
+    # new revision" requirement.
     assert "user" in after_first
     assert "chat" in after_first
     assert "folder" in after_first
+    assert "shared_chat" in after_first
     assert "alembic_version" in after_first
 
     command.upgrade(cfg, "head")
@@ -271,14 +339,15 @@ def test_downgrade_base_is_idempotent(fresh_db: str) -> None:
 
     # alembic_version may remain after a downgrade-to-base (alembic keeps
     # the version-tracking table around as an empty marker). Every
-    # business table from every revision must be gone — the M2 tables
-    # are checked here alongside the M0 baseline so the head-walk
-    # asymmetry that would slip through (head builds chat, base forgets
-    # to drop it) is caught by the contract test rather than by the
-    # next milestone's CI run.
+    # business table from every revision must be gone — the M2 + M3
+    # tables are checked here alongside the M0 baseline so the head-
+    # walk asymmetry that would slip through (head builds chat /
+    # shared_chat, base forgets to drop it) is caught by the contract
+    # test rather than by the next milestone's CI run.
     assert "user" not in after_first_down
     assert "chat" not in after_first_down
     assert "folder" not in after_first_down
+    assert "shared_chat" not in after_first_down
 
     command.downgrade(cfg, "base")
     after_second_down = _run(_async_list_tables(fresh_db))
@@ -474,6 +543,143 @@ def test_partial_upgrade_recovers_m2(fresh_db: str) -> None:
     # 7. Re-running `alembic upgrade head` immediately after recovery is
     #    a no-op. Belt-and-braces idempotency check on top of the
     #    head-walk contract test above.
+    command.upgrade(cfg, "head")
+    assert _run(_async_list_tables(fresh_db)) == tables
+
+
+# ---------------------------------------------------------------------------
+# Contract test 3c: partial-recovery from a half-applied M3 schema.
+# ---------------------------------------------------------------------------
+#
+# Scenario the M3 plan cares about ("Acceptance criteria" §2 in
+# `rebuild/docs/plans/m3-sharing.md`): the M2 revision ran
+# successfully (so `user`, `folder`, `chat`, and
+# `alembic_version='0002_m2_chat_folder'` all exist, and `chat.share_id`
+# was reserved at `VARCHAR(43) NULL`), the M3 revision started but
+# crashed AFTER `shared_chat` was created and BEFORE the
+# `fk_chat_share_id` FK and `ix_chat_share_id` unique index landed on
+# `chat`. MySQL DDL implicitly commits, so this is the realistic mid-
+# migration crash mode. A retry of `alembic upgrade head` must:
+#
+#   * Notice that `shared_chat` already exists and skip the
+#     `create_table_if_not_exists` for it (table + both inline FKs +
+#     both inline secondary indexes already present).
+#   * Add `fk_chat_share_id` to `chat`, with `ON DELETE SET NULL`
+#     against `shared_chat.id`.
+#   * Add the UNIQUE `ix_chat_share_id` index on `chat.share_id` —
+#     critically, with `INFORMATION_SCHEMA.STATISTICS.NON_UNIQUE = 0`,
+#     because a non-unique index would let a future bug mint two
+#     `shared_chat` rows pointing at the same chat.
+#
+# We add this as a sibling test rather than extending
+# `test_partial_upgrade_recovers_m2` so the M2 contract (a half-
+# applied M2 fills in `chat` end-to-end) and the M3 contract (a
+# half-applied M3 fills in *only* the FK + unique index against the
+# M2-owned column) are each testable in isolation.
+
+
+def test_partial_upgrade_recovers_m3(fresh_db: str) -> None:
+    cfg = _alembic_config()
+
+    # Bring M0 + M2 to a clean state — `user`, `folder`, `chat`
+    # (with the `current_message_id` STORED GENERATED column, the
+    # M3-reserved `share_id VARCHAR(43) NULL` column, both cross-
+    # table FKs, and all five composite indexes) and
+    # `alembic_version='0002_m2_chat_folder'`. We use the alembic
+    # command rather than raw DDL so the version-tracking row is set
+    # correctly; the next `upgrade head` then only needs to advance
+    # from M2 to M3.
+    command.upgrade(cfg, "0002_m2_chat_folder")
+
+    # Pre-create `shared_chat` matching exactly what the M3 revision
+    # would have created — including both cross-table FKs (CASCADE on
+    # both, by the M3 plan) and both inline secondary indexes — to
+    # simulate the M3 revision crashing AFTER `shared_chat` landed
+    # and BEFORE the FK + unique index on `chat.share_id` did. Column
+    # types and FK shape match
+    # `alembic/versions/0003_m3_sharing.py::upgrade()` step 1 byte-
+    # for-byte; if those drift, the recovery `alembic upgrade head`
+    # will fail at FK-creation time (InnoDB checks referenced /
+    # referencing column types under strict-mode) and surface here
+    # instead of in production.
+    _run(
+        _async_exec(
+            fresh_db,
+            "CREATE TABLE `shared_chat` ("
+            "  id VARCHAR(43) NOT NULL,"
+            "  chat_id VARCHAR(36) NOT NULL,"
+            "  user_id VARCHAR(36) NOT NULL,"
+            "  title VARCHAR(255) NOT NULL,"
+            "  history JSON NOT NULL,"
+            "  created_at BIGINT NOT NULL,"
+            "  CONSTRAINT pk_shared_chat PRIMARY KEY (id),"
+            "  CONSTRAINT fk_shared_chat_chat_id_chat FOREIGN KEY (chat_id) "
+            "    REFERENCES `chat`(id) ON DELETE CASCADE,"
+            "  CONSTRAINT fk_shared_chat_user_id_user FOREIGN KEY (user_id) "
+            "    REFERENCES `user`(id) ON DELETE CASCADE,"
+            "  KEY ix_shared_chat_chat_id (chat_id),"
+            "  KEY ix_shared_chat_user_id (user_id)"
+            ") ENGINE=InnoDB CHARSET=utf8mb4 "
+            "COLLATE=utf8mb4_0900_ai_ci",
+        )
+    )
+
+    # Sanity check: at this point the M3-owned FK + unique index on
+    # `chat.share_id` definitely do NOT exist yet (we never created
+    # them, and M2 didn't either — by design). If this assert ever
+    # fails, the test set-up has drifted and the recovery contract
+    # below is no longer being verified.
+    pre_chat_fks = _run(_async_list_fk_names(fresh_db, "chat"))
+    pre_chat_indexes = _run(_async_list_index_names(fresh_db, "chat"))
+    assert "fk_chat_share_id" not in pre_chat_fks
+    assert "ix_chat_share_id" not in pre_chat_indexes
+
+    # Recovery: a single `alembic upgrade head` must complete the half-
+    # applied revision without operator intervention.
+    command.upgrade(cfg, "head")
+
+    # 1. `shared_chat` survives — the helper short-circuits on the
+    #    already-existing table (table + both inline FKs + both inline
+    #    secondary indexes were created in the pre-DDL above).
+    tables = _run(_async_list_tables(fresh_db))
+    assert "shared_chat" in tables
+    assert "chat" in tables
+    assert "folder" in tables
+    assert "user" in tables
+
+    shared_fks = _run(_async_list_fk_names(fresh_db, "shared_chat"))
+    assert "fk_shared_chat_chat_id_chat" in shared_fks
+    assert "fk_shared_chat_user_id_user" in shared_fks
+    shared_indexes = _run(_async_list_index_names(fresh_db, "shared_chat"))
+    assert "ix_shared_chat_chat_id" in shared_indexes
+    assert "ix_shared_chat_user_id" in shared_indexes
+
+    # 2. `fk_chat_share_id` was added to `chat` against the M2-owned
+    #    `share_id` column, pointing at `shared_chat.id`. The actual
+    #    `ON DELETE SET NULL` semantics are exercised by the M3
+    #    integration tests; here we only check the constraint name
+    #    landed.
+    chat_fks = _run(_async_list_fk_names(fresh_db, "chat"))
+    assert "fk_chat_share_id" in chat_fks
+
+    # 3. `ix_chat_share_id` was added to `chat` and is UNIQUE. The
+    #    uniqueness flag is the critical invariant — a non-unique
+    #    index would let a future bug mint two `shared_chat` rows
+    #    pointing at the same chat. We confirm via
+    #    `INFORMATION_SCHEMA.STATISTICS.NON_UNIQUE` rather than
+    #    `inspector.get_indexes()['unique']` because the latter has
+    #    historically lied for some MySQL/SQLAlchemy combinations.
+    chat_indexes = _run(_async_list_index_names(fresh_db, "chat"))
+    assert "ix_chat_share_id" in chat_indexes
+    assert _run(_async_is_index_unique(fresh_db, "chat", "ix_chat_share_id")), (
+        "ix_chat_share_id must be a UNIQUE index — a non-unique index "
+        "would let a future bug mint two shared_chat rows for the same chat"
+    )
+
+    # 4. Re-running `alembic upgrade head` immediately after recovery
+    #    is a no-op. Belt-and-braces idempotency check on top of the
+    #    head-walk contract test above (mirrors the M2 partial-recovery
+    #    suffix).
     command.upgrade(cfg, "head")
     assert _run(_async_list_tables(fresh_db)) == tables
 

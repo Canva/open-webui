@@ -27,6 +27,7 @@
   import type { ChatRead } from '$lib/types/chat';
   import MessageList from './MessageList.svelte';
   import MessageInput from './MessageInput.svelte';
+  import ShareModal from './ShareModal.svelte';
 
   interface Props {
     chat: ChatRead;
@@ -47,6 +48,10 @@
   /** Title editor state. */
   let editingTitle = $state(false);
   let titleDraft = $state('');
+  /** Share modal visibility. The modal owns its own state machine
+   *  (not-shared / shared / stop-confirm); this flag just controls
+   *  whether it is mounted at all. */
+  let showShareModal = $state(false);
 
   // Bind the local view to whatever is currently in the
   // `ActiveChatStore`. The store holds the live history (token-by-
@@ -182,12 +187,53 @@
   const isStreaming = $derived(
     activeChat.streaming === 'streaming' || activeChat.streaming === 'sending',
   );
+
+  // Sharing an empty chat is a no-op per `m3-sharing.md` § Owner UX:
+  // the Share button is hidden until at least one message has landed.
+  const hasMessages = $derived(Object.keys(chat.history.messages).length > 0);
+  const isShared = $derived(chat.share_id !== null);
+
+  function openShareModal(): void {
+    showShareModal = true;
+  }
+
+  function closeShareModal(): void {
+    showShareModal = false;
+  }
+
+  /**
+   * Modal callback when the share is created or revoked. Patches the
+   * local `activeChat.chat.share_id` so the header updates without a
+   * refetch — same pattern as the title-edit flow above. The store
+   * exposes `chat` as deep `$state`, so a property write is reactive.
+   */
+  function handleShareChange(nextShareId: string | null): void {
+    if (activeChat.chat) activeChat.chat.share_id = nextShareId;
+  }
+
+  /**
+   * Return-visit copy: when `chat.share_id` is set, the header shows
+   * a small icon-button that copies the absolute URL inline without
+   * opening the modal. Per the plan's § Owner UX bullet on the chat
+   * header surfacing a copy affordance for return visits.
+   */
+  async function handleCopyShareLink(): Promise<void> {
+    if (chat.share_id === null) return;
+    if (typeof window === 'undefined') return;
+    const url = `${window.location.origin}/s/${chat.share_id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.pushSuccess('Link copied');
+    } catch (err) {
+      toast.pushError(err instanceof Error ? err.message : 'Failed to copy');
+    }
+  }
 </script>
 
 <div class="flex h-full flex-col">
   <!-- Header ------------------------------------------------------- -->
   <header class="border-hairline flex items-center justify-between gap-3 border-b px-6 py-3">
-    <div class="ms-12 min-w-0 flex-1 md:ms-0">
+    <div class="ms-12 flex min-w-0 flex-1 items-center gap-3 md:ms-0">
       {#if editingTitle}
         <input
           bind:value={titleDraft}
@@ -200,11 +246,49 @@
         <button
           type="button"
           ondblclick={startEditTitle}
-          class="text-ink-strong block max-w-full truncate text-start text-sm font-medium"
+          class="text-ink-strong block min-w-0 truncate text-start text-sm font-medium"
           title="Double-click to rename"
         >
           {chat.title}
         </button>
+        {#if hasMessages}
+          <div class="flex flex-shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onclick={openShareModal}
+              class="text-ink-muted hover:text-ink-body motion-safe:ease-out-quart text-xs motion-safe:transition-colors motion-safe:duration-150"
+              aria-label={isShared ? 'Manage share link' : 'Share this chat'}
+            >
+              Share
+            </button>
+            {#if isShared}
+              <button
+                type="button"
+                onclick={handleCopyShareLink}
+                aria-label="Copy share link"
+                title="Copy share link"
+                class="text-ink-muted hover:text-ink-body motion-safe:ease-out-quart inline-flex h-6 w-6 items-center justify-center rounded-md motion-safe:transition-colors motion-safe:duration-150"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="5" y="5" width="9" height="9" rx="1.5" />
+                  <path
+                    d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2H3.5A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"
+                  />
+                </svg>
+              </button>
+            {/if}
+          </div>
+        {/if}
       {/if}
     </div>
     <div class="flex items-center gap-2">
@@ -229,6 +313,10 @@
       </button>
     </div>
   </header>
+
+  {#if showShareModal}
+    <ShareModal {chat} onClose={closeShareModal} onShareChange={handleShareChange} />
+  {/if}
 
   <!-- Scrollable thread ------------------------------------------- -->
   <div bind:this={scrollEl} class="min-h-0 flex-1 overflow-y-auto">

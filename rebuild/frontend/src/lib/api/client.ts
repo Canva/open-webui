@@ -35,6 +35,7 @@ import type {
 } from '$lib/types/chat';
 import type { FolderCreate, FolderDeleteResult, FolderPatch, FolderRead } from '$lib/types/folder';
 import type { ModelList } from '$lib/types/model';
+import type { ShareCreateResponse, SharedChatSnapshot } from '$lib/types/share';
 
 /**
  * The single error shape thrown by every typed call. Routes / stores
@@ -271,5 +272,58 @@ export const models = {
   /** `GET /api/models` — passthrough of `/v1/models`, cached server-side. */
   async list(fetcher: typeof fetch = fetch): Promise<ModelList> {
     return apiFetch<ModelList>('/api/models', { method: 'GET' }, fetcher);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// `shares` namespace — `/api/chats/{id}/share` + `/api/shared/{token}`.
+//
+// Locked by `rebuild/docs/plans/m3-sharing.md` § API surface (the three
+// endpoints, their owner-only / proxy-auth gates, and the rotate-on-re-share
+// semantics). The frontend never mints a token: that is backend-only.
+// ---------------------------------------------------------------------------
+
+export const shares = {
+  /**
+   * `POST /api/chats/{chat_id}/share` — owner mints (or rotates) the share
+   * token. 404 is returned for both "no such chat" and "not the owner" so
+   * the response shape never leaks existence.
+   */
+  async create(chatId: string, fetcher: typeof fetch = fetch): Promise<ShareCreateResponse> {
+    return apiFetch<ShareCreateResponse>(
+      `/api/chats/${encodeURIComponent(chatId)}/share`,
+      { method: 'POST' },
+      fetcher,
+    );
+  },
+
+  /**
+   * `DELETE /api/chats/{chat_id}/share` — idempotent revoke. Backend returns
+   * 204 even on an already-unshared chat (per the plan's § API surface), so
+   * callers can fire-and-forget without tracking the latest server state.
+   * Mirrors `chats.delete` in using a raw `fetcher` for the no-content path.
+   */
+  async revoke(chatId: string, fetcher: typeof fetch = fetch): Promise<void> {
+    const url = `${PUBLIC_API_BASE_URL}/api/chats/${encodeURIComponent(chatId)}/share`;
+    const res = await fetcher(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => undefined);
+      throw new ApiError(res.status, res.statusText, detail);
+    }
+  },
+
+  /**
+   * `GET /api/shared/{token}` — read a snapshot. Authentication is the
+   * proxy header (`X-Forwarded-Email`); ownership is irrelevant once the
+   * token is known. Called from the public route's `+page.server.ts`,
+   * which passes the SvelteKit enhanced `fetch` so the proxy headers
+   * forward in our deployment.
+   */
+  async get(token: string, fetcher: typeof fetch = fetch): Promise<SharedChatSnapshot> {
+    return apiFetch<SharedChatSnapshot>(
+      `/api/shared/${encodeURIComponent(token)}`,
+      { method: 'GET' },
+      fetcher,
+    );
   },
 };

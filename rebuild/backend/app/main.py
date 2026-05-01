@@ -33,7 +33,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.providers.openai import OpenAICompatibleProvider
-from app.routers import chats, folders, health, me, models
+from app.routers import chats, folders, health, me, models, shares
 from app.services.models_cache import ModelsCache
 from app.services.stream_registry import StreamRegistry
 
@@ -83,6 +83,8 @@ def create_app() -> FastAPI:
     app.include_router(models.router)
     app.include_router(folders.router)
     app.include_router(chats.router)
+    # M3 sharing endpoints (POST/DELETE /api/chats/{id}/share, GET /api/shared/{token}).
+    app.include_router(shares.router)
     return app
 
 

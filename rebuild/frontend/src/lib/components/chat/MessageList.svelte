@@ -20,18 +20,38 @@
    *
    * LOC budget ≤ 200.
    */
-  import { useActiveChat } from '$lib/stores/active-chat.svelte';
+  import { getContext, untrack } from 'svelte';
+  import { ACTIVE_CHAT_CONTEXT_KEY, type ActiveChatStore } from '$lib/stores/active-chat.svelte';
   import { buildLinearThread } from '$lib/utils/history-tree';
   import type { History, HistoryMessage } from '$lib/types/history';
   import Message from './Message.svelte';
 
   interface Props {
     history: History;
+    /**
+     * Read-only mode. When `true`, branch chevrons are suppressed and
+     * each `<Message>` is rendered without the regenerate / edit
+     * affordances. Used by the M3 public share view at `/s/{token}`,
+     * which must not pull in the active-chat store at all.
+     *
+     * Default `false` so M2's `ConversationView` usage (which expects
+     * the live, mutable thread) is unchanged.
+     */
+    readonly?: boolean;
   }
 
-  let { history }: Props = $props();
+  let { history, readonly = false }: Props = $props();
 
-  const activeChat = useActiveChat();
+  // Read the active-chat store via `getContext` instead of `useActiveChat()`
+  // so the read-only call site (the M3 share view) can mount this
+  // component without provisioning the store. `getContext` returns
+  // `undefined` outside the (app) layout; branching on `readonly`
+  // ensures we never reach for a missing store. `untrack` because
+  // we want the snapshot at construction time — `getContext` is only
+  // valid during init, and the consumer never flips modes mid-life.
+  const activeChat = untrack(() =>
+    readonly ? null : (getContext(ACTIVE_CHAT_CONTEXT_KEY) as ActiveChatStore),
+  );
 
   const linear = $derived.by<HistoryMessage[]>(() => {
     if (history.currentId === null) return [];
@@ -56,6 +76,7 @@
   }
 
   function previousBranch(message: HistoryMessage): void {
+    if (activeChat === null) return;
     const info = siblingsFor(message);
     if (!info || info.index === 0) return;
     const prev = info.siblings[info.index - 1];
@@ -65,6 +86,7 @@
   }
 
   function nextBranch(message: HistoryMessage): void {
+    if (activeChat === null) return;
     const info = siblingsFor(message);
     if (!info || info.index >= info.siblings.length - 1) return;
     const next = info.siblings[info.index + 1];
@@ -83,7 +105,7 @@
     {#each linear as message (message.id)}
       {@const branch = siblingsFor(message)}
       <div class="flex flex-col gap-1.5">
-        {#if branch}
+        {#if branch && !readonly}
           <div
             class="text-ink-muted flex items-center gap-2 font-mono text-xs"
             aria-label="Branch switcher"
@@ -109,7 +131,7 @@
             </button>
           </div>
         {/if}
-        <Message {message} parent={parentOf(message)} />
+        <Message {message} parent={parentOf(message)} {readonly} />
       </div>
     {/each}
   {/if}

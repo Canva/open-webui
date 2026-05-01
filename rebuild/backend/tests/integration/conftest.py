@@ -49,20 +49,29 @@ from httpx import ASGITransport
 
 @pytest_asyncio.fixture
 async def _truncate_m2_tables(engine: Any) -> AsyncIterator[None]:
-    """Wipe every M2 table around each integration test.
+    """Wipe every M2 + M3 table around each integration test.
 
     ``DELETE FROM user`` cascades to ``chat`` and ``folder`` via the
     ``ON DELETE CASCADE`` policies declared on both, but the explicit
     deletes below are belt-and-braces — a future revision that drops a
     cascade by accident would otherwise surface only as cross-test
     bleed (the worst test-failure class to debug).
+
+    ``shared_chat`` is wiped *before* ``chat`` even though
+    ``shared_chat.chat_id → chat.id ON DELETE CASCADE`` makes the
+    explicit delete redundant in practice — the explicit ordering keeps
+    the test-cleanup contract honest if a future M3 revision ever
+    weakens that cascade, and matches the rest of this fixture's belt-
+    and-braces style.
     """
     async with engine.begin() as conn:
+        await conn.execute(sa.text("DELETE FROM shared_chat"))
         await conn.execute(sa.text("DELETE FROM chat"))
         await conn.execute(sa.text("DELETE FROM folder"))
         await conn.execute(sa.text("DELETE FROM user"))
     yield
     async with engine.begin() as conn:
+        await conn.execute(sa.text("DELETE FROM shared_chat"))
         await conn.execute(sa.text("DELETE FROM chat"))
         await conn.execute(sa.text("DELETE FROM folder"))
         await conn.execute(sa.text("DELETE FROM user"))

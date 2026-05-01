@@ -6,11 +6,17 @@ import type { LayoutServerLoad } from './$types';
  * resolution to flow through so the recipient of a share link sees
  * the chrome in their picked preset.
  *
- * No `user` field is exposed because public routes deliberately do
- * not run identity through their data prop — that is the M3
- * decision (recipients of a share link should not require auth).
+ * `user` is forwarded from `locals.user` (already populated by the
+ * trusted-header `handle` hook) so the typed `App.PageData` contract
+ * is satisfied for child pages — but the (public) shell never reads
+ * it, and the layout deliberately does NOT call `getUser` itself
+ * (per `m1-theming.md` § E2E placeholder for `theme-public-share`).
+ * It will be `null` for anonymous requests, which is the correct
+ * value to surface for surfaces that aren't auth-gated by SvelteKit
+ * (the M3 share view defers auth to the FastAPI router).
  */
 export const load: LayoutServerLoad = ({ locals }) => ({
+  user: locals.user,
   theme: locals.theme,
   themeSource: locals.themeSource,
 });

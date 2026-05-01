@@ -3,6 +3,7 @@ import type { User } from '$lib/types/user';
 import type { ChatList, ChatRead, ChatSummary } from '$lib/types/chat';
 import type { FolderRead } from '$lib/types/folder';
 import type { ModelInfo } from '$lib/types/model';
+import type { ShareCreateResponse, SharedChatSnapshot } from '$lib/types/share';
 
 /**
  * Shared MSW handlers used by:
@@ -47,6 +48,13 @@ const DEFAULT_MODELS: ModelInfo[] = [
   { id: 'gpt-4o-mini', label: 'GPT-4o mini', owned_by: 'openai' },
   { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', owned_by: 'anthropic' },
 ];
+
+/**
+ * Default 43-char URL-safe base64 token (mirrors
+ * `secrets.token_urlsafe(32)` length-wise) for the M3 share endpoints.
+ * Same shape every dev-mode and CT mount sees unless overridden.
+ */
+export const SAMPLE_SHARE_TOKEN = 'MSWsampleshareTOKENaaaaaaaaaaaaaaaaaaaaaaaa';
 
 /**
  * Build a minimal `ChatRead` skeleton for the optimistic-create echo
@@ -167,6 +175,33 @@ export const handlers = [
   http.post(
     '*/api/chats/:id/messages/:messageId/cancel',
     () => new HttpResponse(null, { status: 204 }),
+  ),
+
+  // -------------------------------------------------------------------
+  // M3 sharing surface — three endpoints from `m3-sharing.md` § API
+  // surface. Default fixtures mint a fixed token so dev-mode and CT
+  // specs that don't override see a stable absolute URL. Specs that
+  // need the failure paths (404 / 401 / dead-link) override via
+  // `server.use(http.get('*/api/shared/:token', ...))`.
+  // -------------------------------------------------------------------
+  http.post('*/api/chats/:id/share', () => {
+    return HttpResponse.json<ShareCreateResponse>({
+      token: SAMPLE_SHARE_TOKEN,
+      url: `/s/${SAMPLE_SHARE_TOKEN}`,
+      created_at: 1_735_689_600_000,
+    });
+  }),
+
+  http.delete('*/api/chats/:id/share', () => new HttpResponse(null, { status: 204 })),
+
+  http.get('*/api/shared/:token', ({ params }) =>
+    HttpResponse.json<SharedChatSnapshot>({
+      token: String(params.token),
+      title: 'Sample shared chat',
+      history: { messages: {}, currentId: null },
+      shared_by: { name: 'Alice Example', email: 'alice@canva.com' },
+      created_at: 1_735_689_600_000,
+    }),
   ),
 ];
 

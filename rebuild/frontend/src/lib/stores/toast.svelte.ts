@@ -63,6 +63,9 @@ export class ToastStore {
   /** Convenience for `push('danger', message)` — the most common call site. */
   pushError = (message: string): string => this.push('danger', message);
 
+  /** Convenience for `push('success', message)`. */
+  pushSuccess = (message: string): string => this.push('success', message);
+
   /**
    * Remove a toast by id. No-op if the id is unknown (a `<Toaster>`
    * timer firing after the user already dismissed manually is the

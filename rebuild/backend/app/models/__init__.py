@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from app.models.chat import Chat
 from app.models.folder import Folder
+from app.models.shared_chat import SharedChat
 from app.models.user import User
 
-__all__ = ["Chat", "Folder", "User"]
+__all__ = ["Chat", "Folder", "SharedChat", "User"]

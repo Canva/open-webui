@@ -16,20 +16,39 @@
    * content while `!message.done`. Per project bans, motion is
    * transform/opacity only and gated by `motion-safe:`.
    */
+  import { getContext, untrack } from 'svelte';
   import Markdown from './Markdown/Markdown.svelte';
-  import { useActiveChat } from '$lib/stores/active-chat.svelte';
-  import { useToast } from '$lib/stores/toast.svelte';
+  import { ACTIVE_CHAT_CONTEXT_KEY, type ActiveChatStore } from '$lib/stores/active-chat.svelte';
+  import { TOAST_CONTEXT_KEY, type ToastStore } from '$lib/stores/toast.svelte';
   import type { HistoryMessage } from '$lib/types/history';
 
   interface Props {
     message: HistoryMessage;
     parent: HistoryMessage | null;
+    /**
+     * Read-only mode. When `true`, the per-message action row (Copy /
+     * Regenerate) and any retry affordance on the error panel are
+     * suppressed. The streaming caret stays — a snapshot can in
+     * principle hold a `done: false` message (the M6 sweeper handles
+     * it server-side); the caret is a passive visual signal.
+     *
+     * Default `false` so M2's existing call sites are unchanged.
+     */
+    readonly?: boolean;
   }
 
-  let { message, parent }: Props = $props();
+  let { message, parent, readonly = false }: Props = $props();
 
-  const activeChat = useActiveChat();
-  const toast = useToast();
+  // Same `getContext` branching as `MessageList`: the public share
+  // view does not provide either store, so we pull them via the
+  // raw context key and guard every consumer behind `!readonly`.
+  // `untrack` because we want the snapshot at construction time —
+  // a parent never flips a Message between mutable and read-only,
+  // and `getContext` is only valid during component init.
+  const activeChat = untrack(() =>
+    readonly ? null : (getContext(ACTIVE_CHAT_CONTEXT_KEY) as ActiveChatStore),
+  );
+  const toast = untrack(() => (readonly ? null : (getContext(TOAST_CONTEXT_KEY) as ToastStore)));
 
   const isUser = $derived(message.role === 'user');
   const isAssistant = $derived(message.role === 'assistant');
@@ -39,15 +58,17 @@
   const hasError = $derived(message.error !== null);
 
   async function handleCopy(): Promise<void> {
+    if (toast === null) return;
     try {
       await navigator.clipboard.writeText(message.content);
-      toast.push('success', 'Copied to clipboard');
+      toast.pushSuccess('Copied to clipboard');
     } catch (err) {
       toast.pushError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handleRegenerate(): Promise<void> {
+    if (activeChat === null || toast === null) return;
     if (parent === null || parent.role !== 'user') return;
     try {
       await activeChat.editAndResend(parent.id, parent.content);
@@ -102,7 +123,7 @@
         {#if message.error.code}
           <p class="text-status-danger/80 mt-1 font-mono text-[11px]">{message.error.code}</p>
         {/if}
-        {#if parent && parent.role === 'user'}
+        {#if !readonly && parent && parent.role === 'user'}
           <button
             type="button"
             onclick={handleRetry}
@@ -132,7 +153,9 @@
     {/if}
 
     <!-- Metadata + actions row. Hidden on streaming so it doesn't
-         flicker during token arrival. -->
+         flicker during token arrival. In `readonly` mode the row
+         still renders so model + usage stay visible, but the action
+         cluster (Copy / Regenerate) is suppressed. -->
     {#if !isStreaming}
       <div class="text-ink-muted flex items-center gap-3 text-[11px]">
         {#if message.modelName || message.model}
@@ -141,28 +164,30 @@
         {#if usageText}
           <span title={usageText}>{message.usage?.total_tokens} tokens</span>
         {/if}
-        <div
-          class="motion-safe:ease-out-quart ms-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 motion-safe:transition-opacity motion-safe:duration-150"
-        >
-          <button
-            type="button"
-            onclick={handleCopy}
-            class="text-ink-muted hover:text-ink-strong hover:bg-background-elevated motion-safe:ease-out-quart inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] motion-safe:transition-colors motion-safe:duration-150"
-            aria-label="Copy message"
+        {#if !readonly}
+          <div
+            class="motion-safe:ease-out-quart ms-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 motion-safe:transition-opacity motion-safe:duration-150"
           >
-            Copy
-          </button>
-          {#if parent && parent.role === 'user'}
             <button
               type="button"
-              onclick={handleRegenerate}
+              onclick={handleCopy}
               class="text-ink-muted hover:text-ink-strong hover:bg-background-elevated motion-safe:ease-out-quart inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] motion-safe:transition-colors motion-safe:duration-150"
-              aria-label="Regenerate message"
+              aria-label="Copy message"
             >
-              Regenerate
+              Copy
             </button>
-          {/if}
-        </div>
+            {#if parent && parent.role === 'user'}
+              <button
+                type="button"
+                onclick={handleRegenerate}
+                class="text-ink-muted hover:text-ink-strong hover:bg-background-elevated motion-safe:ease-out-quart inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] motion-safe:transition-colors motion-safe:duration-150"
+                aria-label="Regenerate message"
+              >
+                Regenerate
+              </button>
+            {/if}
+          </div>
+        {/if}
       </div>
     {/if}
   </article>
