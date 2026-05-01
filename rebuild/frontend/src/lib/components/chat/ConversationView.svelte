@@ -20,6 +20,7 @@
    *
    * LOC budget ≤ 300.
    */
+  import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { useActiveChat } from '$lib/stores/active-chat.svelte';
   import { useChats } from '$lib/stores/chats.svelte';
@@ -53,18 +54,58 @@
    *  whether it is mounted at all. */
   let showShareModal = $state(false);
 
+  /**
+   * Empty-state handoff captured synchronously at construction time so
+   * the composer can hydrate with the model the user picked on `/`
+   * before any `$effect` runs. The dispatch effect below still owns
+   * the actual `send()` call and clears sessionStorage to prevent
+   * replay; this snapshot just exposes the model to `<MessageInput>`'s
+   * initial render. SSR-safe via the `typeof window` guard, and
+   * scoped to this chat id so a stale entry from another chat doesn't
+   * leak into the wrong composer. `untrack` makes the "snapshot
+   * semantics" intent explicit (we want the construction-time chat
+   * id, not a tracked subscription) and silences
+   * svelte/state_referenced_locally — same pattern used in the M2
+   * `(app)/+layout.svelte` for store seeding.
+   */
+  let pendingHandoff = $state<{ content: string; model: string } | null>(
+    untrack(() => (typeof window === 'undefined' ? null : readPendingHandoff(serverChat.id))),
+  );
+
   // Bind the local view to whatever is currently in the
   // `ActiveChatStore`. The store holds the live history (token-by-
   // token mutations); the SSR'd `serverChat` is the seed.
   const chat = $derived(activeChat.chat ?? serverChat);
-  const initialModelFromHistory = $derived.by<string>(() => {
+  /**
+   * The model id the composer should default to. Walks history for
+   * the most recent assistant turn (so follow-ups inherit the model
+   * the conversation has been using); falls back to the empty-state
+   * handoff so a fresh chat continues with whatever the user picked
+   * on `/` instead of going back to nothing. Returns `''` when both
+   * are absent — `<MessageInput>` then surfaces an empty selector
+   * and `<ModelSelector>`'s "No models available" empty state if the
+   * catalog is also empty.
+   */
+  const initialModel = $derived.by<string>(() => {
     const messages = Object.values(chat.history.messages);
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const msg = messages[i];
       if (msg && msg.role === 'assistant' && msg.model) return msg.model;
     }
-    return '';
+    return pendingHandoff?.model ?? '';
   });
+
+  function readPendingHandoff(chatId: string): { content: string; model: string } | null {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (raw === null) return null;
+    try {
+      const parsed = JSON.parse(raw) as { chatId: string; content: string; model: string };
+      if (parsed.chatId !== chatId) return null;
+      return { content: parsed.content, model: parsed.model };
+    } catch {
+      return null;
+    }
+  }
 
   // ------------------------------------------------------------------
   // Lifecycle: load on mount / unload on cleanup. The route `id` is
@@ -84,27 +125,22 @@
   // ------------------------------------------------------------------
   // Empty-state handoff. The composer at `/` stashes
   // `{ chatId, content, model }` in sessionStorage before
-  // `goto('/c/<id>')`; we pick it up here once the store is loaded
-  // and dispatch the first message. Cleared immediately so a refresh
-  // doesn't replay it.
+  // `goto('/c/<id>')`; the script-body snapshot above captured it for
+  // the composer's initial model. Once the active-chat store has
+  // hydrated for this id, we dispatch the first message and clear
+  // sessionStorage so a refresh during the in-flight stream doesn't
+  // replay it.
   // ------------------------------------------------------------------
   $effect(() => {
     if (typeof window === 'undefined') return;
     if (activeChat.chat?.id !== serverChat.id) return;
-    const raw = sessionStorage.getItem(PENDING_KEY);
-    if (raw === null) return;
+    if (pendingHandoff === null) return;
     sessionStorage.removeItem(PENDING_KEY);
-    try {
-      const pending = JSON.parse(raw) as { chatId: string; content: string; model: string };
-      if (pending.chatId !== serverChat.id) return;
-      void activeChat
-        .send({ content: pending.content, model: pending.model })
-        .catch((err: unknown) => {
-          toast.pushError(err instanceof Error ? err.message : String(err));
-        });
-    } catch {
-      // Malformed payload — drop it; the user can resend manually.
-    }
+    const { content, model } = pendingHandoff;
+    pendingHandoff = null;
+    void activeChat.send({ content, model }).catch((err: unknown) => {
+      toast.pushError(err instanceof Error ? err.message : String(err));
+    });
   });
 
   // ------------------------------------------------------------------
@@ -326,7 +362,7 @@
   <!-- Composer ----------------------------------------------------- -->
   <div class="border-hairline border-t px-4 py-4">
     <div class="mx-auto w-full max-w-3xl">
-      <MessageInput initialModel={initialModelFromHistory} />
+      <MessageInput {initialModel} />
     </div>
   </div>
 </div>
